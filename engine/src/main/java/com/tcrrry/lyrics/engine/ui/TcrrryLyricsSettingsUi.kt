@@ -64,11 +64,11 @@ internal object TcrrryLyricsSettingsUi {
                 showMatchingInformation(activity, id)
             }, fullMargin(activity, 10))
 
-            addView(label(activity, "播放页歌词源按钮：单击切换来源（无结果会继续尝试）；双击不执行操作；长按打开本页。", 12f,
+            addView(label(activity, "播放页歌词源按钮：单击切换来源（无结果会继续尝试）；双击寻找当前源的其他匹配；长按打开本页。", 12f,
                 SettingsUiTheme.colors(activity).secondary), fullMargin(activity, 8))
             addView(title(activity, "歌词偏好", 18f), fullMargin(activity, 18))
             val policy = com.tcrrry.lyrics.engine.lyrics.LyricsPreference
-            addView(label(activity, "质量优先：Apple Music 原生 → AM++ 适配歌词 → 第三方。逐字优先：优先原生 / AM++ 的真实逐字；否则匹配第三方，逐字权重高于译文、发音。手动选源优先于本设置。", 12f, SettingsUiTheme.colors(activity).secondary))
+            addView(label(activity, "质量优先：Apple Music 原生 → AM++ 适配歌词 → 第三方。逐字优先：优先原生 / AM++ 的真实逐字；再匹配第三方逐字，逐字权重高于译文、发音；没有逐字时按质量优先顺序选择逐行。译文保留原生 / AM++ 自带，再补 QQ / 网易云，最后机翻。手动选源优先于本设置。", 12f, SettingsUiTheme.colors(activity).secondary))
             addView(action(activity, if (policy.qualityFirst(activity)) "当前：质量优先" else "当前：逐字优先") {
                 policy.update(activity, quality = !policy.qualityFirst(activity))
                 if (id > 0L) CurrentLyricsSourceStatus.refreshSilently(id)

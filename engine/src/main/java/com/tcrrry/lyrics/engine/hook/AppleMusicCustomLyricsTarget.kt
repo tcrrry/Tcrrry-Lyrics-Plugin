@@ -199,7 +199,7 @@ internal class AppleMusicCustomLyricsTarget(
                     track?.let { CurrentLyricsSourceStatus.rememberMatchInput(application, it) }
                     val nativeDocument = nativeById[appleMusicId]?.let(nativeText::get)
                     val selected = CurrentLyricsSourceStatus.selectedSource(application, appleMusicId)
-                    val resolved = when {
+                    val searched = when {
                         preferNative(appleMusicId) && nativeDocument != null ->
                             nativeEnrichment.enrichWithTrack(appleMusicId, AutoLyricsCandidate("APPLE_NATIVE", nativeDocument), track)
                         selected == LyricsSourceMenuPolicy.NATIVE -> null
@@ -207,6 +207,9 @@ internal class AppleMusicCustomLyricsTarget(
                             selectedRepository = com.tcrrry.lyrics.engine.model.CustomLyricsSources.AM_LYRICS)
                         else -> runtime.resolver.fetch(appleMusicId, track)
                     }
+                    val resolved = if (NativeLyricsPreferencePolicy.useNativeLineFallback(selected, nativeDocument, searched?.ttml))
+                        nativeEnrichment.enrichWithTrack(appleMusicId, AutoLyricsCandidate("APPLE_NATIVE", nativeDocument!!), track)
+                    else searched
                     if (policyRevision != com.tcrrry.lyrics.engine.lyrics.LyricsPreference.revision(application)) return@fetch null
                     ModernXposedRuntime.log(
                         "Desktop Lyrics lookup result id=$appleMusicId source=${resolved?.source ?: "none"}",
@@ -445,7 +448,7 @@ internal class AppleMusicCustomLyricsTarget(
                         val timingMetadata = timingObservations.metadataOf(original)
                         if (original != null && nativePointers[original] == true) {
                             val first = nativeById.put(adamId, original) !== original
-                            if (first && preferNative(adamId)) mainHandler.post { autoSession?.refreshCurrent(adamId) }
+                            if (first && (preferNative(adamId) || CurrentLyricsSourceStatus.selectedSource(application, adamId) == null)) mainHandler.post { autoSession?.refreshCurrent(adamId) }
                         }
                         val native = if (preferNative(adamId)) {
                             (if (preparedSource[adamId] == "APPLE_NATIVE") autoSession?.readyReplacementFor(adamId) else null)

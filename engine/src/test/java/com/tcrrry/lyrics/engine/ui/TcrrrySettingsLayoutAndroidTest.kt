@@ -35,7 +35,7 @@ class TcrrrySettingsLayoutAndroidTest {
         val first = parent.getChildAt(0) as ViewGroup
         assertTrue(texts(first).any { it.text == "歌词偏好" })
         assertTrue(texts(first).any { it.text == "歌词源" })
-        assertTrue(texts(first).any { it.text.toString().contains("双击不执行操作") })
+        assertTrue(texts(first).any { it.text.toString().contains("双击寻找当前源的其他匹配") })
         assertFalse(texts(first).any { it.text.startsWith("短单元平滑") })
         val status = texts(first).single { !it.isClickable && it.maxLines == 2 }
         status.text = "Apple Music 原生 · 逐字 · 机翻译文 · 离线注音 · 额外信息".repeat(4)

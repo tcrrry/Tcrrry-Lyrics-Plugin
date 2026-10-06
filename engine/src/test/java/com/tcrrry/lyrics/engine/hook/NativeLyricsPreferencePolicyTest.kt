@@ -29,5 +29,18 @@ class NativeLyricsPreferencePolicyTest {
         assertFalse(TtmlTimingPolicy.hasTimedWords("""<tt itunes:timing="Word"><head><p><span begin="1s" end="2s">title</span></p></head><body><p>君</p></body></tt>"""))
         assertFalse(TtmlTimingPolicy.hasTimedWords("""<tt itunes:timing="Word"><body><p><span begin="1s" end="2s"> </span></p></body></tt>"""))
     }
+    @Test fun automaticLineFallbackPrefersNativeToAnyLineSourceOrNoResult() {
+        val line = "<tt><body><p>君</p></body></tt>"
+        assertTrue(NativeLyricsPreferencePolicy.useNativeLineFallback(null, line, line))
+        assertTrue(NativeLyricsPreferencePolicy.useNativeLineFallback(null, line, null))
+        val word = """<tt itunes:timing="Word"><body><p><span begin="1s" end="2s">君</span></p></body></tt>"""
+        assertFalse(NativeLyricsPreferencePolicy.useNativeLineFallback(null, line, word))
+        assertFalse(NativeLyricsPreferencePolicy.useNativeLineFallback(null, "<tt><body/></tt>", line))
+    }
+    @Test fun nativeFallbackNeverOverridesExplicitlySelectedPlatformOrAuthor() {
+        val line = "<tt><body><p>君</p></body></tt>"
+        assertFalse(NativeLyricsPreferencePolicy.useNativeLineFallback("QQ音乐", line, null))
+        assertFalse(NativeLyricsPreferencePolicy.useNativeLineFallback(LyricsSourceMenuPolicy.AUTHOR, line, line))
+    }
 
 }

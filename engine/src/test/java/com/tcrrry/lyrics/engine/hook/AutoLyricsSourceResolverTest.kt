@@ -116,6 +116,40 @@ class AutoLyricsSourceResolverTest {
         assertEquals("desktop", resolver.fetch(42L, DesktopLyricsTrack("song", "artist"))?.source)
     }
 
+    @Test fun noWordSourceFallsBackToAuthorBeforePlatformLinesAndFetchesEachOnce() {
+        var authorCalls = 0
+        var platformCalls = 0
+        val resolver = AutoLyricsSourceResolver(listOf(AutoLyricsSource("am-lyrics") { authorCalls++; LINE_TTML }),
+            desktopLyrics = { platformCalls++; AutoLyricsCandidate("desktop", LINE_TTML) })
+        assertEquals("am-lyrics", resolver.fetch(42L, DesktopLyricsTrack("song", "artist"))?.source)
+        assertEquals(1, authorCalls)
+        assertEquals(1, platformCalls)
+    }
+    @Test fun wordLibraryIsNotHiddenByEarlierThirdPartyLineResult() {
+        val resolver = AutoLyricsSourceResolver(listOf(
+            AutoLyricsSource("am-lyrics") { LINE_TTML }, AutoLyricsSource("amll") { WORD_TTML }),
+            desktopLyrics = { AutoLyricsCandidate("desktop", LINE_TTML) })
+        assertEquals("amll", resolver.fetch(42L, DesktopLyricsTrack("song", "artist"))?.source)
+    }
+    @Test fun platformLineIsFallbackWhenNativeAndAuthorUnavailable() {
+        val resolver = AutoLyricsSourceResolver(listOf(AutoLyricsSource("am-lyrics") { null }),
+            desktopLyrics = { AutoLyricsCandidate("desktop", LINE_TTML) })
+        assertEquals("desktop", resolver.fetch(42L, DesktopLyricsTrack("song", "artist"))?.source)
+    }
+    @Test fun explicitPlatformKeepsLineResultWithoutSwitchingToAuthorWord() {
+        var authorCalls = 0
+        val resolver = AutoLyricsSourceResolver(listOf(AutoLyricsSource("am-lyrics") { authorCalls++; WORD_TTML }),
+            desktopLyrics = { AutoLyricsCandidate("desktop", LINE_TTML) })
+        assertEquals("desktop", resolver.fetch(42L, DesktopLyricsTrack("song", "artist", explicitSource = true))?.source)
+        assertEquals(0, authorCalls)
+    }
+    @Test fun fallbackAuthorStillReceivesTranslationEnrichment() {
+        val resolver = AutoLyricsSourceResolver(listOf(AutoLyricsSource("am-lyrics") { LINE_TTML }),
+            desktopLyrics = { AutoLyricsCandidate("desktop", LINE_TTML) },
+            fallbackTranslation = { _, candidate -> candidate.copy(displayName = "enriched") })
+        assertEquals("enriched", resolver.fetch(42L, DesktopLyricsTrack("song", "artist"))?.displayName)
+    }
+
     private companion object {
         const val WORD_TTML =
             "<tt xmlns:itunes=\"urn\" itunes:timing=\"Word\"><body>" +

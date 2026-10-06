@@ -186,7 +186,7 @@ internal object NativeLyricsSourceMenu {
             tag = ROW_TAG
             isClickable = true
             isFocusable = true
-            contentDescription = "歌词源：${LyricsSourceMenuPolicy.caption(applied())}。$detail。单击切换来源，长按打开详细歌词设置"
+            contentDescription = "歌词源：${LyricsSourceMenuPolicy.caption(applied())}。$detail。单击切换来源，双击寻找当前源的其他匹配，长按打开详细歌词设置"
         }
         row.setOnClickListener {
             if (!valid()) return@setOnClickListener
@@ -207,8 +207,14 @@ internal object NativeLyricsSourceMenu {
                 if (row.isAttachedToWindow && popupRef.get()?.isShowing == true) row.performClick()
                 return true
             }
-            // A double tap must not exclude a usable recording or open settings.
-            override fun onDoubleTap(e: MotionEvent): Boolean = true
+            override fun onDoubleTap(e: MotionEvent): Boolean {
+                if (!row.isAttachedToWindow || popupRef.get()?.isShowing != true || !valid()) return true
+                if (CurrentLyricsSourceStatus.excludeCurrentRecord(app, songId)) {
+                    CurrentLyricsSourceStatus.cancelSourceCycle(songId)
+                    refresh(LyricsSourceMenuPolicy.caption(applied()))
+                } else toast("当前来源没有可切换的其他匹配")
+                return true
+            }
             override fun onLongPress(e: MotionEvent) { row.performLongClick() }
         })
         row.setOnTouchListener { _, event -> detector.onTouchEvent(event); true }

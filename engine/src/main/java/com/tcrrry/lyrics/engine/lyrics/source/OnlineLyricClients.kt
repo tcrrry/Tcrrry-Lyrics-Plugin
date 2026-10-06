@@ -49,42 +49,52 @@ class AutoLyricsSourceResolver(
             val candidate = AutoLyricsCandidate(source.name, ttml)
             return fallbackTranslation?.invoke(appleMusicId, candidate) ?: candidate
         }
-        val quality = qualityFirst() && track?.explicitSource != true
-        // Native Word lyrics are handled at the install seam. Check the author's
-        // adapted Word document before spending time on third-party matching.
-        val author = sources.firstOrNull { it.name == CustomLyricsSources.AM_LYRICS }
-        val probeAuthor = !quality && track?.explicitSource != true && author != null
-        val authorTtml = if (probeAuthor) runCatching { author.fetch(appleMusicId) }.onFailure {
-            if (it is InterruptedException) Thread.currentThread().interrupt()
-        }.getOrNull()
-            ?.takeIf(TtmlInputPolicy::isAcceptable) else null
-        if (Thread.currentThread().isInterrupted) return null
-        if (authorTtml != null && com.tcrrry.lyrics.engine.hook.TtmlTimingPolicy.hasTimedWords(authorTtml)) {
-            val candidate = AutoLyricsCandidate(author!!.name, authorTtml)
-            return fallbackTranslation?.invoke(appleMusicId, candidate) ?: candidate
-        }
-        if (track != null && !quality) {
-            val preferred = runCatching { desktopLyrics?.invoke(track) }.getOrNull()
-            if (preferred != null && TtmlInputPolicy.isAcceptable(preferred.ttml)) return preferred
-            if (track.explicitSource) return null
-        }
-        val ordered = if (quality) sources.sortedBy { if (it.name == CustomLyricsSources.AM_LYRICS) 0 else 1 } else sources
-        ordered.forEach { source ->
+        fun enrich(candidate: AutoLyricsCandidate): AutoLyricsCandidate =
+            fallbackTranslation?.invoke(appleMusicId, candidate) ?: candidate
+        val fetched = mutableMapOf<String, AutoLyricsCandidate?>()
+        fun fetchSource(source: AutoLyricsSource): AutoLyricsCandidate? {
+            if (source.name in fetched) return fetched[source.name]
             if (Thread.currentThread().isInterrupted) return null
-            val ttml = if (probeAuthor && source === author) authorTtml else runCatching { source.fetch(appleMusicId) }.onFailure {
+            val ttml = runCatching { source.fetch(appleMusicId) }.onFailure {
                 if (it is InterruptedException) Thread.currentThread().interrupt()
-            }.getOrNull()
-            if (Thread.currentThread().isInterrupted) return null
-            if (track != null && !quality) {
-                val preferred = runCatching { desktopLyrics?.invoke(track) }.getOrNull()
-                if (preferred != null && TtmlInputPolicy.isAcceptable(preferred.ttml)) return preferred
-            }
-            if (ttml == null || !TtmlInputPolicy.isAcceptable(ttml)) return@forEach
-            val candidate = AutoLyricsCandidate(source.name, ttml)
-            return fallbackTranslation?.invoke(appleMusicId, candidate) ?: candidate
+            }.getOrNull()?.takeIf(TtmlInputPolicy::isAcceptable)
+            return ttml?.let { AutoLyricsCandidate(source.name, it) }.also { fetched[source.name] = it }
         }
-        return if (quality && track != null) runCatching { desktopLyrics?.invoke(track) }.getOrNull()
-            ?.takeIf { TtmlInputPolicy.isAcceptable(it.ttml) } else null
+        fun desktop(): AutoLyricsCandidate? = if (track == null || Thread.currentThread().isInterrupted) null
+            else runCatching { desktopLyrics?.invoke(track) }.onFailure {
+                if (it is InterruptedException) Thread.currentThread().interrupt()
+            }.getOrNull()?.takeIf { TtmlInputPolicy.isAcceptable(it.ttml) }
+        // An explicitly chosen platform must never silently select another library.
+        if (track?.explicitSource == true) return desktop()
+        val quality = qualityFirst()
+        val author = sources.firstOrNull { it.name == CustomLyricsSources.AM_LYRICS }
+        if (quality) {
+            author?.let(::fetchSource)?.let { return enrich(it) }
+            desktop()?.let { return it }
+            return sources.asSequence().mapNotNull(::fetchSource).firstOrNull()?.let(::enrich)
+        }
+        // ID-only legacy callers retain their fixed repository lookup order.
+        if (track == null) return sources.asSequence().mapNotNull(::fetchSource).firstOrNull()?.let(::enrich)
+        val authorCandidate = author?.let(::fetchSource)
+        if (Thread.currentThread().isInterrupted) return null
+        if (authorCandidate?.ttml?.let(com.tcrrry.lyrics.engine.hook.TtmlTimingPolicy::hasTimedWords) == true)
+            return enrich(authorCandidate)
+        val platformCandidate = desktop()
+        if (Thread.currentThread().isInterrupted) return null
+        if (platformCandidate?.ttml?.let(com.tcrrry.lyrics.engine.hook.TtmlTimingPolicy::hasTimedWords) == true)
+            return platformCandidate
+        // Check remaining libraries for real word timings before accepting a line result.
+        var otherLine: AutoLyricsCandidate? = null
+        for (source in sources) {
+            if (Thread.currentThread().isInterrupted) return null
+            if (source === author) continue
+            val candidate = fetchSource(source) ?: continue
+            if (com.tcrrry.lyrics.engine.hook.TtmlTimingPolicy.hasTimedWords(candidate.ttml)) return enrich(candidate)
+            if (otherLine == null) otherLine = candidate
+        }
+        // No word source: the install seam considers native AM first, then this quality order.
+        return authorCandidate?.let(::enrich) ?: platformCandidate ?: otherLine?.let(::enrich)
+
     }
 
     companion object {

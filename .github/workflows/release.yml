@@ -21,7 +21,7 @@ jobs:
         with:
           packages: platform-tools
       - uses: gradle/actions/setup-gradle@v4
-      - run: sdkmanager 'platforms;android-37' 'build-tools;37.0.0'
+      - run: sdkmanager 'platforms;android-37.0' 'build-tools;37.0.0'
       - name: Restore companion signing key
         env:
           KEY_BASE64: ${{ secrets.PLUGIN_OFFLINE_KEYSTORE_BASE64 }}

@@ -1,0 +1,35 @@
+{
+  "baselineVersion": "v1.5",
+  "baselinePublicCommit": "c6a7f831da788efa01a2ca6c817a4d92b38f4fda",
+  "authorSourceSha256": "ff52cdd1a8a6c3b90676289bb3d963d607707ebce1f6a82fd9d8a2995688af24",
+  "files": {
+    "lib/ampp-plugin-api-v1.jar": "a0471a9b3480f4e90451402cfd9ed18cec50fccc24f07ccf4b89088911401341",
+    "assets/host-profiles/6.5.0-1580.json": "15855190baacbe1534992054e2a06b61b16442d65d1db87831526884db77c53a",
+    "assets/host-profiles/6.5.1-1583.json": "a4ff21cd17fc18f2f51716f530d353681e10687c4c5aa2a5f31c1702a785672d",
+    "assets/host-profiles/6.5.2-1586.json": "e8c149d9adc4c3304fa73170dd89942656ba0873b23c67fe26c12d27497fe65a",
+    "assets/host-profiles/6.5.3-1599.json": "1ccd87e7ae6224b11b14e81fd8f997c81c9b967e370c3e61bf1111a1d4ec6d2e",
+    "assets/host-profiles/7.0.0-beta-1606.json": "54f0450b098e95f637035fd35b4f3993e2ef4620357c5879cee4fbca913bc78e",
+    "assets/host-profiles/index.json": "a977e15230d488a21d2788c02c0b4c3da016fd0526e5f32f8790f577bb2e7fec",
+    "assets/kuromoji/characterDefinitions.bin": "01c110da81135a32205da569b0378cab327b804c82341651bc55bd54b9d13370",
+    "assets/kuromoji/connectionCosts.bin": "e5901a20a644adb0b1cc6b19029af47492aa51e8221547dbf3b500ce86206929",
+    "assets/kuromoji/doubleArrayTrie.bin": "80d1c8ce6000d261351f4798e9bd38bc207b3c3c2a59b6caee63b42629dcb26c",
+    "assets/kuromoji/tokenInfoDictionary.bin": "b5bd52a59ebe3901a06ae149637ac57c8f31af79e3f6458b6eeb77d163266464",
+    "assets/kuromoji/tokenInfoFeaturesMap.bin": "48fd13fc57f7071cf3a5b7544475e4dc293993666e35129827cc1abcc18c6ac0",
+    "assets/kuromoji/tokenInfoPartOfSpeechMap.bin": "4a84a0c91ef03dd8f4484318ed5230e0b56baa087460a4dfa27c202ffadd2478",
+    "assets/kuromoji/tokenInfoTargetMap.bin": "626185aa6d0aba1760ea23d40a818b48bcefe3250f89823da3bf87aa33d4063d",
+    "assets/kuromoji/unknownDictionary.bin": "ab1cc944ebc5d38a2e1558c7c09a1b3277f27f3613465c14c49115870d127987",
+    "assets/pronunciation/ko/LICENSE": "65eb33419e22a297550a811b5b535f5e532f9a7e0114b516c0ea18afd53c3804",
+    "assets/pronunciation/ko/Latin-ConjoiningJamo.xml": "82f2fc6ae1fca9c71fba7851c0b3ecc7e6e3cbd5aeb74ce80dd6c8c423cddfba",
+    "assets/pronunciation/yue/LICENSE-CC-BY": "97d24386ff776d7160b87031b259a942bd03c9939796cab6724ad5d17d2cf785",
+    "assets/pronunciation/yue/jyut6ping3.chars.dict.yaml": "9b053a594c80eae76545bcdd83239884a49b1ba48b89ca0ab9e8daac79f33013",
+    "assets/pronunciation/yue/jyut6ping3.words.dict.yaml": "54d174ad2bb997e4a678b7b076b84e4dc5914481b32467cdea3b43e88b7d5474",
+    "assets/pronunciation-modules.json": "af2b466aca4f6084be7f1500ef044df97f0d2785e6f2b1851aa09f23889303ca",
+    "assets/licenses/kuromoji-LICENSE.md": "76b21bab0528f2bb16cd6ce93388d2cc50e5b30ace75d18562f3f0d79270a5bb",
+    "assets/licenses/kuromoji-NOTICE.md": "c408a3e8e875434560dbb9ab8d4a78b6e3abc90bd3a57d12d0b41cac99d287bf"
+  },
+  "authorAcceptanceSource": {
+    "PluginPackages.kt": "9463264fad248e5ca77b9bcde74436a81c0fd9d8974dc69df2a55ac776a0e52d",
+    "PluginStoreTest.kt": "9c282b385403898aa93dabda92d28f35a2be308bb7a559fece81a98ca216293a",
+    "PluginTasks.kt": "bf0e9638d8a8f75f736b9d5abe004acf6f6f2d7f369922574efdcf6254c27490"
+  }
+}

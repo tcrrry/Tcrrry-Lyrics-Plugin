@@ -1,0 +1,58 @@
+package com.tcrrry.lyrics.engine.config
+
+import com.tcrrry.lyrics.engine.lyrics.TtmlInputPolicy
+import com.tcrrry.lyrics.engine.model.CustomLyricsEntry
+import com.tcrrry.lyrics.engine.model.CustomLyricsManifest
+import com.tcrrry.lyrics.engine.model.CustomLyricsSources
+
+/** Validates the cross-process index without trusting remote preferences. */
+object CustomLyricsManifestPolicy {
+    /** Upper bound for the remote index file that carries the whole manifest. */
+    const val MAX_INDEX_BYTES = 8 * 1024 * 1024
+
+    private val fileIdPattern = Regex("[A-Za-z0-9_-]{1,96}")
+    private val sha256Pattern = Regex("[0-9a-fA-F]{64}")
+    private val allowedSources = setOf(
+        CustomLyricsSources.MANUAL,
+        CustomLyricsSources.AUTO_CACHE,
+        CustomLyricsSources.AMLL,
+        CustomLyricsSources.AM_LYRICS,
+        CustomLyricsSources.LUNABEAT,
+    )
+
+    fun sanitize(manifest: CustomLyricsManifest): CustomLyricsManifest {
+        val entries = linkedMapOf<Long, CustomLyricsEntry>()
+        manifest.entries.forEach { raw ->
+            val entry = sanitizeEntry(raw) ?: return@forEach
+            if (entry.appleMusicId !in entries) {
+                entries[entry.appleMusicId] = entry
+            }
+        }
+        return CustomLyricsManifest(entries.values.toList())
+    }
+
+    fun isValidSha256(sha256: String): Boolean = sha256Pattern.matches(sha256)
+
+    fun sanitizeDisplayName(displayName: String): String = displayName
+        .filterNot(Char::isISOControl)
+        .trim()
+        .take(120)
+        .ifBlank { "自定义歌词" }
+
+    fun isValidFileId(fileId: String): Boolean =
+        fileIdPattern.matches(fileId) && fileId.none { it == '.' || it == '/' || it == '\\' }
+
+    private fun sanitizeEntry(raw: CustomLyricsEntry): CustomLyricsEntry? {
+        if (raw.appleMusicId <= 0L) return null
+        if (!isValidFileId(raw.fileId)) return null
+        if (raw.sizeBytes !in 1L..TtmlInputPolicy.MAX_TTML_BYTES.toLong()) return null
+        if (!isValidSha256(raw.sha256)) return null
+        return raw.copy(
+            displayName = sanitizeDisplayName(raw.displayName),
+            sha256 = raw.sha256.lowercase(),
+            // Entries created by removed/unknown providers remain usable as
+            // manually managed TTML instead of disappearing on read.
+            source = raw.source.takeIf(allowedSources::contains) ?: CustomLyricsSources.MANUAL,
+        )
+    }
+}

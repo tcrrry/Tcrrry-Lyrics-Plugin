@@ -1,0 +1,9 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+ <uses-permission android:name="android.permission.INTERNET"/>
+ <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+ <queries><package android:name="com.apple.android.music"/><package android:name="com.tcrrry.ampplyrics.coexist"/></queries>
+ <application android:label="Tcrrry 离线翻译" android:allowBackup="false" android:theme="@android:style/Theme.Material.Light.NoActionBar">
+  <activity android:name=".ModelActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
+  <provider android:name=".TranslationProvider" android:authorities="com.tcrrry.lyrics.offline.models" android:exported="true" android:grantUriPermissions="true"/>
+ </application>
+</manifest>

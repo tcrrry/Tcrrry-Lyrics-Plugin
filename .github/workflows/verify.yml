@@ -1,0 +1,32 @@
+name: Plugin verification
+on:
+  workflow_dispatch:
+  push:
+    branches: ['plugin/**']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+      - run: sdkmanager 'platforms;android-37' 'build-tools;37.0.0'
+      - run: ./gradlew :engine:testDebugUnitTest :offline:testDebugUnitTest :engine:assembleRelease :offline:assembleDebug :engine:lintRelease :offline:lintDebug --no-daemon
+      - run: python3 scripts/package.py --offline-variant debug
+      - run: python3 scripts/verify-package.py
+      - run: ./gradlew :engine:testDebugUnitTest -PfullPluginFixture="$PWD/dist/Tcrrry-Lyrics-Plugin-1.0.0.zip" --no-daemon
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plugin-validation-only
+          path: |
+            engine/build/reports
+            offline/build/reports
+            dist

@@ -1,0 +1,162 @@
+package com.tcrrry.lyrics.engine.hook
+
+import android.graphics.Rect
+import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import com.tcrrry.lyrics.engine.ModuleConstants
+import com.tcrrry.lyrics.engine.R
+import com.tcrrry.lyrics.engine.config.TargetConfigClient
+import java.lang.reflect.Method
+import java.util.WeakHashMap
+import kotlin.math.roundToInt
+
+/** Pure gate for the narrow touch-interception bypass used by the flat root. */
+internal object StaticCollapsedInterceptPolicy {
+    fun shouldBypass(
+        tabletEligible: Boolean,
+        compensationEnabled: Boolean,
+        targetCoordinator: Boolean,
+        targetChild: Boolean,
+        eventInTargetRegion: Boolean,
+    ): Boolean =
+        tabletEligible && compensationEnabled && targetCoordinator && targetChild && eventInTargetRegion
+}
+
+/** Keeps a button-originated stream out of native interception until it ends. */
+internal class StaticCollapsedInterceptGestureLatch {
+    private var active = false
+
+    fun onDown(shouldBypass: Boolean): Boolean {
+        active = shouldBypass
+        return active
+    }
+
+    fun onEvent(action: Int, tabletEligible: Boolean, compensationEnabled: Boolean): Boolean {
+        val bypass = active && tabletEligible && compensationEnabled
+        if (!tabletEligible || !compensationEnabled) active = false
+        if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+            active = false
+        }
+        return bypass
+    }
+}
+
+/**
+ * Keeps the native static-collapsed behavior everywhere except the transformed
+ * flat bottom-navigation root's player lyrics/queue buttons. The surrounding
+ * tabs frame and player sheet remain native, so the embedded pane buttons can
+ * receive their taps while player gestures continue through the original
+ * behavior everywhere else.
+ */
+internal object StaticCollapsedInterceptGuard {
+    /**
+     * Verified hosts. `common.behavior.StaticCollapsedBottomSheetBehavior` keeps its name,
+     * superclass and the full CoordinatorLayout/View/MotionEvent signature on both builds
+     * (6.5.2 base and 6.5.3 base), so the structural resolver stays valid for each of them.
+     */
+    private const val FLAT_ROOT = "bottom_navigation_root_flat"
+    private const val TABS_FRAME = "bottom_navigation_tabs_frame"
+    private const val PLAYER_CONTAINER = "player_container"
+    private const val PLAYER_SHEET = "player_sheet_container"
+    private const val PLAYER_LYRICS = "player_lyrics"
+    private const val PLAYER_QUEUE = "player_queue"
+
+    fun isSupportedBuild(build: TargetBuild): Boolean =
+        com.tcrrry.lyrics.host.applemusic.AppleMusicHostProfiles.find(
+            build.packageName, build.versionName, build.versionCode,
+        )?.let { it.productionEnabled && it.capability("staticCollapsedIntercept") } == true
+
+    fun install(intercept: Method?): Boolean {
+        intercept ?: return false
+        val bypassedGestures = WeakHashMap<Any, StaticCollapsedInterceptGestureLatch>()
+        return runCatching {
+            ModernXposedRuntime.hookMethod(intercept, object : ModernMethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val behavior = param.thisObject ?: return
+                    val coordinator = param.args.getOrNull(0) as? ViewGroup ?: return
+                    val child = param.args.getOrNull(1) as? View ?: return
+                    val event = param.args.getOrNull(2) as? MotionEvent ?: return
+                    val action = event.actionMasked
+                    val settings = TargetConfigClient.currentSettings()
+                    val eligible = TabletModeQualifier.isOfficialTabletLandscape(coordinator.context) &&
+                        settings.dualPaneEnabled
+                    val compensationEnabled = settings.navigationCompensationEnabled
+                    val bypass = synchronized(bypassedGestures) {
+                        when {
+                            action == MotionEvent.ACTION_DOWN -> {
+                                bypassedGestures.remove(behavior)
+                                val shouldLatch = if (!eligible || !compensationEnabled) {
+                                    false
+                                } else {
+                                    StaticCollapsedInterceptPolicy.shouldBypass(
+                                        tabletEligible = eligible,
+                                        compensationEnabled = compensationEnabled,
+                                        targetCoordinator = child.parent === coordinator,
+                                        targetChild = isTransformedFlatRoot(child),
+                                        eventInTargetRegion = isInPlayerButtonRegion(child, event),
+                                    )
+                                }
+                                if (shouldLatch) {
+                                    bypassedGestures[behavior] = StaticCollapsedInterceptGestureLatch().also {
+                                        it.onDown(shouldLatch)
+                                    }
+                                }
+                                shouldLatch
+                            }
+                            else -> {
+                                val latch = bypassedGestures[behavior] ?: return@synchronized false
+                                val bypass = latch.onEvent(action, eligible, compensationEnabled)
+                                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
+                                    bypassedGestures.remove(behavior)
+                                }
+                                bypass
+                            }
+                        }
+                    }
+                    if (bypass) param.result = false
+                }
+            })
+            true
+        }.onFailure {
+            ModernXposedRuntime.log("static-collapsed intercept guard failed", it)
+        }.getOrDefault(false)
+    }
+
+    private fun isTransformedFlatRoot(child: View): Boolean {
+        val resources = child.resources
+        val flatRootId = resources.getIdentifier(FLAT_ROOT, "id", ModuleConstants.RESOURCE_PACKAGE)
+        if (flatRootId == 0) return false
+        val root = generateSequence(child) { it.parent as? View }
+            .firstOrNull { it.id == flatRootId }
+            ?: return false
+        val tabsFrameId = resources.getIdentifier(TABS_FRAME, "id", ModuleConstants.RESOURCE_PACKAGE)
+        val playerContainerId = resources.getIdentifier(PLAYER_CONTAINER, "id", ModuleConstants.RESOURCE_PACKAGE)
+        val playerSheetId = resources.getIdentifier(PLAYER_SHEET, "id", ModuleConstants.RESOURCE_PACKAGE)
+        if (tabsFrameId == 0 || playerContainerId == 0 || playerSheetId == 0) return false
+        if (child.id !in setOf(flatRootId, playerContainerId, playerSheetId)) return false
+        return root.getTag(R.id.am_enhancer_dual_pane_state) != null &&
+            root.findViewById<View>(tabsFrameId) != null &&
+            root.findViewById<View>(playerSheetId) != null
+    }
+
+    private fun isInPlayerButtonRegion(child: View, event: MotionEvent): Boolean {
+        val resources = child.resources
+        val flatRootId = resources.getIdentifier(FLAT_ROOT, "id", ModuleConstants.RESOURCE_PACKAGE)
+        if (flatRootId == 0) return false
+        val root = generateSequence(child) { it.parent as? View }
+            .firstOrNull { it.id == flatRootId }
+            ?: return false
+        val buttonIds = listOf(PLAYER_LYRICS, PLAYER_QUEUE)
+            .mapNotNull { name ->
+                resources.getIdentifier(name, "id", ModuleConstants.RESOURCE_PACKAGE).takeIf { it != 0 }
+            }
+        val x = event.rawX.roundToInt()
+        val y = event.rawY.roundToInt()
+        return buttonIds.any { id ->
+            val button = root.findViewById<View>(id) ?: return@any false
+            val bounds = Rect()
+            button.getGlobalVisibleRect(bounds) && bounds.contains(x, y)
+        }
+    }
+}

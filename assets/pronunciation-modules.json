@@ -1,0 +1,37 @@
+[
+  {
+    "language": "ko",
+    "name": "Latin-ConjoiningJamo.xml",
+    "url": "https://raw.githubusercontent.com/unicode-org/cldr/5b159148f1390735049e296723f6b847229b23ef/common/transforms/Latin-ConjoiningJamo.xml",
+    "size": 19410,
+    "sha256": "82f2fc6ae1fca9c71fba7851c0b3ecc7e6e3cbd5aeb74ce80dd6c8c423cddfba"
+  },
+  {
+    "language": "yue",
+    "name": "jyut6ping3.chars.dict.yaml",
+    "url": "https://raw.githubusercontent.com/rime/rime-cantonese/259f0e48bba840c3a2e0d117539e96937f3d89bc/jyut6ping3.chars.dict.yaml",
+    "size": 345329,
+    "sha256": "9b053a594c80eae76545bcdd83239884a49b1ba48b89ca0ab9e8daac79f33013"
+  },
+  {
+    "language": "yue",
+    "name": "jyut6ping3.words.dict.yaml",
+    "url": "https://raw.githubusercontent.com/rime/rime-cantonese/259f0e48bba840c3a2e0d117539e96937f3d89bc/jyut6ping3.words.dict.yaml",
+    "size": 2630257,
+    "sha256": "54d174ad2bb997e4a678b7b076b84e4dc5914481b32467cdea3b43e88b7d5474"
+  },
+  {
+    "language": "yue",
+    "name": "LICENSE-CC-BY",
+    "url": "https://raw.githubusercontent.com/rime/rime-cantonese/259f0e48bba840c3a2e0d117539e96937f3d89bc/LICENSE-CC-BY",
+    "size": 18657,
+    "sha256": "97d24386ff776d7160b87031b259a942bd03c9939796cab6724ad5d17d2cf785"
+  },
+  {
+    "language": "ko",
+    "name": "LICENSE",
+    "url": "https://raw.githubusercontent.com/unicode-org/cldr/5b159148f1390735049e296723f6b847229b23ef/LICENSE",
+    "size": 3193,
+    "sha256": "65eb33419e22a297550a811b5b535f5e532f9a7e0114b516c0ea18afd53c3804"
+  }
+]

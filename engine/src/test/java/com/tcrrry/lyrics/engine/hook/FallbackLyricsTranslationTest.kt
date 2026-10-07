@@ -27,6 +27,39 @@ class FallbackLyricsTranslationTest {
     private val source = DirectLyricsRepository.Result(lyrics = "[00:01.000]君の声", translatedLyrics = "[00:01.000]你的声音", source = "QQ音乐", score = 100)
     private val direct = Executor { it.run() }
 
+    @Test fun firstNativeDocumentHasDictionaryReadingBeforeNetworkWorkerRuns() {
+        val context = context()
+        context.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE).edit().putBoolean("enabled", true).commit()
+        val pending = mutableListOf<Runnable>()
+        var calls = 0
+        val enrichment = FallbackLyricsTranslation(context, { calls++; throw java.io.IOException("offline") }, Executor { pending += it })
+        val japanese = candidate.copy(ttml = candidate.ttml.replace("君の", "ただ風が").replace(">声<", ">吹くのを待ってた<"))
+        val first = enrichment.enrichWithTrack(track.appleMusicId, japanese, track)
+        assertEquals(0, calls)
+        assertEquals(1, pending.size)
+        assertTrue(TtmlSubtitleTrack.subtitleValues(first.ttml, true).values.first().contains("tada"))
+        assertTrue(TtmlTimingPolicy.isWord(first.ttml))
+        val pointer = Any()
+        NativeLyricsPronunciationSubtitle.remember(pointer, first.ttml)
+        assertTrue(NativeLyricsPronunciationSubtitle.isManagedWord(pointer))
+        assertTrue(NativeLyricsPronunciationSubtitle.hasManagedPronunciation(pointer))
+        assertEquals(setOf("dictionary"), TtmlAuxiliaryOrigins.read(first.ttml)!!.pronunciation)
+        pending.single().run()
+        assertEquals(1, calls)
+        assertEquals(TtmlSubtitleTrack.subtitleValues(first.ttml, true),
+            TtmlSubtitleTrack.subtitleValues(enrichment.enrichWithTrack(track.appleMusicId, japanese, track).ttml, true))
+    }
+
+    @Test fun sourcePronunciationSurvivesEarlyDictionarySupplementAndTranslationDisabled() {
+        val context = context()
+        context.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE).edit().putBoolean("enabled", true).commit()
+        val primary = requireNotNull(TtmlSubtitleTrack.attachPronunciation(candidate.ttml, mapOf(0 to "kimi no koe")))
+        val result = FallbackLyricsTranslation(context, { error("network must not run") }, Executor { error("no worker needed") })
+            .enrich(track.appleMusicId, AutoLyricsCandidate("QQ音乐", primary))
+        assertEquals("kimi no koe", TtmlSubtitleTrack.subtitleValues(result.ttml, true)[0])
+        assertTrue(TtmlTimingPolicy.isWord(result.ttml))
+    }
+
     @Test fun liveTrackFillsNativeWordsFromPlatformAndCachesResult() {
         var calls = 0
         val enrichment = FallbackLyricsTranslation(context(), { input ->

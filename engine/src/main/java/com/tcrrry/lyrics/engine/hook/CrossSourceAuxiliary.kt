@@ -17,8 +17,8 @@ internal object CrossSourceAuxiliary {
         (text.split(':').fold(0.0) { value, part -> value * 60 + part.toDouble() } * 1000).toLong()
     }.getOrNull()
     private fun rows(ttml: String) = paragraphs.findAll(ttml).mapNotNull { match ->
-        val begin = Regex("begin=[\"']([^\"']+)").find(match.groupValues[1])?.groupValues?.get(1) ?: return@mapNotNull null
-        val key = Regex("itunes:key=[\"']([^\"']+)").find(match.groupValues[1])?.groupValues?.get(1).orEmpty()
+        val begin = Regex("\\bbegin\\s*=\\s*[\"']([^\"']+)").find(match.groupValues[1])?.groupValues?.get(1) ?: return@mapNotNull null
+        val key = Regex("\\bitunes:key\\s*=\\s*[\"']([^\"']+)").find(match.groupValues[1])?.groupValues?.get(1).orEmpty()
         val text = tags.replace(match.groupValues[2], "").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
         time(begin)?.let { Row(it, normalized(text), key, text) }
     }.toList()

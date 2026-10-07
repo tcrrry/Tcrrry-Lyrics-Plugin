@@ -1,18 +1,20 @@
 # Tcrrry Lyrics Plugin
 
-独立的 AM++ SDK v1 歌词插件，以 **AMPP Lyrics v1.5 正式版**为基线。插件版本独立编号，从 **1.0.0** 开始。
+独立的 AM++ SDK v1 歌词插件，以 **AMPP Lyrics v1.5 正式版**为基线。插件版本独立编号，当前 **1.0.1**，保留 1.0.0 历史。
 
 现有 v1.5 的普通 APK、共存 APK、APKS、模块 APK保持独立。本项目产物是插件导入 ZIP；支持插件系统的 AM++ 宿主负责运行它。它不要求插件本身拥有 root，也不包含 Apple Music 安装包。
 
-私仓下载页：[完整插件 1.0.0](https://github.com/tcrrry/AM-plus-plus-Desktop-Lyrics/releases/tag/plugin-v1.0.0)。独立工程位于 `plugin/main` 分支。
+私仓下载页：[完整插件 1.0.1](https://github.com/tcrrry/AM-plus-plus-Desktop-Lyrics/releases/tag/plugin-v1.0.1)。独立工程位于 `plugin/main` 分支。
+
+1.0.1 针对原作者 **105 嵌入版（AM++ 1.6.3 / Apple Music 1606）**：发音留在歌词容器内，使用独立绘制层避开原文高亮；普通刷新保留发音；词典注音先于网络译文完成。仅更新插件，既有 v1.5 四个安装包不变。
 
 ## 交付文件
 
 | 文件 | 用途 |
 | --- | --- |
-| `Tcrrry-Lyrics-Plugin-1.0.0.zip` | 在作者 AM++ 插件管理器导入、启用，重启宿主 |
-| `Tcrrry-Lyrics-Offline-1.0.0.apk` | 可选离线机翻服务，安装后下载语言模型 |
-| `Tcrrry-Lyrics-Plugin-1.0.0-source.zip` | 完整独立工程、SDK、词典素材与测试 |
+| `Tcrrry-Lyrics-Plugin-1.0.1.zip` | 在作者 AM++ 插件管理器导入、启用，重启宿主 |
+| `Tcrrry-Lyrics-Offline-1.0.1.apk` | 可选离线机翻服务，安装后下载语言模型 |
+| `Tcrrry-Lyrics-Plugin-1.0.1-source.zip` | 完整独立工程、SDK、词典素材与测试 |
 | `SHA256SUMS.txt` | 下载校验 |
 
 **兼容范围：** Android 12及以上；Apple Music `7.0.0-beta / 1606`；包名 `com.apple.android.music` 或 `com.tcrrry.ampplyrics.coexist`；宿主必须具备作者 SDK v1 的插件管理器。普通 v1.5 APK不能仅靠导入 ZIP 获得插件系统。作者提供的模块 APK也不是一个可独立播放音乐的 Apple Music 安装包。

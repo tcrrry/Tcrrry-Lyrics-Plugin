@@ -170,9 +170,13 @@ internal object PronunciationHeaderLayout {
         container.layoutParams = parameters
     }
 
-    fun clearAll() { (headers.keys.toList()+middles.keys.toList()+footers.keys.toList()+nativeAuxiliaries.keys.toList()).distinct().forEach(::clear) }
+    fun clearAll() {
+        NativePronunciationOverlay.clearAll()
+        (headers.keys.toList()+middles.keys.toList()+footers.keys.toList()+nativeAuxiliaries.keys.toList()).distinct().forEach(::clear)
+    }
 
     fun clear(container: ViewGroup) {
+        NativePronunciationOverlay.clear(container)
         nativeAuxiliaries.remove(container)?.forEach { reference ->
             reference.get()?.takeIf { it.parent === container }?.let(container::removeView)
         }

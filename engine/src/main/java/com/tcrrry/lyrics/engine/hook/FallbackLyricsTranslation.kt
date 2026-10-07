@@ -22,6 +22,7 @@ internal class FallbackLyricsTranslation(private val context: Context,
 ) {
     private data class Cached(val candidate: AutoLyricsCandidate, val retryAt: Long)
     private val completed = ConcurrentHashMap<String, Cached>()
+    private val readings = ConcurrentHashMap<String, AutoLyricsCandidate>()
     private val platformRepository by lazy { com.tcrrry.lyrics.sources.DirectLyricsRepository() }
     private val working = ConcurrentHashMap.newKeySet<String>()
     private fun present(candidate: AutoLyricsCandidate): AutoLyricsCandidate {
@@ -43,7 +44,28 @@ internal class FallbackLyricsTranslation(private val context: Context,
 
     fun enrichWithTrack(id: Long, rawCandidate: AutoLyricsCandidate, playbackTrack: DesktopLyricsTrack?): AutoLyricsCandidate {
         val cleaned = TtmlSubtitleTrack.cleanChineseSubtitles(rawCandidate.ttml)
-        val candidate = if (cleaned == rawCandidate.ttml) rawCandidate else rawCandidate.copy(ttml = cleaned)
+        val baseCandidate = if (cleaned == rawCandidate.ttml) rawCandidate else rawCandidate.copy(ttml = cleaned)
+        val pronunciationPrefs = context.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
+        val readingKey = "$id|${baseCandidate.source}|${pronunciationPrefs.getBoolean("enabled", true)}|" +
+            "${pronunciationPrefs.getBoolean("korean_enabled", true)}|${pronunciationPrefs.getBoolean("cantonese_$id", false)}|" +
+            MessageDigest.getInstance("SHA-256").digest(cleaned.toByteArray()).joinToString("") { "%02x".format(it) }
+        // enrich is called by the lyrics-fetch worker, never by the playback/UI hook.
+        // Local readings must be available in the first published native document,
+        // even when platform lookup or machine translation blocks/fails later.
+        val candidate = readings[readingKey] ?: runCatching {
+            val dictionary = CrossSourceAuxiliary.dictionary(context, id, baseCandidate.ttml)
+            val result = if (dictionary == baseCandidate.ttml) baseCandidate else {
+                val origins = TtmlAuxiliaryOrigins.read(baseCandidate.ttml)
+                    ?: TtmlAuxiliaryOrigins.original(baseCandidate.source, baseCandidate.ttml)
+                baseCandidate.copy(ttml = origins.copy(pronunciation = origins.pronunciation + "dictionary").attach(dictionary))
+            }
+            if (readings.size >= 64) readings.keys.firstOrNull()?.let(readings::remove)
+            readings[readingKey] = result
+            result
+        }.getOrElse {
+            ModernXposedRuntime.log("local pronunciation supplementation failed; retained source lyrics", it)
+            baseCandidate
+        }
         val prefs = context.pluginPreferences("supplement_translation", Context.MODE_PRIVATE)
         val mode = prefs.getString("mode", "off")
         val quality = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(context) ||
@@ -56,7 +78,6 @@ internal class FallbackLyricsTranslation(private val context: Context,
         if (lines.isEmpty()) return present(candidate)
         val digest = MessageDigest.getInstance("SHA-256").digest(candidate.ttml.toByteArray())
             .take(8).joinToString("") { "%02x".format(it) }
-        val pronunciationPrefs = context.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
         val metadata = com.tcrrry.lyrics.metadata.amprovider.xposed.MediaMetadataCache.getMetadataById(id.toString())
         val track = playbackTrack?.takeIf { (it.appleMusicId == 0L || it.appleMusicId == id) &&
             it.title.isNotBlank() && it.artist.isNotBlank() } ?: metadata?.let {
@@ -112,12 +133,6 @@ internal class FallbackLyricsTranslation(private val context: Context,
                                 }
                             }
                         }
-                    }
-                    if (quality) {
-                        val dictionary = CrossSourceAuxiliary.dictionary(context, id, platformAugmented)
-                        if (TtmlSubtitleTrack.subtitleValues(dictionary, true).keys != TtmlSubtitleTrack.subtitleValues(platformAugmented, true).keys)
-                            origins = origins.copy(pronunciation = origins.pronunciation + "dictionary")
-                        platformAugmented = dictionary
                     }
                     var augmented = TtmlSubtitleTrack.attach(platformAugmented, translations) ?: platformAugmented
                     if (translations.isNotEmpty() && TtmlSubtitleTrack.subtitleValues(augmented).keys != TtmlSubtitleTrack.subtitleValues(platformAugmented).keys)

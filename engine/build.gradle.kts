@@ -2,7 +2,7 @@ plugins { id("com.android.application") }
 android {
  namespace = "com.tcrrry.lyrics.engine"
  compileSdk = 37
- defaultConfig { applicationId = "com.tcrrry.lyrics.plugin.compiler"; minSdk = 26; targetSdk = 37; versionCode = 1; versionName = "1.0.0"; buildConfigField("String","HOST_PACKAGE","\"com.apple.android.music\"") }
+ defaultConfig { applicationId = "com.tcrrry.lyrics.plugin.compiler"; minSdk = 26; targetSdk = 37; versionCode = 2; versionName = "1.0.1"; buildConfigField("String","HOST_PACKAGE","\"com.apple.android.music\"") }
  buildFeatures { buildConfig = true }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  packaging { resources { merges += listOf("META-INF/LICENSE.md", "META-INF/NOTICE.md", "META-INF/CONTRIBUTORS.md") } }

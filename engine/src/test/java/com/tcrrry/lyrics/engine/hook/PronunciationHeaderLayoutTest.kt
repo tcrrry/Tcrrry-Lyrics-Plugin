@@ -146,15 +146,17 @@ class PronunciationHeaderLayoutTest {
                     if (layout !in setOf(0x7f0d0422, 0x7f0d0414)) error("unrecognized layout binding")
                 }
                 assertEquals(1, words.childCount)
+                assertEquals(1, root.childCount)
                 assertSame(original, words.getChildAt(0))
-                val header = root.getChildAt(1) as TextView
+                val header = requireNotNull(NativePronunciationOverlay.view(words))
                 assertEquals("ki mi no ko e", header.text.toString())
                 assertEquals(0x59ffffff, header.currentTextColor)
                 assertEquals(0x59ffffff, NativeLyricsPronunciationSubtitle.protectedColor(header, -1))
                 assertEquals(1f, NativeLyricsPronunciationSubtitle.protectedAlpha(header, 1f), 0f)
                 assertEquals(1f, NativeLyricsPronunciationSubtitle.protectedAlpha(header, 0.35f), 0f)
                 assertEquals(View.VISIBLE, header.visibility)
-                assertEquals(header.id, (words.layoutParams as HostParams).topToBottom)
+                assertEquals(-1, (words.layoutParams as HostParams).topToBottom)
+                assertTrue(words.paddingTop > 8)
                 PronunciationHeaderLayout.clearRow(root)
                 assertEquals(-1, NativeLyricsPronunciationSubtitle.protectedColor(header, -1))
                 assertEquals(0.35f, NativeLyricsPronunciationSubtitle.protectedAlpha(header, 0.35f), 0f)
@@ -193,17 +195,18 @@ class PronunciationHeaderLayoutTest {
             resolveLayout = { nativeLayouts[it] ?: 0 }) { text, _ ->
             words.addView(TextView(activity).apply { this.text = text })
         }
-        val pronunciation = root.getChildAt(1) as TextView
+        val pronunciation = requireNotNull(NativePronunciationOverlay.view(words))
         val translation = TextView(activity).apply { text = "你的声音"; alpha = 0.7f; setTextColor(0xffaabbcc.toInt()) }
         words.addView(translation)
         val beforeParams = translation.layoutParams
         NativeLyricsPronunciationSubtitle.renderTranslation(words, translation)
-        assertSame(root, pronunciation.parent)
+        assertNotSame(root, pronunciation.parent)
         assertSame(words, translation.parent)
         assertSame(beforeParams, translation.layoutParams)
         assertSame(original, words.getChildAt(0))
         assertEquals(2, words.childCount)
-        assertEquals(pronunciation.id, (words.layoutParams as HostParams).topToBottom)
+        assertEquals(-1, (words.layoutParams as HostParams).topToBottom)
+        assertTrue(words.paddingTop > 8)
         assertEquals(-1, (words.layoutParams as HostParams).bottomToTop)
         assertEquals(0xffaabbcc.toInt(), translation.currentTextColor)
         assertEquals(0.7f, translation.alpha, 0f)
@@ -254,7 +257,8 @@ class PronunciationHeaderLayoutTest {
             resolveLayout = { nativeLayouts[it] ?: 0 }) { text, _ ->
             words.addView(TextView(activity).apply { this.text = text })
         }
-        assertEquals(2, root.childCount)
+        assertEquals(1, root.childCount)
+        assertTrue(words.paddingTop > 8)
         assertEquals(-1, (words.layoutParams as HostParams).bottomToTop)
         assertSame(original, words.getChildAt(0))
         PronunciationHeaderLayout.clearRow(root)

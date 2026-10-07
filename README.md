@@ -2,6 +2,11 @@
 
 适用于 [AM++](https://github.com/Zennmn/AM-plus-plus) 的**第三方独立歌词插件**，由 Tcrrry 维护，不是 AM++ 原作者的官方插件。采用 AM++ SDK v1，以 **AMPP Lyrics v1.5 正式版**为代码基线。当前正式版本为 **1.0.3**。
 
+[![下载插件 ZIP｜1.0.3](docs/images/downloads/plugin-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.3/Tcrrry-Lyrics-Plugin-1.0.3.zip)
+[![下载离线翻译 APK｜离线机翻必需](docs/images/downloads/offline-apk.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.3/Tcrrry-Lyrics-Offline-1.0.3.apk)
+
+**使用离线机翻：两个都要下载。** ZIP 导入 AM++ 插件管理器；APK 单独安装，首次打开授权并下载语言模型。已有旧版伴随 APK 可继续使用。
+
 现有 v1.5 的普通 APK、共存 APK、APKS、模块 APK保持独立。本项目产物是插件导入 ZIP；支持插件系统的 AM++ 宿主负责运行它。它不要求插件本身拥有 root，也不包含 Apple Music 安装包。
 
 [正式版下载页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.0.3) · [安装说明](docs/INSTALL.md) · [正式发布说明](docs/RELEASE-1.0.3.md)。
@@ -10,7 +15,7 @@
 
 ## 下载选择：插件与离线翻译 APK
 
-在上面的正式版下载页展开 **Assets**，按需要选择：
+点击主页顶部的两个按钮可直接下载。若下载失败，请在上面的正式版下载页展开 **Assets**，按需要选择：
 
 | 下载选项 | 文件 | 何时需要 |
 | --- | --- | --- |

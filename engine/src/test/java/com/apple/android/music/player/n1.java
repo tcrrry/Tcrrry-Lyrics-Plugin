@@ -6,7 +6,7 @@ public class n1 {
  public static final Object h=new Object(), i=new Object();
  public boolean B() { return false; }
  public static class b extends RecyclerView$D {
-  public q8.p9 u;
+  public Object u;
   public String v;
   public LinkedHashSet<Object> y=new LinkedHashSet<>();
  }

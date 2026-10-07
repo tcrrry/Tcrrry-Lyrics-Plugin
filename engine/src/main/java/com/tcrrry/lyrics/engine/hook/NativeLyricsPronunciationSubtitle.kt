@@ -98,7 +98,7 @@ internal object NativeLyricsPronunciationSubtitle {
                 PronunciationHeaderLayout.clearAuxiliary(container, above)
                 return
             }
-            if (current != null && current.text.toString() == android.text.Html.fromHtml(text, 0).toString()) {
+            if (current != null && current.text.toString() == text) {
                 stylePronunciation(current)
                 current.visibility = View.VISIBLE
                 return
@@ -129,10 +129,17 @@ internal object NativeLyricsPronunciationSubtitle {
 
     fun remember(pointer: Any, ttml: String) {
         val presentation = DesktopLyricsPresentation.fromTtml(ttml)
-        if (presentation != null) {
-            managed[pointer] = Managed(TtmlTimingPolicy.isWord(ttml), presentation.pronunciation, presentation.primaryPronunciation, NativeSubtitleLookup(ttml))
+        val subtitles = NativeSubtitleLookup(ttml)
+        if (presentation != null || subtitles.hasPronunciation || subtitles.hasTranslation) {
+            managed[pointer] = Managed(TtmlTimingPolicy.isWord(ttml), subtitles.hasPronunciation,
+                presentation?.primaryPronunciation == true, subtitles)
         } else managed.remove(pointer)
     }
+
+    internal fun subtitleLookup(pointer: Any?): NativeSubtitleLookup? = managed[pointer]?.subtitles
+
+    internal fun lineSubtitles(pointer: Any?, original: String): NativeSubtitleLookup.Tracks? =
+        managed[pointer]?.subtitles?.forOriginal(original)
 
     internal fun isManaged(pointer: Any?): Boolean = pointer != null && managed.containsKey(pointer)
 

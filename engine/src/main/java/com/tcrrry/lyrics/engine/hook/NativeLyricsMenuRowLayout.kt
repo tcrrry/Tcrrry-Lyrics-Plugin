@@ -10,7 +10,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 
 /** Native rows choose the popup width; this MATCH_PARENT row fits it in the final pass. */
-internal class NativeLyricsMenuRowLayout(context: Context, label: String, detail: String = "", autoSizeLabel: Boolean = true, labelSizePx: Float? = null) : LinearLayout(context) {
+internal class NativeLyricsMenuRowLayout(context: Context, label: String, detail: String = "", autoSizeLabel: Boolean = true, labelSizePx: Float? = null, private val intrinsicWidth: Boolean = false) : LinearLayout(context) {
     private val separator = Paint().apply {
         color = 0x33FFFFFF
         strokeWidth = context.resources.displayMetrics.density
@@ -50,7 +50,7 @@ internal class NativeLyricsMenuRowLayout(context: Context, label: String, detail
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
-        if (MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.EXACTLY) {
+        if (!intrinsicWidth && MeasureSpec.getMode(widthMeasureSpec) != MeasureSpec.EXACTLY) {
             // Exclude our label from intrinsic popup width. LinearLayout's uniform
             // MATCH_PARENT pass then measures us against the native rows' width.
             // Unlike a fixed width captured before binding, this repeats on layout.

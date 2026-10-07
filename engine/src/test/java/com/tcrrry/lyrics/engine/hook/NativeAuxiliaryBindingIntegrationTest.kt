@@ -53,19 +53,19 @@ class NativeAuxiliaryBindingIntegrationTest {
         adapter.k(row, 0)
         assertFalse(adapter.nativeTranslation); assertFalse(adapter.nativePronunciation)
         assertTrue(adapter.d); assertTrue(adapter.e)
-        assertEquals(1, row.u.a0.childCount)
-        val header = requireNotNull(PronunciationHeaderLayout.auxiliary(row.u.a0, true))
-        val footer = requireNotNull(PronunciationHeaderLayout.auxiliary(row.u.a0, false))
+        assertEquals(1, (row.u as q8.p9).a0.childCount)
+        val header = requireNotNull(PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, true))
+        val footer = requireNotNull(PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, false))
         assertSame(row.a, header.parent); assertSame(row.a, footer.parent)
-        val words = row.u.a0.getChildAt(0)
+        val words = (row.u as q8.p9).a0.getChildAt(0)
         repeat(5) { adapter.k(row, 0); adapter.l(row, 0, listOf("word-tick")) }
         assertEquals(1, adapter.glyphRebuilds)
-        assertSame(words, row.u.a0.getChildAt(0))
-        assertSame(header, PronunciationHeaderLayout.auxiliary(row.u.a0, true))
-        PronunciationHeaderLayout.clearAuxiliary(row.u.a0, true)
+        assertSame(words, (row.u as q8.p9).a0.getChildAt(0))
+        assertSame(header, PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, true))
+        PronunciationHeaderLayout.clearAuxiliary((row.u as q8.p9).a0, true)
         adapter.k(row, 0)
         assertEquals(1, adapter.glyphRebuilds)
-        assertNotNull(PronunciationHeaderLayout.auxiliary(row.u.a0, true))
+        assertNotNull(PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, true))
     }
     @Test fun failedNativeBindRestoresBothHostFlagsAndNextBindingRecovers() {
         val adapter = adapter(); val row = row()
@@ -75,22 +75,22 @@ class NativeAuxiliaryBindingIntegrationTest {
         adapter.failBind = false
         adapter.k(row, 0)
         assertTrue(adapter.d); assertTrue(adapter.e)
-        assertNotNull(PronunciationHeaderLayout.auxiliary(row.u.a0, true))
-        assertNotNull(PronunciationHeaderLayout.auxiliary(row.u.a0, false))
+        assertNotNull(PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, true))
+        assertNotNull(PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, false))
     }
     @Test fun togglePayloadUsesRealChoicesAndUnmanagedRecyclingRestoresNativeBinding() {
         val adapter = adapter(); val row = row()
         adapter.k(row, 0)
         adapter.e = false
         adapter.l(row, 0, listOf(n1.i))
-        assertNull(PronunciationHeaderLayout.auxiliary(row.u.a0, true))
-        assertNotNull(PronunciationHeaderLayout.auxiliary(row.u.a0, false))
+        assertNull(PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, true))
+        assertNotNull(PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, false))
         assertTrue(adapter.d); assertFalse(adapter.e)
         adapter.pointer = Any()
         adapter.k(row, 0)
         assertTrue(adapter.nativeTranslation)
         assertFalse(adapter.nativePronunciation)
-        assertNull(PronunciationHeaderLayout.auxiliary(row.u.a0, false))
+        assertNull(PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, false))
         assertEquals(2, (row.a as ConstraintLayout).childCount)
     }
 }

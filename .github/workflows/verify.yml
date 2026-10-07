@@ -23,7 +23,7 @@ jobs:
       - run: ./gradlew :engine:testDebugUnitTest :offline:testDebugUnitTest :engine:assembleRelease :offline:assembleDebug :engine:lintRelease :offline:lintDebug --no-daemon
       - run: python3 scripts/package.py --offline-variant debug
       - run: python3 scripts/verify-package.py
-      - run: ./gradlew :engine:testDebugUnitTest -PfullPluginFixture="$PWD/dist/Tcrrry-Lyrics-Plugin-1.0.2.zip" --no-daemon
+      - run: ./gradlew :engine:testDebugUnitTest -PfullPluginFixture="$PWD/dist/Tcrrry-Lyrics-Plugin-1.0.3.zip" --no-daemon
       - uses: actions/upload-artifact@v4
         if: always() && github.event_name == 'workflow_dispatch'
         continue-on-error: true

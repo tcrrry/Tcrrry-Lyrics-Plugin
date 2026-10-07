@@ -48,7 +48,7 @@ public class A extends n1 {
    nativeTranslation=d;nativePronunciation=e;
    if(failBind)throw new IllegalStateException("native bind failed");
    b row=(b)holder;
-   if(row.v==null) { b0(p.value.line.original,0,row.u.a0,1,0,false,1);row.v=p.value.line.original; }
+   if(row.v==null) { b0(p.value.line.original,0,((q8.p9)row.u).a0,1,0,false,1);row.v=p.value.line.original; }
   });
  }
  public void l(RecyclerView$D holder,int position,List<?> changes) {

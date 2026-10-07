@@ -405,6 +405,7 @@ internal class AppleMusicCustomLyricsTarget(
                         // parsed replacement pointers must never become native candidates.
                         if (pointer != null && parsingReplacement.get() != true && !ttml.contains("<!--tcrrry-") &&
                             NativeLyricsPreferencePolicy.hasContent(ttml)) {
+                            NativeLyricsPronunciationSubtitle.remember(pointer, ttml)
                             nativePointers[pointer] = true
                             nativeText[pointer] = ttml
                         }

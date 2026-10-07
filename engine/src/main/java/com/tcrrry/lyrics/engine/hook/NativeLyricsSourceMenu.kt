@@ -50,6 +50,7 @@ internal object NativeLyricsSourceMenu {
 
     fun cleanupPluginRows() {
         menus.keys.toList().forEach { menu ->
+            NativeLyricsAuxiliaryControls.restoreMenu(menu)
             (0 until menu.childCount).map(menu::getChildAt).filter { it.tag in setOf(ROW_TAG,EMPHASIS_TAG,DIVIDER_TAG) }.forEach(menu::removeView)
         }
         menus.clear()
@@ -129,24 +130,57 @@ internal object NativeLyricsSourceMenu {
                 root.findViewById<View>(id)?.let(::unregisterAnchor)
             }
         })
-        ModernXposedRuntime.hookMethod(PopupWindow::class.java.getDeclaredMethod("showAsDropDown",
-            View::class.java, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType),
-            object : ModernMethodHook() {
+        // 1606 invokes the three-argument overload directly. Cover each public
+        // entry instead of relying on optimized framework delegation to the fourth.
+        installPopupHooks(currentId, openSettings)
+        NativeLyricsAuxiliaryControls.install(loader)
+        runCatching {
+            val click = loader.loadClass("com.apple.android.music.player.fragment.b0")
+            val page = click.getDeclaredField("a").apply { isAccessible = true }
+            ModernXposedRuntime.hookMethod(click.getDeclaredMethod("onClick", View::class.java), object : ModernMethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    runCatching {
+                        val fragment = page.get(param.thisObject) ?: return@runCatching
+                        val button = param.args[0] as View
+                        bind(button.rootView, fragment)
+                        registerAnchor(button)
+                        registerPage(button, fragment)
+                        publishAnchorPage(button)
+                    }.onFailure { ModernXposedRuntime.log("lyrics menu page binding failed", it) }
+                }
+            })
+        }.onFailure { ModernXposedRuntime.log("lyrics menu click seam unavailable", it) }
+        ModernXposedRuntime.log("native lyrics source menu installed")
+    }
+
+    internal fun installPopupHooks(currentId: () -> Long?, openSettings: (Activity) -> Unit) {
+        ModernXposedRuntime.hookMethod(PopupWindow::class.java.getDeclaredMethod("dismiss"), object : ModernMethodHook() {
+            override fun afterHookedMethod(param: MethodHookParam) {
+                val popup = param.thisObject as? PopupWindow ?: return
+                if (!popup.isShowing) (popup.contentView as? LinearLayout)?.let(NativeLyricsAuxiliaryControls::restoreMenu)
+            }
+        })
+        for (method in PopupWindow::class.java.declaredMethods.filter { it.name == "showAsDropDown" }) {
+            ModernXposedRuntime.hookMethod(method, object : ModernMethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     val anchor = param.args.firstOrNull() as? View ?: return
-                    if (!anchors.containsKey(anchor)) return
                     val popup = param.thisObject as? PopupWindow ?: return
                     val menu = popup.contentView as? LinearLayout ?: return
                     val id = menu.resources.getIdentifier("translations_popup_menu", "id", ModuleConstants.RESOURCE_PACKAGE)
-                    if (id == 0 || menu.id != id) return
+                    val buttonId = anchor.resources.getIdentifier("translations_button", "id", ModuleConstants.RESOURCE_PACKAGE)
+                    if (id == 0 || menu.id != id || (!anchors.containsKey(anchor) && (buttonId == 0 || anchor.id != buttonId))) return
                     runCatching {
+                        registerAnchor(anchor)
                         publishAnchorPage(anchor)
+                        anchorPages[anchor]?.get()?.let { NativeLyricsAuxiliaryControls.synchronize(it) }
                         appendRow(menu, popup, currentId, openSettings)
-                    }
-                        .onFailure { ModernXposedRuntime.log("lyrics source menu extension failed open", it) }
+                        anchorPages[anchor]?.get()?.let { page ->
+                            NativeLyricsAuxiliaryControls.extendMenu(page, menu, popup, currentId)
+                        }
+                    }.onFailure { ModernXposedRuntime.log("lyrics source menu extension failed open", it) }
                 }
             })
-        ModernXposedRuntime.log("native lyrics source menu installed")
+        }
     }
 
     private fun appendRow(menu: LinearLayout, popup: PopupWindow, currentId: () -> Long?, openSettings: (Activity) -> Unit) {

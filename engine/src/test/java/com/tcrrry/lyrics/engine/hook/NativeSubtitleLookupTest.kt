@@ -32,6 +32,6 @@ class NativeSubtitleLookupTest {
         val lookup = NativeSubtitleLookup(document(
             "<p itunes:key=\"a\"><span>A&amp;B</span></p>",
             "<text for=\"a\"><span>a &amp; </span><span>b</span></text>"))
-        assertEquals("a &amp; b", lookup.forOriginal("A&amp;B")?.pronunciation)
+        assertEquals("a & b", lookup.forOriginal("A&amp;B")?.pronunciation)
     }
 }

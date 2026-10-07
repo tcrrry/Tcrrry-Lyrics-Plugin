@@ -2,6 +2,11 @@
 
 ## AM++ and Tcrrry v1.5
 
+AM++ host and SDK project: [Zennmn/AM-plus-plus](https://github.com/Zennmn/AM-plus-plus),
+GPL-3.0. Thanks to its original author and contributors. This repository is a
+third-party plugin maintained by Tcrrry, not an official AM++ release. Original
+source headers, bundled material licenses and pinned provenance remain intact.
+
 This independent plugin derives its lyric engine from AM++ (bbelluga) and Tcrrry's
 AMPP Lyrics v1.5. It retains their GPL-3.0 source and copyright notices. The full
 GPL is in `LICENSE`. Provenance is in `docs/MIGRATION.md` and `docs/provenance.json`.

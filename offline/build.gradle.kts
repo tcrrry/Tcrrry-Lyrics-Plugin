@@ -1,6 +1,6 @@
 plugins { id("com.android.application") }
 android { namespace = "com.tcrrry.lyrics.offline"; compileSdk = 37
- defaultConfig { applicationId = "com.tcrrry.lyrics.offline"; minSdk = 26; targetSdk = 37; versionCode = 2; versionName = "1.0.1" }
+ defaultConfig { applicationId = "com.tcrrry.lyrics.offline"; minSdk = 26; targetSdk = 37; versionCode = 3; versionName = "1.0.2" }
  val keyPath = System.getenv("OFFLINE_KEYSTORE")
  if (!keyPath.isNullOrBlank()) {
    signingConfigs { create("pluginRelease") { storeFile=file(keyPath);storePassword=System.getenv("OFFLINE_STORE_PASSWORD");keyAlias=System.getenv("OFFLINE_KEY_ALIAS")?:"tcrrry-plugin-offline";keyPassword=System.getenv("OFFLINE_KEY_PASSWORD") } }

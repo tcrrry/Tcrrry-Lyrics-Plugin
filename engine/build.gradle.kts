@@ -2,7 +2,7 @@ plugins { id("com.android.application") }
 android {
  namespace = "com.tcrrry.lyrics.engine"
  compileSdk = 37
- defaultConfig { applicationId = "com.tcrrry.lyrics.plugin.compiler"; minSdk = 26; targetSdk = 37; versionCode = 2; versionName = "1.0.1"; buildConfigField("String","HOST_PACKAGE","\"com.apple.android.music\"") }
+ defaultConfig { applicationId = "com.tcrrry.lyrics.plugin.compiler"; minSdk = 26; targetSdk = 37; versionCode = 3; versionName = "1.0.2"; buildConfigField("String","HOST_PACKAGE","\"com.apple.android.music\"") }
  buildFeatures { buildConfig = true }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  packaging { resources { merges += listOf("META-INF/LICENSE.md", "META-INF/NOTICE.md", "META-INF/CONTRIBUTORS.md") } }
@@ -17,6 +17,8 @@ dependencies {
  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
  implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
  implementation("androidx.recyclerview:recyclerview:1.4.0")
+ testImplementation("androidx.constraintlayout:constraintlayout:2.2.1")
+ testImplementation("com.google.android.flexbox:flexbox:3.0.0")
  testImplementation("junit:junit:4.13.2")
  testImplementation("org.robolectric:robolectric:4.14.1")
  testImplementation("org.json:json:20240303")

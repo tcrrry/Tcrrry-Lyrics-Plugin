@@ -31,7 +31,7 @@ jobs:
           chmod 600 "$OFFLINE_KEYSTORE"
       - run: ./gradlew :engine:testDebugUnitTest :offline:testDebugUnitTest packagePlugin :engine:lintRelease :offline:lintRelease --no-daemon
       - run: python3 scripts/verify-package.py
-      - run: ./gradlew :engine:testDebugUnitTest -PfullPluginFixture="$PWD/dist/Tcrrry-Lyrics-Plugin-1.0.1.zip" --no-daemon
+      - run: ./gradlew :engine:testDebugUnitTest -PfullPluginFixture="$PWD/dist/Tcrrry-Lyrics-Plugin-1.0.2.zip" --no-daemon
       - run: rm -f "$OFFLINE_KEYSTORE"
         if: always()
       - uses: actions/upload-artifact@v4

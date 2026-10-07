@@ -4,8 +4,8 @@
   "id": "com.tcrrry.lyrics",
   "name": "Tcrrry 歌词增强",
   "author": "Tcrrry",
-  "versionName": "1.0.1",
-  "versionCode": 2,
+  "versionName": "1.0.2",
+  "versionCode": 3,
   "entryClass": "com.tcrrry.lyrics.plugin.LyricsPlugin",
   "minAndroidApi": 31,
   "description": "以 AM++ Lyrics v1.5 为基线：多源匹配、来源偏好、平台译文补齐、API 翻译、离线注音、逐字发音、辉光与聚焦恢复。Apple Music 7.0.0-beta / 1606；离线机翻使用单独的伴随 APK。"

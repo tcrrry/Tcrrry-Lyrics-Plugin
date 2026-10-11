@@ -16,6 +16,7 @@ internal object NativeLineLyricsPresentation {
     internal fun clear(root: View) {
         for (saved in rows.remove(root).orEmpty()) {
             val view = saved.view.get() ?: continue
+            RubyPronunciationRows.clear(view)
             // Primary and translation styles belong to native binding/animation.
             // Restoring their pre-bind alpha (often 1) makes translation turn white.
             saved.style?.let { style ->
@@ -53,8 +54,8 @@ internal object NativeLineLyricsPresentation {
     }
 
     internal fun repairText(view: TextView, nativeText: String?, fallback: String?, selected: Boolean, primaryText: String? = null) {
-        val nativeValue = nativeText?.let { android.text.Html.fromHtml(it, 0).toString() }?.takeIf(String::isNotBlank)
-        val value = nativeValue ?: fallback?.takeIf(String::isNotBlank)
+        val nativeValue = nativeText?.let(LyricsAuxiliaryText::plain)?.takeIf(String::isNotBlank)
+        val value = nativeValue ?: fallback?.let(LyricsAuxiliaryText::plain)?.takeIf(String::isNotBlank)
         val primaryValue = primaryText?.let { android.text.Html.fromHtml(it, 0).toString().trim() }
         if (!selected || value == null || value.trim() == primaryValue) {
             view.visibility = View.GONE
@@ -128,6 +129,10 @@ internal object NativeLineLyricsPresentation {
                             fallback?.pronunciation, pronounced.getBoolean(target), primaryText)
                         repairText(translation.get(views) as TextView, nativeTranslation.invoke(value) as? String,
                             fallback?.translation, translated.getBoolean(target), primaryText)
+                        val pronunciationView = pronunciation.get(views) as TextView
+                        RubyPronunciationRows.bindLine(original.get(views) as TextView, pronunciationView, primaryText,
+                            pronunciationView.text.toString().takeIf { pronounced.getBoolean(target) && pronunciationView.visibility == View.VISIBLE },
+                            NativeLyricsPronunciationSubtitle.isPronunciationPrimary(pointer.invoke(target)))
                     }.onFailure { ModernXposedRuntime.log("line auxiliary presentation failed open", it) }
                 }
             }

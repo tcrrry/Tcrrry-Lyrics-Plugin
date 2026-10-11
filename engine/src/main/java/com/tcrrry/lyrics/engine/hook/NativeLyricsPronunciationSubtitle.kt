@@ -182,6 +182,12 @@ internal object NativeLyricsPronunciationSubtitle {
             val bindingType = loader.loadClass("q8.p9")
             val mainWords = bindingType.getDeclaredField("a0").apply { isAccessible = true }
             val backgroundWords = bindingType.getDeclaredField("Z").apply { isAccessible = true }
+            // 1606's word model caches the original Flex-line mask key per
+            // native timed binding. Ruby reflow must refresh those references.
+            val karaokeMaps=if(modern) runCatching {
+                val type=loader.loadClass("com.apple.android.music.player.A\$a")
+                type to listOf("G","H").map { type.getDeclaredField(it).apply { isAccessible=true } }
+            }.onFailure { ModernXposedRuntime.log("Ruby word-mask references unavailable; kept auxiliary presentation",it) }.getOrNull() else null
             fun containers(row: Any): List<Pair<ViewGroup, Boolean>> {
                 val nativeBinding = rowBinding.get(row)
                 if (!bindingType.isInstance(nativeBinding)) return emptyList()
@@ -217,13 +223,18 @@ internal object NativeLyricsPronunciationSubtitle {
                         PronunciationHeaderLayout.clear(container)
                         continue
                     }
-                    val pron = (if (background) backgroundPronunciation else pronunciation).invoke(value) as? String
-                    val trans = (if (background) backgroundTranslation else translation).invoke(value) as? String
+                    if(karaokeMaps?.first?.isInstance(row)==true) RubyGradientBounds.trackWordMap(container,
+                        karaokeMaps.second[if(background)1 else 0].get(row) as? Map<*,*>)
+                    val pron = ((if (background) backgroundPronunciation else pronunciation).invoke(value) as? String)?.let(LyricsAuxiliaryText::forNative)
+                    val trans = ((if (background) backgroundTranslation else translation).invoke(value) as? String)?.let(LyricsAuxiliaryText::forNative)
                     val fallback = if (background) null else data.subtitles.forOriginal(primary)
                     reconcileAuxiliaries(container,
                         if (selected.pronunciation) pron?.takeIf(String::isNotBlank) ?: fallback?.pronunciation else null,
                         if (selected.translation) trans?.takeIf(String::isNotBlank) ?: fallback?.translation else null,
                         background) { text, layout -> subtitle.invoke(target, text, container, layout, false, 1) }
+                    RubyPronunciationRows.bindWords(container, primary,
+                        if (selected.pronunciation && !background) pron?.takeIf(String::isNotBlank) ?: fallback?.pronunciation else null,
+                        data.primaryPronunciation)
                 }
             }
             // Main karaoke words always remain the original lyrics for these pointers.
@@ -312,6 +323,15 @@ internal object NativeLyricsPronunciationSubtitle {
                 }
                 override fun afterHookedMethod(param: MethodHookParam) {
                     try {
+                        // Native English and emphasized pronunciation need the
+                        // same post-layout word-key refresh as managed ruby.
+                        // Register their maps even when no subtitle is moved.
+                        if(param.throwable==null && param.method==fullBind && karaokeMaps?.first?.isInstance(param.args[0])==true) {
+                            for((container,background) in containers(param.args[0]!!)) {
+                                RubyGradientBounds.trackWordMap(container,
+                                    karaokeMaps.second[if(background)1 else 0].get(param.args[0]) as? Map<*,*>)
+                            }
+                        }
                         if (param.throwable != null) bindings.clear(param.args[0]!!)
                         else if (param.extras.containsKey("subtitle-state")) {
                             val selected = selection.get()

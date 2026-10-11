@@ -75,6 +75,24 @@ internal object TcrrryLyricsSettingsUi {
                 toast(activity, "已更新；重新打开歌词页可恢复原生歌词")
                 refreshPage()
             }, fullMargin(activity, 10))
+            addView(title(activity, "逐字方式", 18f), fullMargin(activity, 14))
+            addView(action(activity, if (policy.rubyPronunciation(activity)) "当前：字词对应发音" else "当前：整行发音") {
+                val enabled = !policy.rubyPronunciation(activity)
+                policy.updateRubyPronunciation(activity, enabled)
+                com.tcrrry.lyrics.engine.hook.RubyPronunciationRows.refreshMode(enabled)
+                if (id > 0L) CurrentLyricsSourceStatus.refreshSilently(id)
+                toast(activity, if (enabled) "已启用字词对应；重新打开歌词页生效" else "已恢复整行发音；重新打开歌词页生效")
+                refreshPage()
+            }, fullMargin(activity, 10))
+            addView(label(activity, "字词对应：发音放在对应原文上方，字号统一。注音较长时为字词留出宽度，空间不足时原文与注音一起换行，支持多行原文。词典注音沿用原文范围；QQ／网易云保留平台读音并核对对应关系。不能可靠拆分或排版时保留整行，突出发音时沿用现有显示。", 12f,
+                SettingsUiTheme.colors(activity).secondary), fullMargin(activity, 6))
+            addView(title(activity, "单曲循环歌词强行复位", 18f), fullMargin(activity, 14))
+            addView(action(activity, if (policy.forceRepeatReset(activity)) "循环复位：开启 · 平滑滚回第一句" else "循环复位：关闭") {
+                policy.updateForceRepeatReset(activity, !policy.forceRepeatReset(activity))
+                refreshPage()
+            }, fullMargin(activity, 10))
+            addView(label(activity, "歌曲重新开始时修复卡在末句的歌词，并平滑滚回第一句；不改变播放进度。拖动歌词时暂缓，松手后恢复。", 12f,
+                SettingsUiTheme.colors(activity).secondary), fullMargin(activity, 6))
             addView(title(activity, "歌词源", 18f), fullMargin(activity, 18))
             addView(label(activity, "默认自动匹配；这里的选择只对当前歌曲记忆。已有匹配可直接切换。", 12f, SettingsUiTheme.colors(activity).secondary))
             addView(LinearLayout(activity).apply {

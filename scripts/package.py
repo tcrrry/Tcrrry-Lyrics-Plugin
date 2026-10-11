@@ -8,6 +8,7 @@ args = argparse.ArgumentParser()
 args.add_argument('--output', type=Path, default=ROOT/'dist')
 args.add_argument('--offline-variant', default='release', choices=['debug','release'])
 args.add_argument('--variant', default='release', choices=['debug','release'])
+args.add_argument('--plugin-only', action='store_true', help='Package the plugin/source without rebuilding or renaming the existing offline companion')
 options = args.parse_args()
 manifest = json.loads((ROOT/'plugin.json').read_text())
 version = manifest['versionName']
@@ -32,10 +33,13 @@ with zipfile.ZipFile(plugin,'w',zipfile.ZIP_DEFLATED) as package:
         if asset.is_file(): package.write(asset, asset.relative_to(ROOT).as_posix())
     for name in ['README.md','THIRD_PARTY_NOTICES.md','LICENSE','docs/INSTALL.md','docs/VALIDATION.md']:
         package.write(ROOT/name,'assets/documentation/'+Path(name).name)
+    if '-ruby-' in version:
+        package.write(ROOT/'docs/RUBY-TRIAL.md','assets/documentation/RUBY-TRIAL.md')
 assert plugin.stat().st_size<128*1024**2
-companion=ROOT/f'offline/build/outputs/apk/{options.offline_variant}/offline-{options.offline_variant}.apk'
-assert companion.exists(), "Build the signed offline APK first (or use --offline-variant debug for development)"
-shutil.copyfile(companion,out/f'Tcrrry-Lyrics-Offline-{version}.apk')
+if not options.plugin_only:
+    companion=ROOT/f'offline/build/outputs/apk/{options.offline_variant}/offline-{options.offline_variant}.apk'
+    assert companion.exists(), "Build the signed offline APK first (or use --offline-variant debug for development)"
+    shutil.copyfile(companion,out/f'Tcrrry-Lyrics-Offline-{version}.apk')
 source=out/f'Tcrrry-Lyrics-Plugin-{version}-source.zip'
 with zipfile.ZipFile(source,'w',zipfile.ZIP_DEFLATED) as archive:
     for file in sorted(ROOT.rglob('*')):

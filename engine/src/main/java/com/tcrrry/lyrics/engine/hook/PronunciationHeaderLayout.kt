@@ -185,6 +185,7 @@ internal object PronunciationHeaderLayout {
     }
 
     fun clear(container: ViewGroup) {
+        RubyPronunciationRows.clear(container)
         nativeAuxiliaries.remove(container)?.forEach { reference ->
             reference.get()?.takeIf { it.parent === container }?.let(container::removeView)
         }

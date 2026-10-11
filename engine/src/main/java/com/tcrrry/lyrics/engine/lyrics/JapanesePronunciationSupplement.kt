@@ -57,7 +57,7 @@ internal object JapanesePronunciationSupplement {
     }
 
     /** Match the supplied reading against dictionary alternatives, never guess timestamp splits. */
-    @Synchronized internal fun alignedUnits(original: String, pronunciation: String): List<ReadingUnit>? {
+    @Synchronized internal fun alignedUnits(original: String, pronunciation: String, spatialVariants: Boolean = false): List<ReadingUnit>? {
         if (original.length > 500 || pronunciation.length > 2000) return null
         fun normalize(value: String) = value.filter(Char::isLetterOrDigit).lowercase(Locale.ROOT)
         val expected = normalize(pronunciation)
@@ -66,6 +66,7 @@ internal object JapanesePronunciationSupplement {
         val preferred = units(original).orEmpty().groupBy { it.start }
         val failed = HashSet<Pair<Int, Int>>()
         var budget = 8192
+        var variants = false
         val digits = listOf(listOf("ゼロ", "レイ"), listOf("イチ"), listOf("ニ"), listOf("サン"),
             listOf("ヨン", "シ"), listOf("ゴ"), listOf("ロク"), listOf("ナナ", "シチ"), listOf("ハチ"), listOf("キュウ", "ク"))
         fun solve(start: Int, offset: Int): List<ReadingUnit>? {
@@ -82,6 +83,19 @@ internal object JapanesePronunciationSupplement {
                 val surface = original.substring(start, end)
                 tokenizer.alternatives(surface).forEach { reading ->
                     candidates += end to normalize(KanaRomaji.convert(reading))
+                    // Compound rendaku: e.g. 大 + 喧嘩 -> oo + genka.
+                    // Only a dictionary-backed kanji suffix after another kanji;
+                    // supplied platform letters still have to match completely.
+                    if (start > 0 && kanji.matches(original[start-1].toString()) && kanji.containsMatchIn(surface)) {
+                        val voiced=when(reading.firstOrNull()) {
+                            'カ'->'ガ';'キ'->'ギ';'ク'->'グ';'ケ'->'ゲ';'コ'->'ゴ'
+                            'サ'->'ザ';'シ'->'ジ';'ス'->'ズ';'セ'->'ゼ';'ソ'->'ゾ'
+                            'タ'->'ダ';'チ'->'ヂ';'ツ'->'ヅ';'テ'->'デ';'ト'->'ド'
+                            'ハ'->'バ';'ヒ'->'ビ';'フ'->'ブ';'ヘ'->'ベ';'ホ'->'ボ'
+                            else->null
+                        }
+                        if(voiced!=null) candidates+=end to normalize(KanaRomaji.convert(voiced+reading.drop(1)))
+                    }
                 }
                 // ASCII words/digits and kana can legitimately be absent from the dictionary.
                 if (surface.all { it in 'A'..'Z' || it in 'a'..'z' || it.isDigit() }) candidates += end to normalize(surface)
@@ -95,20 +109,35 @@ internal object JapanesePronunciationSupplement {
                 in '0'..'9' -> digits[original[start] - '0'].forEach { candidates += start + 1 to normalize(KanaRomaji.convert(it)) }
             }
             for ((end, reading) in candidates) {
-                if (reading.isEmpty() || !expected.startsWith(reading, offset)) continue
-                val next = offset + reading.length
-                val tail = solve(end, next) ?: continue
-                val textEnd = if (next == positions.size) pronunciation.length else positions[next]
-                val actual = pronunciation.substring(positions[offset], textEnd).trim()
-                return listOf(ReadingUnit(start, end, actual)) + tail
+                if (reading.isEmpty()) continue
+                val surface = original.substring(start, end)
+                val nextOffsets = if (variants && (kana.containsMatchIn(surface) || kanji.containsMatchIn(surface)))
+                    JapaneseReadingMatch.ends(reading, expected, offset)
+                else if (expected.startsWith(reading, offset)) listOf(offset + reading.length) else emptyList()
+                for (next in nextOffsets) {
+                    val tail = solve(end, next) ?: continue
+                    val textEnd = if (next == positions.size) pronunciation.length else positions[next]
+                    val actual = pronunciation.substring(positions[offset], textEnd).trim()
+                    return listOf(ReadingUnit(start, end, actual)) + tail
+                }
             }
             failed += state
             return null
         }
+        solve(0, 0)?.takeIf { it.isNotEmpty() }?.let { return it }
+        if (!spatialVariants) return null
+        // Timing conversion keeps its strict default. Only spatial ruby opts
+        // into a second pass, after all existing exact readings have failed.
+        variants = true
+        failed.clear()
+        budget = 8192
         return solve(0, 0)?.takeIf { it.isNotEmpty() }
     }
 
     internal fun reading(text: String): String? = units(text)?.joinToString(" ") { it.text }
+
+    @Synchronized internal fun characterReadings(text: String): List<String> =
+        tokenizer.alternatives(text).map { KanaRomaji.convert(it) }.distinct()
 
     @Synchronized internal fun units(text: String): List<ReadingUnit>? {
         if (text.length > 500) return null

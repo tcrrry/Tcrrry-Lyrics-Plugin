@@ -121,6 +121,7 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
         if (fragmentClass == null || fragmentClass.declaredMethods.none { it.name == "w2" }) return {}
         return runCatching {
             val adapter = Class.forName("com.apple.android.music.player.A", false, fragmentClass.classLoader)
+            RubyGradientBounds.installNative(adapter)
             NativeTerminalGradientFix.install(adapter)
             NativeLyricsLineTiming.install(fragmentClass.classLoader)
             val leaving = adapter.getDeclaredMethod("o0", Int::class.javaPrimitiveType)

@@ -70,4 +70,32 @@ class TcrrrySettingsLayoutAndroidTest {
         all.single { it.text == "关闭" }.performClick()
         assertFalse(dialog.isShowing)
     }
+
+    @Test fun rubyModeFollowsLyricsPreferenceAndDoesNotResetQualityPreference() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val policy = com.tcrrry.lyrics.engine.lyrics.LyricsPreference
+        policy.update(activity,quality=true)
+        val first = page(activity).getChildAt(0) as ViewGroup
+        val views = texts(first)
+        assertTrue(views.indexOfFirst { it.text=="当前：质量优先" } < views.indexOfFirst { it.text=="逐字方式" })
+        assertTrue(views.indexOfFirst { it.text=="逐字方式" } < views.indexOfFirst { it.text=="歌词源" })
+        views.single { it.text=="当前：整行发音" }.performClick()
+        assertTrue(policy.rubyPronunciation(activity))
+        assertTrue(policy.qualityFirst(activity))
+        texts(page(activity)).single { it.text=="当前：字词对应发音" }.performClick()
+        assertFalse(policy.rubyPronunciation(activity))
+        assertTrue(policy.qualityFirst(activity))
+    }
+    @Test fun repeatResetIsVisibleEnabledByDefaultAndTogglesWithoutChangingRubyOrQuality() {
+        val activity=Robolectric.buildActivity(Activity::class.java).setup().get()
+        val policy=com.tcrrry.lyrics.engine.lyrics.LyricsPreference
+        policy.update(activity,quality=true)
+        policy.updateRubyPronunciation(activity,true)
+        assertTrue(policy.forceRepeatReset(activity))
+        texts(page(activity)).single { it.text=="循环复位：开启 · 平滑滚回第一句" }.performClick()
+        assertFalse(policy.forceRepeatReset(activity))
+        assertTrue(policy.rubyPronunciation(activity));assertTrue(policy.qualityFirst(activity))
+        texts(page(activity)).single { it.text=="循环复位：关闭" }.performClick()
+        assertTrue(policy.forceRepeatReset(activity))
+    }
 }

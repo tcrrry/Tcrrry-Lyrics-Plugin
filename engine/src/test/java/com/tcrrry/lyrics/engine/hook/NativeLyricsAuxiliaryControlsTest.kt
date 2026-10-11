@@ -156,4 +156,18 @@ class NativeLyricsAuxiliaryControlsTest {
         assertEquals(4, menu.childCount)
         originals.forEachIndexed { index, view -> assertSame(view, menu.getChildAt(index)) }
     }
+    @Test fun nativeOnlyPopupStillSavesExplicitHideWithoutInventingAvailableTracks() {
+        val app=RuntimeEnvironment.getApplication();val page=PlayerLyricsViewFragment()
+        ja.i0.model=page.o1
+        page.o1.pronunciationAvailable.setValue(true)
+        val menu=LinearLayout(app)
+        repeat(2) { menu.addView(TextView(app)) }
+        NativeLyricsAuxiliaryControls.extendMenu(page,menu,PopupWindow(menu),{123L})
+        assertTrue(menu.getChildAt(0).isEnabled)
+        assertFalse(menu.getChildAt(1).isEnabled)
+        menu.getChildAt(0).performClick()
+        assertFalse(page.o1.pronunciation.getValue() as Boolean)
+        assertEquals(false,NativeLyricsEmphasisVisibility.saved(app))
+        NativeLyricsAuxiliaryControls.restoreMenu(menu)
+    }
 }

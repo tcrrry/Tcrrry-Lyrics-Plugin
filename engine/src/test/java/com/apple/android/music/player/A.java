@@ -11,6 +11,10 @@ import dev.amenhancer.plugin.api.PluginHook;
 import com.tcrrry.lyrics.plugin.TestPluginContext;
 /** Shape verified against actual 1606 DEX. Behavior models skipped cached glyph rebuilds. */
 public class A extends n1 {
+ public static class a extends n1.b {
+  public android.util.ArrayMap<Object,Object> G=new android.util.ArrayMap<>();
+  public android.util.ArrayMap<Object,Object> H=new android.util.ArrayMap<>();
+ }
  public Object pointer=new Object();
  public Processor p=new Processor();
  public boolean nativeTranslation, nativePronunciation;

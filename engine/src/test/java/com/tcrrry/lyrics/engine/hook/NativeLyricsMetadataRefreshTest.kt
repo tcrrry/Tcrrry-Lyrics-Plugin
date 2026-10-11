@@ -113,4 +113,35 @@ class NativeLyricsMetadataRefreshTest {
         h.drain()
         assertEquals(1, page.replays)
     }
+
+    @Test fun unknownPageIdCanRecoverOnlyAfterExactLivePlayerVerification() {
+        val h = Harness()
+        val page = Page(182871078)
+        h.publish(2)
+        var verified = false
+        val refresh = NativeLyricsMetadataRefresh(h.cache, { (it as Page).id }, { (it as Page).added },
+            { h.jobs += it }, { p, m -> (p as Page).nativeUpdate(m as Metadata) },
+            { _, id -> h.recovered += id }, authoritative = { _, _ -> verified })
+        refresh.schedule(page); h.drain()
+        assertEquals(0, page.replays)
+        verified = true
+        refresh.schedule(page); h.drain()
+        assertEquals(2L, page.id)
+        assertEquals(1, page.replays)
+        assertEquals(listOf(2L), h.recovered)
+        assertFalse(h.cache.canRebind(182871078, 2))
+    }
+
+    @Test fun verifiedLibraryAliasDoesNotRepeatTheNativeLibraryFetch() {
+        val h = Harness()
+        val page = Page(182871078)
+        h.publish(2)
+        val refresh = NativeLyricsMetadataRefresh(h.cache, { (it as Page).id }, { true },
+            { h.jobs += it }, { _, _ -> fail("Alias repair must not replay metadata") },
+            { _, id -> h.recovered += id }, authoritative = { _, _ -> true },
+            restoreAlias = { p, snapshot -> (p as Page).id = snapshot.details.appleMusicId; true })
+        refresh.schedule(page); refresh.schedule(page); h.drain()
+        assertEquals(listOf(2L), h.recovered)
+        assertEquals(0, page.replays)
+    }
 }

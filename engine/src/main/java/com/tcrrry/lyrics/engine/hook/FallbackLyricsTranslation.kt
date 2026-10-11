@@ -205,8 +205,7 @@ internal object TtmlSubtitleTrack {
     }
 
     fun lines(ttml: String): List<String> = paragraph.findAll(ttml).map { match ->
-        markup.replace(match.groupValues[2], " ").replace("&amp;", "&")
-            .replace("&lt;", "<").replace("&gt;", ">")
+        LyricsAuxiliaryText.plain(markup.replace(match.groupValues[2], " "))
             .replace(Regex("\\s+"), " ").trim()
     }.take(1000).toList()
 

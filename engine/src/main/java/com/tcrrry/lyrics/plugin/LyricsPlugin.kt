@@ -24,7 +24,7 @@ class LyricsPlugin : AmppPlugin() {
     private val dialogs=java.util.Collections.newSetFromMap(java.util.WeakHashMap<android.app.Dialog,Boolean>())
     override fun onLoad(context: PluginContext) {
         if(context.hostPackageName !in setOf("com.apple.android.music","com.tcrrry.ampplyrics.coexist") || context.hostVersionCode!=1606L || context.hostVersionName!="7.0.0-beta")
-            throw PluginUnsupportedException("插件 1.0.3 仅适配 Apple Music 7.0.0-beta / 1606")
+            throw PluginUnsupportedException("插件 1.0.4 仅适配 Apple Music 7.0.0-beta / 1606")
         runtime=context;PluginLifetime.attach(context)
         context.claimResource("com.tcrrry.lyrics.settings",true)
         val storage=HostPrivateEmbeddedStorage(context.application)
@@ -50,8 +50,9 @@ class LyricsPlugin : AmppPlugin() {
         })
         context.onClose { android.os.Handler(android.os.Looper.getMainLooper()).post { onStop() } }
     }
-    override fun onStart() { runtime.log("Tcrrry Lyrics 1.0.3 started; baseline v1.5",null) }
+    override fun onStart() { runtime.log("Tcrrry Lyrics 1.0.4 started; baseline v1.5",null) }
     override fun onStop() {
+        RubyPronunciationRows.close()
         dialogs.toList().forEach { it.dismiss() };dialogs.clear()
         settingsViews.toList().forEach { (it.parent as? android.view.ViewGroup)?.removeView(it) };settingsViews.clear()
         PronunciationHeaderLayout.clearAll()
@@ -68,7 +69,7 @@ class LyricsPlugin : AmppPlugin() {
             if(activity.isFinishing || !PluginLifetime.alive) return
             body.removeAllViews()
             val prefs=configuration.settings()
-            body.addView(TextView(activity).apply { text="Tcrrry 歌词设置 · 插件 1.0.3";textSize=20f;setTextColor(SettingsUiTheme.colors(activity).text);setPadding(24,24,24,12) })
+            body.addView(TextView(activity).apply { text="Tcrrry 歌词设置 · 插件 1.0.4";textSize=20f;setTextColor(SettingsUiTheme.colors(activity).text);setPadding(24,24,24,12) })
             body.addView(Switch(activity).apply {
                 text="自动匹配歌词";isChecked=prefs.customLyricsEnabled && prefs.automaticLyricsEnabled
                 setTextColor(SettingsUiTheme.colors(activity).text)

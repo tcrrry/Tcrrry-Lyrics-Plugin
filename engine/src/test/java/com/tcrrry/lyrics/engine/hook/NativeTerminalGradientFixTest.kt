@@ -29,4 +29,12 @@ class NativeTerminalGradientFixTest {
             assertEquals(0.05f, terminalGradientMargin(0.05f, feather), 0f)
         }
     }
+    @Test fun latinWordsAndEmphasizedReadingsCannotBorrowTheCjkTailMargin() {
+        for(text in listOf("friends","childhood","ne","tto","watashi","shī","T")) {
+            assertFalse(text,terminalGradientNeedsCompensation(text))
+        }
+        for(text in listOf("溶","け","で","光","你","寒くない")) {
+            assertTrue(text,terminalGradientNeedsCompensation(text))
+        }
+    }
 }

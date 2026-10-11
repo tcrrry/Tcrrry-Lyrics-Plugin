@@ -10,6 +10,8 @@ internal fun terminalGradientMargin(original: Float, feather: Float): Float =
     if (original.isFinite() && feather.isFinite() && feather > 0f && feather <= 1f)
         maxOf(original, feather) else original
 
+internal fun terminalGradientNeedsCompensation(text: CharSequence): Boolean = containsCjkKaraokeScript(text)
+
 internal object NativeTerminalGradientFix {
     private val terminal = ThreadLocal<Boolean>()
     private data class Frame(val adapter: WeakReference<Any>, val row: Int, val word: Int,
@@ -31,6 +33,7 @@ internal object NativeTerminalGradientFix {
         val margin = adapter.declaredMethods.single { it.name == "c0" && Modifier.isStatic(it.modifiers) && it.parameterCount == 6 }
         val index = adapter.getDeclaredField("p").apply { isAccessible = true }
         val entry = build.parameterTypes[2]
+        val text = entry.getDeclaredField("c").apply { isAccessible = true }
         val rowId = entry.getDeclaredField("a").apply { isAccessible = true }
         val wordId = entry.getDeclaredField("b").apply { isAccessible = true }
         val lastByTable = WeakHashMap<Any, MutableMap<Int, Set<Int>>>()
@@ -95,7 +98,11 @@ internal object NativeTerminalGradientFix {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 param.extras["terminal-gradient-previous"] = terminal.get()
                 terminal.set(runCatching {
-                    param.args[7] != true && isTerminal(param.thisObject!!, param.args[2]!!)
+                    // Full-feather compensation is for the CJK zero-margin
+                    // branch only. Latin words/readings keep their own margin
+                    // and delayed sweep rather than borrowing a CJK tail rule.
+                    param.args[7] != true && terminalGradientNeedsCompensation(text.get(param.args[2]) as CharSequence) &&
+                        isTerminal(param.thisObject!!, param.args[2]!!)
                 }.getOrDefault(false))
             }
             override fun afterHookedMethod(param: MethodHookParam) {

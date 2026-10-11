@@ -8,6 +8,8 @@ internal class NativeLyricsMetadataRefresh(
     private val dispatch: ((() -> Unit) -> Unit),
     private val replay: (Any, Any) -> Unit,
     private val recovered: (Any, Long) -> Unit = { _, _ -> },
+    private val authoritative: (Any, TargetCurrentSong) -> Boolean = { _, _ -> false },
+    private val restoreAlias: (Any, TargetCurrentSong) -> Boolean = { _, _ -> false },
 ) {
     fun schedule(fragment: Any) {
         val snapshot = currentSong.current() ?: return
@@ -19,8 +21,13 @@ internal class NativeLyricsMetadataRefresh(
             if (currentSong.current() !== snapshot || !usable(live)) return@dispatch
             val id = snapshot.details.appleMusicId
             val oldId = itemId(live)
-            if (oldId == id || !currentSong.canRebind(oldId, id)) return@dispatch
-            replay(live, metadata)
+            if (oldId == id) return@dispatch
+            val verified = authoritative(live, snapshot)
+            if (!verified && !currentSong.canRebind(oldId, id)) return@dispatch
+            // Same-persistent-ID aliases need no metadata replay: doing so would
+            // repeat the library fetch which caused the ID overwrite in the first place.
+            if (!verified || !restoreAlias(live, snapshot)) replay(live, metadata)
+            if (currentSong.current() === snapshot && itemId(live) != id && verified) restoreAlias(live, snapshot)
             if (currentSong.current() === snapshot && itemId(live) == id) recovered(live, id)
         }
     }

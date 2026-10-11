@@ -74,28 +74,21 @@ internal object NativeLyricsSourceMenu {
             object : ModernMethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     val context = application?.get() ?: return
-                    if (NativeLyricsEmphasisVisibility.synchronize(context, param.args[0] == true))
-                        param.extras["refresh-emphasis"] = true
-                }
-                override fun afterHookedMethod(param: MethodHookParam) {
-                    if (param.extras.remove("refresh-emphasis") == true && param.throwable == null)
-                        currentId()?.let { CurrentLyricsSourceStatus.refreshSilently(it) }
+                    val native = param.args[0] as? Boolean ?: return
+                    param.args[0] = NativeLyricsEmphasisVisibility.effective(context, native)
                 }
             })
         fun bind(root: View?, fragment: Any?) {
             root ?: return
             val context = root.context.applicationContext
             application = WeakReference(context)
-            val visible = runCatching {
+            runCatching {
                 val field = fragment?.javaClass?.declaredFields?.singleOrNull {
                     it.type.name == "com.apple.android.music.player.viewmodel.PlayerLyricsViewModel"
                 }?.apply { isAccessible = true }
                 val model = field?.get(fragment) ?: return@runCatching null
-                val live = model.javaClass.getMethod("getPronunciationSelectedLiveResult").invoke(model)
-                live.javaClass.getMethod("getValue").invoke(live) as? Boolean
-            }.getOrNull()
-            if (visible != null && NativeLyricsEmphasisVisibility.synchronize(context, visible))
-                currentId()?.let { CurrentLyricsSourceStatus.refreshSilently(it) }
+                NativeLyricsAuxiliaryControls.restorePronunciation(context, model)
+            }.onFailure { ModernXposedRuntime.log("saved pronunciation visibility restoration failed", it) }
             val id = root.resources.getIdentifier("translations_button", "id", ModuleConstants.RESOURCE_PACKAGE)
             val button = root.findViewById<View>(id) ?: return
             registerAnchor(button)

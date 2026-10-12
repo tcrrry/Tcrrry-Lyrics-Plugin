@@ -7,19 +7,19 @@ import android.view.View
  * Callers must additionally establish that this is their exact current replacement.
  */
 internal class NativeTimedLyricsPage private constructor(private val type: Class<*>) {
-    private fun field(name: String) = type.getDeclaredField(name).apply { isAccessible = true }
+    private fun field(name: String) = type.lyricsDeclaredField(name).apply { isAccessible = true }
     private val pointer = field("h1")
     private val adapter = field("p0")
     private val adapterPointer = adapter.type.getMethod("y")
     private val binding = field("n0")
-    private val recycler = binding.type.getDeclaredField("f0").apply { isAccessible = true }
-    private val loading = binding.type.getDeclaredField("e0").apply { isAccessible = true }
+    private val recycler = binding.type.lyricsDeclaredField("f0").apply { isAccessible = true }
+    private val loading = binding.type.lyricsDeclaredField("e0").apply { isAccessible = true }
     private val getAdapter = recycler.type.getMethod("getAdapter")
     private val getView = type.getMethod("getView")
     private val hidden = type.getMethod("isHidden")
     private val timed = field("E0")
     private val state = field("G0")
-    private val value = state.type.getDeclaredField("a").apply { isAccessible = true }
+    private val value = state.type.lyricsDeclaredField("a").apply { isAccessible = true }
     private val notifyChange = state.type.getMethod("notifyChange")
     private val render = type.getDeclaredMethod("B2", pointer.type, Boolean::class.javaPrimitiveType)
     private val auxiliary = type.getDeclaredMethod("F2", pointer.type)

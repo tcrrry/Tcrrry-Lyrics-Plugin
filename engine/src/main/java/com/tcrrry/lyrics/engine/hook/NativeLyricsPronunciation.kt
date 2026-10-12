@@ -10,8 +10,8 @@ internal object NativeLyricsPronunciationPolicy {
 internal object NativeLyricsPronunciation {
     fun install(loader: ClassLoader) {
         runCatching {
-            val vector = loader.loadClass("com.apple.android.mediaservices.javanative.common.StringVector\$StringVectorNative")
-            val locale = loader.loadClass("com.apple.android.music.playback.util.LocaleUtil")
+            val vector = loader.lyricsClass("com.apple.android.mediaservices.javanative.common.StringVector\$StringVectorNative")
+            val locale = loader.lyricsClass("com.apple.android.music.playback.util.LocaleUtil")
             val size = vector.getMethod("size").apply { isAccessible = true }
             val get = vector.getMethod("get", Long::class.javaPrimitiveType).apply { isAccessible = true }
             val match = locale.getDeclaredMethod("matchToSystemLyricsScript", vector).apply { isAccessible = true }

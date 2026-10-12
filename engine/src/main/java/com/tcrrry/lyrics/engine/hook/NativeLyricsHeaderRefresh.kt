@@ -27,7 +27,7 @@ internal class NativeLyricsHeaderRefresh(
         fun resolve(fragment: Class<*>, seam: CurrentItemIdentitySeam): NativeLyricsHeaderRefresh? = runCatching {
             // This contract is verified against the fixed 7.0.0/1606 input only.
             if (fragment.declaredMethods.none { it.name == "w2" }) return null
-            val binding = fragment.getDeclaredField("n0").apply { isAccessible = true }
+            val binding = fragment.lyricsDeclaredField("n0").apply { isAccessible = true }
             val methods = binding.type.methods
             val track = methods.single { it.name == "q0" && it.parameterTypes.singleOrNull()?.name == "com.apple.android.music.model.PlaybackItem" }
             val context = methods.single { it.name == "p0" && it.parameterTypes.singleOrNull()?.name == "com.apple.android.music.model.CollectionItemView" }

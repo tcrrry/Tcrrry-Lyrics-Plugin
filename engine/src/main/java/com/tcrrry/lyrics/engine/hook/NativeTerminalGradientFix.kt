@@ -31,11 +31,11 @@ internal object NativeTerminalGradientFix {
     fun install(adapter: Class<*>): Boolean = runCatching {
         val build = adapter.declaredMethods.single { it.name == "d0" && it.parameterCount == 9 }
         val margin = adapter.declaredMethods.single { it.name == "c0" && Modifier.isStatic(it.modifiers) && it.parameterCount == 6 }
-        val index = adapter.getDeclaredField("p").apply { isAccessible = true }
+        val index = adapter.lyricsDeclaredField("p").apply { isAccessible = true }
         val entry = build.parameterTypes[2]
-        val text = entry.getDeclaredField("c").apply { isAccessible = true }
-        val rowId = entry.getDeclaredField("a").apply { isAccessible = true }
-        val wordId = entry.getDeclaredField("b").apply { isAccessible = true }
+        val text = entry.lyricsDeclaredField("c").apply { isAccessible = true }
+        val rowId = entry.lyricsDeclaredField("a").apply { isAccessible = true }
+        val wordId = entry.lyricsDeclaredField("b").apply { isAccessible = true }
         val lastByTable = WeakHashMap<Any, MutableMap<Int, Set<Int>>>()
         fun isTerminal(target: Any, word: Any): Boolean {
             val table = index.get(target) ?: return false
@@ -68,7 +68,7 @@ internal object NativeTerminalGradientFix {
             lastByTable.getOrPut(table) { mutableMapOf() }[row] = ids
             return expected in ids
         }
-        val listener = Class.forName("com.apple.android.music.player.u", false, adapter.classLoader)
+        val listener = lyricsClassForName("com.apple.android.music.player.u", false, adapter.classLoader)
             .getMethod("onAnimationUpdate", ValueAnimator::class.java)
         ModernXposedRuntime.hookMethod(listener, object : ModernMethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {

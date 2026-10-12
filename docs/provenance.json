@@ -9,7 +9,7 @@
     "assets/host-profiles/6.5.2-1586.json": "e8c149d9adc4c3304fa73170dd89942656ba0873b23c67fe26c12d27497fe65a",
     "assets/host-profiles/6.5.3-1599.json": "1ccd87e7ae6224b11b14e81fd8f997c81c9b967e370c3e61bf1111a1d4ec6d2e",
     "assets/host-profiles/7.0.0-beta-1606.json": "54f0450b098e95f637035fd35b4f3993e2ef4620357c5879cee4fbca913bc78e",
-    "assets/host-profiles/index.json": "a977e15230d488a21d2788c02c0b4c3da016fd0526e5f32f8790f577bb2e7fec",
+    "assets/host-profiles/index.json": "9f53df62faf54237f502b2d5e4ab9c400b09d114449be14dea7069079176cdbc",
     "assets/kuromoji/characterDefinitions.bin": "01c110da81135a32205da569b0378cab327b804c82341651bc55bd54b9d13370",
     "assets/kuromoji/connectionCosts.bin": "e5901a20a644adb0b1cc6b19029af47492aa51e8221547dbf3b500ce86206929",
     "assets/kuromoji/doubleArrayTrie.bin": "80d1c8ce6000d261351f4798e9bd38bc207b3c3c2a59b6caee63b42629dcb26c",
@@ -25,11 +25,18 @@
     "assets/pronunciation/yue/jyut6ping3.words.dict.yaml": "54d174ad2bb997e4a678b7b076b84e4dc5914481b32467cdea3b43e88b7d5474",
     "assets/pronunciation-modules.json": "af2b466aca4f6084be7f1500ef044df97f0d2785e6f2b1851aa09f23889303ca",
     "assets/licenses/kuromoji-LICENSE.md": "76b21bab0528f2bb16cd6ce93388d2cc50e5b30ace75d18562f3f0d79270a5bb",
-    "assets/licenses/kuromoji-NOTICE.md": "c408a3e8e875434560dbb9ab8d4a78b6e3abc90bd3a57d12d0b41cac99d287bf"
+    "assets/licenses/kuromoji-NOTICE.md": "c408a3e8e875434560dbb9ab8d4a78b6e3abc90bd3a57d12d0b41cac99d287bf",
+    "assets/host-profiles/7.0.0-beta-1609.json": "d6cf20b3d38b8c4383200656ac1afeb55e1a5c040573d3bcfeb82b3e985c2396"
   },
   "authorAcceptanceSource": {
     "PluginPackages.kt": "9463264fad248e5ca77b9bcde74436a81c0fd9d8974dc69df2a55ac776a0e52d",
     "PluginStoreTest.kt": "9c282b385403898aa93dabda92d28f35a2be308bb7a559fece81a98ca216293a",
     "PluginTasks.kt": "bf0e9638d8a8f75f736b9d5abe004acf6f6f2d7f369922574efdcf6254c27490"
+  },
+  "host1609Source": {
+    "repository": "https://github.com/Zennmn/AM-plus-plus",
+    "profilePath": "host-applemusic/src/main/resources/host-profiles/7.0.0-beta-1609.json",
+    "sourceSha256": "d9e8e55551b67a0a76582d89edc2f0fc10322773776356a57e51c680af36d368",
+    "commit": "3547a833dac819a23b8515784601873d1d27ed47"
   }
 }

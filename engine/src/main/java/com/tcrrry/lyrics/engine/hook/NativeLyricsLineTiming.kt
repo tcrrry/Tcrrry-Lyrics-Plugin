@@ -34,7 +34,7 @@ internal object NativeLyricsLineTiming {
     private val applying = ThreadLocal<Boolean>()
 
     fun install(loader: ClassLoader) = runCatching {
-        val native = Class.forName("com.apple.android.music.ttml.javanative.SongInfoTimeProcessorJavaCpp\$SongInfoTimeProcessorNative", false, loader)
+        val native = lyricsClassForName("com.apple.android.music.ttml.javanative.SongInfoTimeProcessorJavaCpp\$SongInfoTimeProcessorNative", false, loader)
         val setter = native.getMethod("suggestLineOffset", Int::class.javaPrimitiveType)
         val setterInstalled = ModernXposedRuntime.hookMethod(setter, object : ModernMethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
@@ -48,8 +48,8 @@ internal object NativeLyricsLineTiming {
                 }
             }
         })
-        val fragment = Class.forName("com.apple.android.music.player.fragment.PlayerLyricsViewFragment", false, loader)
-        val owner = fragment.getDeclaredField("b1").apply { isAccessible = true }
+        val fragment = lyricsClassForName("com.apple.android.music.player.fragment.PlayerLyricsViewFragment", false, loader)
+        val owner = fragment.lyricsDeclaredField("b1").apply { isAccessible = true }
         val processor = owner.type.getMethod("a")
         val adjust = fragment.getDeclaredMethod("d2", fragment, Int::class.javaPrimitiveType)
         val adjustInstalled = ModernXposedRuntime.hookMethod(adjust, object : ModernMethodHook() {

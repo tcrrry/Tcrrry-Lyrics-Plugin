@@ -40,7 +40,7 @@ internal class NativeLyricsPlaybackClock private constructor(
                 method(browser.returnType, "isPlaying"), method(browser.returnType, "getPlaybackState"),
                 method(fragment, "y2", Int::class.javaPrimitiveType!!),
                 generateSequence(fragment) { it.superclass }.mapNotNull {
-                    runCatching { it.getDeclaredField("X").apply { isAccessible = true } }.getOrNull()
+                    runCatching { it.lyricsDeclaredField("X").apply { isAccessible = true } }.getOrNull()
                 }.firstOrNull()?.takeIf { Handler::class.java.isAssignableFrom(it.type) })
         }.onFailure { ModernXposedRuntime.log("Independent lyric playback clock unavailable", it) }.getOrNull()
     }

@@ -50,16 +50,16 @@ internal class NativeLyricsPageIdentity(
             check(fragment.name == "com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
             val browser = fragment.getMethod("getMediaBrowser").apply { isAccessible = true }
             val metadata = browser.returnType.getMethod("i0").apply { isAccessible = true }
-            check(metadata.returnType.name == "z3.w")
-            val bundle = metadata.returnType.getDeclaredField("J").apply { isAccessible = true }
+            check(metadata.returnType.name == NativeLyricsHostContract.className("z3.w"))
+            val bundle = metadata.returnType.lyricsDeclaredField("J").apply { isAccessible = true }
             check(bundle.type == Bundle::class.java)
-            val converter = Class.forName("com.apple.android.music.player.P", false, fragment.classLoader)
+            val converter = lyricsClassForName("com.apple.android.music.player.P", false, fragment.classLoader)
                 .getDeclaredMethod("b", metadata.returnType).apply { isAccessible = true }
             check(Modifier.isStatic(converter.modifiers))
-            val base = Class.forName("com.apple.android.music.model.BaseContentItem", false, fragment.classLoader)
+            val base = lyricsClassForName("com.apple.android.music.model.BaseContentItem", false, fragment.classLoader)
             val getId = base.getMethod("getId")
             val persistent = base.getMethod("getPersistentId")
-            val queue = Class.forName("com.apple.android.music.model.PlaybackItem", false, fragment.classLoader)
+            val queue = lyricsClassForName("com.apple.android.music.model.PlaybackItem", false, fragment.classLoader)
                 .getMethod("getQueueId")
             val enrich = base.getMethod("overwriteLibraryDataFrom", base)
             val setId = base.getMethod("setId", String::class.java)

@@ -33,7 +33,7 @@ internal object NativeLyricsAuxiliaryControls {
         fun select(pronunciation: Boolean, selected: Boolean): Boolean {
             // Use the same native UI setter as Apple's own menu, so the choice survives
             // switching songs and restarting. Never read/write the host preference files.
-            val setter = model.javaClass.classLoader!!.loadClass("ja.i0")
+            val setter = model.javaClass.classLoader!!.lyricsClass("ja.i0")
                 .getDeclaredMethod(if (pronunciation) "m" else "n", Boolean::class.javaPrimitiveType)
             val applyNative = { setter.invoke(null, selected); Unit }
             return if (pronunciation && context != null) NativeLyricsEmphasisVisibility.choose(context, selected, applyNative)
@@ -71,7 +71,7 @@ internal object NativeLyricsAuxiliaryControls {
         val live = model.javaClass.getMethod("getPronunciationSelectedLiveResult").invoke(model) ?: return
         if (live.javaClass.getMethod("getValue").invoke(live) == desired) return
         // Use the already verified native menu setter; never edit host files.
-        model.javaClass.classLoader!!.loadClass("ja.i0")
+        model.javaClass.classLoader!!.lyricsClass("ja.i0")
             .getDeclaredMethod("m", Boolean::class.javaPrimitiveType).invoke(null, desired)
         if (live.javaClass.getMethod("getValue").invoke(live) != desired) {
             // Some native configuration notifications are asynchronous. Bring
@@ -89,8 +89,8 @@ internal object NativeLyricsAuxiliaryControls {
 
     fun install(loader: ClassLoader) {
         runCatching {
-            val fragment = loader.loadClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
-            val pointer = loader.loadClass("com.apple.android.music.ttml.javanative.model.SongInfo\$SongInfoPtr")
+            val fragment = loader.lyricsClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
+            val pointer = loader.lyricsClass("com.apple.android.music.ttml.javanative.model.SongInfo\$SongInfoPtr")
             // I2 consults these Java predicates while creating an adapter. A replay
             // after F2 alone is too early when no adapter exists yet on first open.
             for ((name, pronunciation) in listOf("t2" to true, "u2" to false)) {

@@ -152,22 +152,22 @@ internal object NativeLyricsPronunciationSubtitle {
 
     fun install(loader: ClassLoader, build: TargetBuild = TargetBuild.UNKNOWN) {
         installPronunciationStyleGuard()
-        val modern = build.versionName == "7.0.0-beta" && build.versionCode == 1606L
+        val modern = build.versionName == "7.0.0-beta" && build.versionCode in setOf(1606L, 1609L)
         if (modern) NativeLineLyricsPresentation.install(loader)
         runCatching {
-            val adapter = loader.loadClass("com.apple.android.music.player.A")
-            val base = loader.loadClass(if (modern) "com.apple.android.music.player.n1" else "com.apple.android.music.player.i1")
-            val holder = loader.loadClass("androidx.recyclerview.widget.RecyclerView\$D")
-            val line = loader.loadClass("com.apple.android.music.ttml.javanative.model.LyricsLine\$LyricsLineNative")
-            val flexbox = loader.loadClass("com.apple.android.music.common.views.FullWidthAlphaGradientFlexboxLayout")
+            val adapter = loader.lyricsClass("com.apple.android.music.player.A")
+            val base = loader.lyricsClass(if (modern) "com.apple.android.music.player.n1" else "com.apple.android.music.player.i1")
+            val holder = loader.lyricsClass("androidx.recyclerview.widget.RecyclerView\$D")
+            val line = loader.lyricsClass("com.apple.android.music.ttml.javanative.model.LyricsLine\$LyricsLineNative")
+            val flexbox = loader.lyricsClass("com.apple.android.music.common.views.FullWidthAlphaGradientFlexboxLayout")
             val subtitle = adapter.getDeclaredMethod(if (modern) "U" else "Z", String::class.java, flexbox,
                 Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
             val rebuild = adapter.declaredMethods.single { it.name == (if (modern) "b0" else "g0") && it.parameterTypes.size == 7 }
-            val rowView = holder.getDeclaredField("a").apply { isAccessible = true }
+            val rowView = holder.lyricsDeclaredField("a").apply { isAccessible = true }
             val pointer = adapter.getMethod(if (modern) "y" else "D")
             val type = adapter.getMethod(if (modern) "f" else "k", Int::class.javaPrimitiveType)
             val index = adapter.getMethod(if (modern) "E" else "J", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
-            val processor = adapter.getDeclaredField("p").apply { isAccessible = true }
+            val processor = adapter.lyricsDeclaredField("p").apply { isAccessible = true }
             val lineAt = processor.type.getMethod("a", Int::class.javaPrimitiveType)
             val dereference = lineAt.returnType.getMethod("get")
             val id = line.getMethod("getLineId")
@@ -176,17 +176,17 @@ internal object NativeLyricsPronunciationSubtitle {
             val translation = line.getMethod("getHtmlTranslationLineText")
             val backgroundTranslation = line.getMethod("getHtmlTranslatedBackgroundVocalsLineText")
             val original = line.getMethod("getHtmlLineText")
-            val bindingHolder = loader.loadClass(if (modern) "com.apple.android.music.player.n1\$b" else "com.apple.android.music.player.i1\$b")
-            val rowBinding = bindingHolder.getDeclaredField("u").apply { isAccessible = true }
+            val bindingHolder = loader.lyricsClass(if (modern) "com.apple.android.music.player.n1\$b" else "com.apple.android.music.player.i1\$b")
+            val rowBinding = bindingHolder.lyricsDeclaredField("u").apply { isAccessible = true }
             // Verified 1606 karaoke binding; old profiles fail open instead of hiding text.
-            val bindingType = loader.loadClass("q8.p9")
-            val mainWords = bindingType.getDeclaredField("a0").apply { isAccessible = true }
-            val backgroundWords = bindingType.getDeclaredField("Z").apply { isAccessible = true }
+            val bindingType = loader.lyricsClass("q8.p9")
+            val mainWords = bindingType.lyricsDeclaredField("a0").apply { isAccessible = true }
+            val backgroundWords = bindingType.lyricsDeclaredField("Z").apply { isAccessible = true }
             // 1606's word model caches the original Flex-line mask key per
             // native timed binding. Ruby reflow must refresh those references.
             val karaokeMaps=if(modern) runCatching {
-                val type=loader.loadClass("com.apple.android.music.player.A\$a")
-                type to listOf("G","H").map { type.getDeclaredField(it).apply { isAccessible=true } }
+                val type=loader.lyricsClass("com.apple.android.music.player.A\$a")
+                type to listOf("G","H").map { type.lyricsDeclaredField(it).apply { isAccessible=true } }
             }.onFailure { ModernXposedRuntime.log("Ruby word-mask references unavailable; kept auxiliary presentation",it) }.getOrNull() else null
             fun containers(row: Any): List<Pair<ViewGroup, Boolean>> {
                 val nativeBinding = rowBinding.get(row)
@@ -194,13 +194,13 @@ internal object NativeLyricsPronunciationSubtitle {
                 return listOf((mainWords.get(nativeBinding) as ViewGroup) to false,
                     (backgroundWords.get(nativeBinding) as ViewGroup) to true)
             }
-            val translationFlag = base.getDeclaredField("d").apply { isAccessible = true }
-            val pronunciationFlag = base.getDeclaredField("e").apply { isAccessible = true }
+            val translationFlag = base.lyricsDeclaredField("d").apply { isAccessible = true }
+            val pronunciationFlag = base.lyricsDeclaredField("e").apply { isAccessible = true }
             val fullBind = adapter.getDeclaredMethod(if (modern) "k" else "p", holder, Int::class.javaPrimitiveType).apply { isAccessible = true }
             val partialBind = adapter.getDeclaredMethod(if (modern) "l" else "q", holder, Int::class.javaPrimitiveType, List::class.java).apply { isAccessible = true }
-            val pending = loader.loadClass(if (modern) "com.apple.android.music.player.n1\$b" else "com.apple.android.music.player.i1\$b").getDeclaredField("y").apply { isAccessible = true }
-            val cachedText = loader.loadClass(if (modern) "com.apple.android.music.player.n1\$b" else "com.apple.android.music.player.i1\$b").getDeclaredField("v").apply { isAccessible = true }
-            val payloads = listOf("h", "i").map { base.getDeclaredField(it).apply { isAccessible = true }.get(null) }
+            val pending = loader.lyricsClass(if (modern) "com.apple.android.music.player.n1\$b" else "com.apple.android.music.player.i1\$b").lyricsDeclaredField("y").apply { isAccessible = true }
+            val cachedText = loader.lyricsClass(if (modern) "com.apple.android.music.player.n1\$b" else "com.apple.android.music.player.i1\$b").lyricsDeclaredField("v").apply { isAccessible = true }
+            val payloads = listOf("h", "i").map { base.lyricsDeclaredField(it).apply { isAccessible = true }.get(null) }
             var enabled = false
             val bindings = NativeAuxiliaryBindingState()
             fun owns(value: Any?): Boolean = enabled && value != null && isManagedWord(pointer.invoke(value))

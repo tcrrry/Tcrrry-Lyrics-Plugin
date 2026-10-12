@@ -4,9 +4,9 @@
   "id": "com.tcrrry.lyrics",
   "name": "Tcrrry 歌词增强",
   "author": "Tcrrry",
-  "versionName": "1.0.4",
-  "versionCode": 20,
+  "versionName": "1.0.5",
+  "versionCode": 21,
   "entryClass": "com.tcrrry.lyrics.plugin.LyricsPlugin",
   "minAndroidApi": 31,
-  "description": "修复自传歌曲歌词加载与同步，新增字词对应发音，优化多行逐字高亮与单曲循环平滑回位。"
+  "description": "适配 AM++ 1012 嵌入版 Apple Music 1609，保留 1606 兼容及歌词增强功能。"
 }

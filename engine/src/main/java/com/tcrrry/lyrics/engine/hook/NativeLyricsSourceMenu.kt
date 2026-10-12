@@ -67,9 +67,9 @@ internal object NativeLyricsSourceMenu {
     fun install(loader: ClassLoader, currentId: () -> Long?, openSettings: (Activity) -> Unit, build: TargetBuild = TargetBuild.UNKNOWN) {
         NativeLyricsPronunciation.install(loader)
         NativeLyricsPronunciationSubtitle.install(loader, build)
-        val fragment = loader.loadClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
+        val fragment = loader.lyricsClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
         var application: WeakReference<Context>? = null
-        val visibilityObserver = loader.loadClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment\$37")
+        val visibilityObserver = loader.lyricsClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment\$37")
         ModernXposedRuntime.hookMethod(visibilityObserver.getDeclaredMethod("onChanged", java.lang.Boolean::class.java),
             object : ModernMethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
@@ -128,8 +128,8 @@ internal object NativeLyricsSourceMenu {
         installPopupHooks(currentId, openSettings)
         NativeLyricsAuxiliaryControls.install(loader)
         runCatching {
-            val click = loader.loadClass("com.apple.android.music.player.fragment.b0")
-            val page = click.getDeclaredField("a").apply { isAccessible = true }
+            val click = loader.lyricsClass("com.apple.android.music.player.fragment.b0")
+            val page = click.lyricsDeclaredField("a").apply { isAccessible = true }
             ModernXposedRuntime.hookMethod(click.getDeclaredMethod("onClick", View::class.java), object : ModernMethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
                     runCatching {

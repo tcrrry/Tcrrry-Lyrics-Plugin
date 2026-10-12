@@ -120,20 +120,20 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
         // The verified 1606 adapter cancels foreground/background word animators in o0's exit path.
         if (fragmentClass == null || fragmentClass.declaredMethods.none { it.name == "w2" }) return {}
         return runCatching {
-            val adapter = Class.forName("com.apple.android.music.player.A", false, fragmentClass.classLoader)
+            val adapter = lyricsClassForName("com.apple.android.music.player.A", false, fragmentClass.classLoader)
             RubyGradientBounds.installNative(adapter)
             NativeTerminalGradientFix.install(adapter)
             NativeLyricsLineTiming.install(fragmentClass.classLoader)
             val leaving = adapter.getDeclaredMethod("o0", Int::class.javaPrimitiveType)
             require(leaving.returnType == Boolean::class.javaPrimitiveType)
             val pointer = adapter.getDeclaredMethod("y")
-            val holder = Class.forName("com.apple.android.music.player.A\$a", false, fragmentClass.classLoader)
+            val holder = lyricsClassForName("com.apple.android.music.player.A\$a", false, fragmentClass.classLoader)
             val position = holder.getMethod("d")
             val lineForPosition = adapter.getDeclaredMethod("E", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
             val highlighted = adapter.getMethod("w")
-            val wordBindings = holder.getDeclaredField("G").apply { isAccessible = true }
-            val wordLine = Class.forName("com.apple.android.music.player.viewmodel.PlayerLyricsViewModel\$e",
-                false, fragmentClass.classLoader).getDeclaredField("a").apply { isAccessible = true }
+            val wordBindings = holder.lyricsDeclaredField("G").apply { isAccessible = true }
+            val wordLine = lyricsClassForName("com.apple.android.music.player.viewmodel.PlayerLyricsViewModel\$e",
+                false, fragmentClass.classLoader).lyricsDeclaredField("a").apply { isAccessible = true }
             val pending = WeakHashMap<Any, MutableMap<Int, WeakReference<Any>>>()
             val main = com.tcrrry.lyrics.plugin.PluginHandler(Looper.getMainLooper())
             // Only an already bound departing karaoke row may retain its masks.
@@ -151,7 +151,7 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
             // O's notifyItemChanged ultimately enters k, not i0. k owns word-view
             // rebuilding and mask initialization even when i0 is never called.
             val fullBind = adapter.getDeclaredMethod("k",
-                Class.forName("androidx.recyclerview.widget.RecyclerView\$D", false, fragmentClass.classLoader),
+                lyricsClassForName("androidx.recyclerview.widget.RecyclerView\$D", false, fragmentClass.classLoader),
                 Int::class.javaPrimitiveType)
             val nativeBindInstalled = ModernXposedRuntime.hookMethod(fullBind, object : XC_MethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
@@ -172,7 +172,7 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
                 }
             }
             for (name in listOf("F", "i0", "t0")) runCatching {
-                val method = if (name == "F") adapter.getDeclaredMethod(name, Class.forName("androidx.recyclerview.widget.RecyclerView\$D", false, fragmentClass.classLoader))
+                val method = if (name == "F") adapter.getDeclaredMethod(name, lyricsClassForName("androidx.recyclerview.widget.RecyclerView\$D", false, fragmentClass.classLoader))
                     else adapter.getDeclaredMethod(name, holder, Int::class.javaPrimitiveType)
                 val registered = ModernXposedRuntime.hookMethod(method, object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {

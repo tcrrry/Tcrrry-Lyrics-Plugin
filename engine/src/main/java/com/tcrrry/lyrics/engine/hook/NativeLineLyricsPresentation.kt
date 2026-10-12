@@ -70,28 +70,28 @@ internal object NativeLineLyricsPresentation {
 
     fun install(loader: ClassLoader) {
         runCatching {
-            val adapter = loader.loadClass("com.apple.android.music.player.Y0")
-            val base = loader.loadClass("com.apple.android.music.player.n1")
-            val holder = loader.loadClass("androidx.recyclerview.widget.RecyclerView\$D")
-            val nativeHolder = loader.loadClass("com.apple.android.music.player.n1\$b")
-            val row = holder.getDeclaredField("a")
-            val binding = nativeHolder.getDeclaredField("u").apply { isAccessible = true }
-            val nativeBinding = loader.loadClass("q8.l9")
-            val original = nativeBinding.getField("b0")
-            val pronunciation = nativeBinding.getField("Z")
-            val translation = nativeBinding.getField("a0")
+            val adapter = loader.lyricsClass("com.apple.android.music.player.Y0")
+            val base = loader.lyricsClass("com.apple.android.music.player.n1")
+            val holder = loader.lyricsClass("androidx.recyclerview.widget.RecyclerView\$D")
+            val nativeHolder = loader.lyricsClass("com.apple.android.music.player.n1\$b")
+            val row = holder.lyricsDeclaredField("a")
+            val binding = nativeHolder.lyricsDeclaredField("u").apply { isAccessible = true }
+            val nativeBinding = loader.lyricsClass("q8.l9")
+            val original = nativeBinding.lyricsField("b0")
+            val pronunciation = nativeBinding.lyricsField("Z")
+            val translation = nativeBinding.lyricsField("a0")
             val pointer = adapter.getMethod("y")
             val type = adapter.getMethod("f", Int::class.javaPrimitiveType)
             val index = adapter.getMethod("E", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
-            val processor = adapter.getDeclaredField("m").apply { isAccessible = true }
+            val processor = adapter.lyricsDeclaredField("m").apply { isAccessible = true }
             val lineAt = processor.type.getMethod("a", Int::class.javaPrimitiveType)
             val dereference = lineAt.returnType.getMethod("get")
             val nativeLine = dereference.returnType
             val nativeOriginal = nativeLine.getMethod("getHtmlLineText")
             val nativePronunciation = nativeLine.getMethod("getHtmlPronunciationLineText")
             val nativeTranslation = nativeLine.getMethod("getHtmlTranslationLineText")
-            val pronounced = base.getDeclaredField("e").apply { isAccessible = true }
-            val translated = base.getDeclaredField("d").apply { isAccessible = true }
+            val pronounced = base.lyricsDeclaredField("e").apply { isAccessible = true }
+            val translated = base.lyricsDeclaredField("d").apply { isAccessible = true }
             val full = adapter.getDeclaredMethod("k", holder, Int::class.javaPrimitiveType)
             val partial = adapter.getDeclaredMethod("l", holder, Int::class.javaPrimitiveType, List::class.java)
             var enabled = false

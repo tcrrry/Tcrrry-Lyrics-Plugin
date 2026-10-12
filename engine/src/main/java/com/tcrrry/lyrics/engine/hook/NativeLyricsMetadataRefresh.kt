@@ -37,10 +37,10 @@ internal class NativeLyricsMetadataRefresh(
             if (fragment.declaredMethods.none { it.name == "w2" }) return null
             val owner = generateSequence(fragment) { it.superclass }
                 .single { it.name == "com.apple.android.music.player.fragment.e" }
-            val listener = owner.getDeclaredField("g0").apply { isAccessible = true }
+            val listener = owner.lyricsDeclaredField("g0").apply { isAccessible = true }
             check(listener.type.name == "com.apple.android.music.player.fragment.e\$d")
             val publish = listener.type.getDeclaredMethod("onMediaMetadataChanged",
-                Class.forName("z3.w", false, fragment.classLoader)).apply { isAccessible = true }
+                lyricsClassForName("z3.w", false, fragment.classLoader)).apply { isAccessible = true }
             check(publish.returnType == Void.TYPE)
             val replay: (Any, Any) -> Unit = { page, metadata ->
                 if (publish.parameterTypes.single().isInstance(metadata)) {

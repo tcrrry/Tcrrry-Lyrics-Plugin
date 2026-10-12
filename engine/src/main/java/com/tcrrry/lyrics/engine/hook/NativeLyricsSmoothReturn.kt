@@ -86,8 +86,8 @@ internal class NativeLyricsSmoothReturn constructor(
     companion object {
         fun resolve(fragment: Class<*>): NativeLyricsSmoothReturn? = runCatching {
             val loader = fragment.classLoader
-            fun type(name: String) = Class.forName(name, false, loader)
-            fun field(type: Class<*>, name: String) = type.getDeclaredField(name).apply { isAccessible = true }
+            fun type(name: String) = lyricsClassForName(name, false, loader)
+            fun field(type: Class<*>, name: String) = type.lyricsDeclaredField(name).apply { isAccessible = true }
             val recycler = type("androidx.recyclerview.widget.RecyclerView")
             val layout = type("androidx.recyclerview.widget.LinearLayoutManager")
             val scroller = type("androidx.recyclerview.widget.t")

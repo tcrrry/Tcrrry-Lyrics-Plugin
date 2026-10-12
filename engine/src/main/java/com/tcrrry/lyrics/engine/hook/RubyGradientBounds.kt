@@ -155,7 +155,7 @@ internal class RubyGradientBounds private constructor(type: Class<*>) {
     }
 
     companion object {
-        private fun field(type: Class<*>, name: String) = type.getDeclaredField(name).apply { isAccessible = true }
+        private fun field(type: Class<*>, name: String) = type.lyricsDeclaredField(name).apply { isAccessible = true }
         private val ports = mutableMapOf<Class<*>, RubyGradientBounds>()
         private val nativeTypes = mutableSetOf<Class<*>>()
         private val owned = WeakHashMap<ViewGroup, RubyGradientBounds>()

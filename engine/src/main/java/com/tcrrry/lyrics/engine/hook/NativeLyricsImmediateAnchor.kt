@@ -8,9 +8,9 @@ import com.tcrrry.lyrics.plugin.PluginLifetime
 
 /** Replay the native scroll callback after a new lyrics pointer's layout, without changing playback. */
 internal class NativeLyricsImmediateAnchor private constructor(private val fragmentClass: Class<*>) {
-    private fun field(name: String) = fragmentClass.getDeclaredField(name).apply { isAccessible = true }
+    private fun field(name: String) = fragmentClass.lyricsDeclaredField(name).apply { isAccessible = true }
     private val binding = field("n0")
-    private val recycler = binding.type.getDeclaredField("f0").apply { isAccessible = true }
+    private val recycler = binding.type.lyricsDeclaredField("f0").apply { isAccessible = true }
     private val scrollState = recycler.type.getMethod("getScrollState")
     private val pointer = field("h1")
     private val adapter = field("p0")

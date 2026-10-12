@@ -1,15 +1,20 @@
 # Tcrrry Lyrics Plugin
 
-适用于 [AM++](https://github.com/Zennmn/AM-plus-plus) SDK v1 的第三方独立歌词插件，由 Tcrrry 维护。当前正式版本 **1.0.4**，针对 Apple Music **7.0.0-beta / 1606**。
+适用于 [AM++](https://github.com/Zennmn/AM-plus-plus) SDK v1 的第三方独立歌词插件，由 Tcrrry 维护。当前正式版本 **1.0.5**，针对 Apple Music **7.0.0-beta / 1606、1609**。
 
-[![下载插件 ZIP｜1.0.4](docs/images/downloads/plugin-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.4/Tcrrry-Lyrics-Plugin-1.0.4.zip)
-[![下载离线翻译 APK](docs/images/downloads/offline-apk.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.4/Tcrrry-Lyrics-Offline-1.0.3.apk)
+[![下载插件 ZIP｜1.0.5](docs/images/downloads/plugin-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.5/Tcrrry-Lyrics-Plugin-1.0.5.zip)
+[![下载离线翻译 APK](docs/images/downloads/offline-apk.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.5/Tcrrry-Lyrics-Offline-1.0.3.apk)
 
-[1.0.4 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.0.4) · [安装说明](docs/INSTALL.md) · [更新说明](docs/RELEASE-1.0.4.md) · [完整安装包主页](https://github.com/tcrrry/AMPP-Lyrics)
+[1.0.5 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.0.5) · [安装说明](docs/INSTALL.md) · [更新说明](docs/RELEASE-1.0.5.md) · [完整安装包主页](https://github.com/tcrrry/AMPP-Lyrics)
 
 **离线机器翻译需要 ZIP 和伴随 APK 两个文件。** ZIP 导入 AM++ 插件管理器；APK 单独安装并下载语言模型。伴随应用仍为 **1.0.3**，已有安装可继续使用。平台译文、API 翻译与词典注音不依赖伴随 APK。
 
-## 1.0.4 更新
+## 1.0.5 更新
+
+- 适配 AM++ **1012 嵌入版 / Apple Music 1609**，保留 **1606** 兼容。按版本分别解析曲目元数据、歌词列表、发音设置和高亮遮罩；未知版本继续拒绝加载。
+- 新版通过原始 APK 的静态接口核验、回归和 ZIP 导入检查；1609 尚未完成手机实测。
+
+以下为沿用的 1.0.4 功能：
 
 - 新增可选的**字词对应发音**：日语发音放在对应原文上方，处理自带发音、词典补注和多行排版。无法可靠对齐的句子保留整行发音。
 - 修复多行歌词提前大面积亮起、后半句不亮而在句末突然补齐，以及字母、英文尾词提前亮完的问题；保留原生真实逐字时间。
@@ -24,20 +29,20 @@
 
 | 文件 | 用途 |
 | --- | --- |
-| `Tcrrry-Lyrics-Plugin-1.0.4.zip` | 在支持 SDK v1 的 AM++ 插件管理器导入并启用，随后重启 AM++ |
+| `Tcrrry-Lyrics-Plugin-1.0.5.zip` | 在支持 SDK v1 的 AM++ 插件管理器导入并启用，随后重启 AM++ |
 | `Tcrrry-Lyrics-Offline-1.0.3.apk` | 离线机翻伴随应用，单独安装，首次打开授权并下载模型 |
-| `Tcrrry-Lyrics-Plugin-1.0.4-source.zip` | 对应源码、SDK、词典资源、许可证与测试 |
+| `Tcrrry-Lyrics-Plugin-1.0.5-source.zip` | 对应源码、SDK、词典资源、许可证与测试 |
 | `validation.json` / `SHA256SUMS.txt` | 验证范围与附件校验 |
 
 更新时导入新 ZIP 覆盖同一插件 ID，可保留插件配置；删除插件会删除其配置。不要把伴随 APK 导入插件管理器。建议仅启用一套歌词增强，避免重复挂载独立插件与整合包内置功能。
 
-想直接安装完整 Apple Music 增强版，请下载 [AMPP-Lyrics v1.6](https://github.com/tcrrry/AMPP-Lyrics/releases/tag/v1.6) 的普通 APK、共存 APK、APKS 或模块。完整安装包已移植本次修复，无需再导入本插件；没有插件管理器的旧整合包不能通过 ZIP 获得插件系统。
+想直接安装完整 Apple Music 增强版，请下载 [AMPP-Lyrics v1.6](https://github.com/tcrrry/AMPP-Lyrics/releases/tag/v1.6) 的普通 APK、共存 APK、APKS 或模块。完整安装包已移植 1.0.4 的歌词修复，仍针对 1606 构建，无需再导入本插件；没有插件管理器的旧整合包不能通过 ZIP 获得插件系统。
 
 ## 兼容性与验证
 
-插件要求 Android 12+、SDK v1 插件管理器，精确适配 Apple Music `7.0.0-beta / 1606`。声明的包名为 `com.apple.android.music` 和 `com.tcrrry.ampplyrics.coexist`。
+插件要求 Android 12+、SDK v1 插件管理器，精确适配 Apple Music `7.0.0-beta / 1606、1609`。声明的包名为 `com.apple.android.music` 和 `com.tcrrry.ampplyrics.coexist`。
 
-本次功能基于已在 vivo V2359A / AM++ 105 嵌入版验收的 r15 代码。实机覆盖自传歌曲恢复、日语字词对应发音、英文多行高亮、进度拖动与单曲循环回首句；正式版另执行编译、单元测试和最终 ZIP 导入检查。共存包名及其他宿主/设备不等于已经全面实测；少数无法可靠对齐的发音仍保留整行显示。详细范围见 [VALIDATION.md](docs/VALIDATION.md)。
+1.0.4 功能基于已在 vivo V2359A / AM++ 105 嵌入版验收的 r15 代码。实机覆盖自传歌曲恢复、日语字词对应发音、英文多行高亮、进度拖动与单曲循环回首句；正式版另执行编译、单元测试和最终 ZIP 导入检查。共存包名及其他宿主/设备不等于已经全面实测；少数无法可靠对齐的发音仍保留整行显示。新增 1609 适配目前完成静态核验和自动回归，尚未手机实测。详细范围见 [VALIDATION.md](docs/VALIDATION.md)。
 
 ## 构建
 
@@ -46,7 +51,7 @@
 ```sh
 ./gradlew :engine:testDebugUnitTest :offline:testDebugUnitTest :engine:assembleRelease
 python scripts/package.py --plugin-only
-python scripts/verify-package.py dist/Tcrrry-Lyrics-Plugin-1.0.4.zip
+python scripts/verify-package.py dist/Tcrrry-Lyrics-Plugin-1.0.5.zip
 ```
 
 `engine` APK 是 DEX 编译中间产物，不用于安装或分发。SDK v1 无法装载 ML Kit 原生库，离线机翻因此由独立伴随 APK 提供。所有插件 Hook 通过宿主 SDK 注册，配置和缓存使用插件独立目录。

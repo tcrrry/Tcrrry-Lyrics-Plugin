@@ -166,7 +166,7 @@ internal object NativeLyricsSourceMenu {
                         registerAnchor(anchor)
                         publishAnchorPage(anchor)
                         anchorPages[anchor]?.get()?.let { NativeLyricsAuxiliaryControls.synchronize(it) }
-                        appendRow(menu, popup, currentId, openSettings)
+                        appendRow(menu, popup, anchor, currentId, openSettings)
                         anchorPages[anchor]?.get()?.let { page ->
                             NativeLyricsAuxiliaryControls.extendMenu(page, menu, popup, currentId)
                         }
@@ -176,7 +176,7 @@ internal object NativeLyricsSourceMenu {
         }
     }
 
-    private fun appendRow(menu: LinearLayout, popup: PopupWindow, currentId: () -> Long?, openSettings: (Activity) -> Unit) {
+    private fun appendRow(menu: LinearLayout, popup: PopupWindow, anchor: View, currentId: () -> Long?, openSettings: (Activity) -> Unit) {
         menus[menu] = true
         menu.findViewWithTag<View>(EMPHASIS_TAG)?.let { menu.removeView(it) }
         menu.findViewWithTag<View>(ROW_TAG)?.let { menu.removeView(it) }
@@ -192,6 +192,7 @@ internal object NativeLyricsSourceMenu {
         val app = context.applicationContext
         val songId = currentId() ?: 0L
         val popupRef = WeakReference(popup)
+        val anchorRef = WeakReference(anchor)
         fun applied() = CurrentLyricsSourceStatus.appliedSource(app, songId)
         fun toast(message: String) { Toast.makeText(context, message, Toast.LENGTH_SHORT).show() }
         fun valid(): Boolean {
@@ -220,10 +221,13 @@ internal object NativeLyricsSourceMenu {
             val next = CurrentLyricsSourceStatus.beginSourceCycle(app, songId) ?: return@setOnClickListener
             refresh(next)
         }
+        var longPressPoint: android.graphics.PointF? = null
         row.setOnLongClickListener {
             if (!valid()) return@setOnLongClickListener true
-            popupRef.get()?.dismiss()
-            findActivity(context)?.let(openSettings) ?: toast("暂时无法打开歌词设置")
+            com.tcrrry.lyrics.engine.ui.SettingsDialogMotion.from(row, longPressPoint, returnTo = anchorRef.get() ?: row) {
+                popupRef.get()?.dismiss()
+                findActivity(context)?.let(openSettings) ?: toast("暂时无法打开歌词设置")
+            }
             true
         }
         val detector = GestureDetector(context, object : GestureDetector.SimpleOnGestureListener() {
@@ -242,7 +246,10 @@ internal object NativeLyricsSourceMenu {
                 } else toast("当前来源没有可切换的其他匹配")
                 return true
             }
-            override fun onLongPress(e: MotionEvent) { row.performLongClick() }
+            override fun onLongPress(e: MotionEvent) {
+                longPressPoint = android.graphics.PointF(e.rawX, e.rawY)
+                try { row.performLongClick() } finally { longPressPoint = null }
+            }
         })
         row.setOnTouchListener { _, event -> detector.onTouchEvent(event); true }
         menu.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))

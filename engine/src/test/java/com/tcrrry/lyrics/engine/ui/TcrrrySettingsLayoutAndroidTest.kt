@@ -1,6 +1,7 @@
 package com.tcrrry.lyrics.engine.ui
 
 import android.app.Activity
+import android.content.Context
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -8,6 +9,7 @@ import android.widget.TextView
 import com.tcrrry.lyrics.engine.CurrentSongDetails
 import com.tcrrry.lyrics.engine.hook.CurrentLyricsSourceStatus
 import com.tcrrry.lyrics.engine.model.ModuleSettings
+import com.tcrrry.lyrics.plugin.PluginStorage.pluginPreferences
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,45 +23,88 @@ import org.robolectric.shadows.ShadowAlertDialog
 class TcrrrySettingsLayoutAndroidTest {
     @org.junit.Before fun attachPlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.attach() }
     @org.junit.After fun closePlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.current.close() }
+
     private fun texts(view: View): List<TextView> = if (view is ViewGroup)
         (0 until view.childCount).flatMap { texts(view.getChildAt(it)) } else listOfNotNull(view as? TextView)
+    private fun views(view: View): List<View> = listOf(view) + if (view is ViewGroup)
+        (0 until view.childCount).flatMap { views(view.getChildAt(it)) } else emptyList()
     private fun page(activity: Activity): LinearLayout = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
+        activity.pluginPreferences("lyrics_operation_guide", Context.MODE_PRIVATE).edit()
+            .putBoolean("completed", true).commit()
         CurrentLyricsSourceStatus.recordNativeApplied(activity, 321)
-        TcrrryLyricsSettingsUi.render(activity, this, CurrentSongDetails(321, "一首很长的歌曲名称用于验证卡片自适应布局", "歌手"),
-            {}, {}, ModuleSettings(), {}, {})
+        TcrrryLyricsSettingsUi.render(activity, this,
+            CurrentSongDetails(321, "一首很长的歌曲名称用于验证卡片自适应布局", "歌手"),
+            {}, ModuleSettings(), {})
     }
-    @Test fun combinedCardsAndWrappedSourceButtonsCannotOverlapFollowingControls() {
+    private fun openMenu(page: View, heading: String) {
+        val row = views(page).single { it.contentDescription?.toString()?.startsWith("$heading，") == true }
+        assertTrue(row.performClick())
+    }
+
+    @Test fun settingsUseSoftScrollEdgesWithoutAScrollbarOrFooterDivider() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val body = page(activity)
+        val dialog = TcrrryLyricsSettingsUi.mainDialog(activity, body)
+        dialog.show()
+        val scroll = body.parent as android.widget.ScrollView
+        assertFalse(scroll.isVerticalScrollBarEnabled)
+        assertTrue(scroll.isVerticalFadingEdgeEnabled)
+        assertEquals((18 * activity.resources.displayMetrics.density).toInt(), scroll.verticalFadingEdgeLength)
+        val footer = texts(dialog.window!!.decorView).single { it.text == "关闭" }.parent as ViewGroup
+        assertEquals(1, footer.childCount)
+        dialog.dismiss()
+        activity.finish()
+    }
+
+    @Test fun compactHomeRoutesCurrentSourceToItsOwnPage() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         val parent = page(activity)
-        val first = parent.getChildAt(0) as ViewGroup
-        assertTrue(texts(first).any { it.text == "歌词偏好" })
-        assertTrue(texts(first).any { it.text == "歌词源" })
-        assertTrue(texts(first).any { it.text.toString().contains("双击寻找当前源的其他匹配") })
-        assertFalse(texts(first).any { it.text.startsWith("短单元平滑") })
-        val status = texts(first).single { !it.isClickable && it.maxLines == 2 }
-        status.text = "Apple Music 原生 · 逐字 · 机翻译文 · 离线注音 · 额外信息".repeat(4)
-        val source = texts(first).single { it.text.startsWith("自动匹配") }
-        source.text = "自动匹配 · Apple Music 原生 · 一个很长的来源名称"
+        val home = texts(parent).map { it.text.toString() }
+        for (heading in listOf("歌词偏好", "翻译与注音", "歌词效果", "操作说明"))
+            assertTrue(home.contains(heading))
+        assertTrue(home.any { it.contains("一首很长的歌曲名称") })
+        assertFalse(home.any { it == "外观" || it.contains("双击寻找") || it == "恢复自动选源" })
+        assertFalse(home.any { it.startsWith("当前来源") })
+        val sourceText = texts(parent).single { it.text == CurrentLyricsSourceStatus.description(activity, 321) }
+        assertEquals(android.text.TextUtils.TruncateAt.MARQUEE, sourceText.ellipsize)
+        assertTrue(sourceText.parent is SmoothSourceTicker)
+        val source = sourceText.parent.parent as View
+        assertTrue(source.isClickable)
+        assertTrue(source.performClick())
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val menu = texts(dialog.window!!.decorView).map { it.text.toString() }
+        for (heading in listOf("选择歌词源", "恢复自动选源", "匹配历史与预览", "歌词偏移"))
+            assertTrue(menu.contains(heading))
+        dialog.dismiss()
         val width = (300 * activity.resources.displayMetrics.density).toInt()
         parent.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         parent.layout(0, 0, width, parent.measuredHeight)
-        assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, source.layoutParams.height)
-        val row = source.parent as View
-        val rowIndex = (0 until first.childCount).single { first.getChildAt(it) === row }
-        assertTrue(row.bottom <= first.getChildAt(rowIndex + 1).top)
-        for (i in 1 until parent.childCount) assertTrue(parent.getChildAt(i - 1).bottom <= parent.getChildAt(i).top)
-        val glow = parent.getChildAt(1)
-        assertTrue(texts(glow).any { it.text == "短单元平滑：开启" })
-        val pronunciation = (0 until parent.childCount).map(parent::getChildAt).single {
-            texts(it).any { t -> t.text == "离线发音与注音" }
-        }
-        assertTrue(texts(pronunciation).any { it.text == "日语注音：开启" })
-        assertTrue(texts(pronunciation).any { it.text == "韩语注音：开启" })
-        assertTrue(texts(pronunciation).any { it.text.startsWith("当前歌曲粤语注音") })
+        for (i in 1 until parent.childCount)
+            assertTrue(parent.getChildAt(i - 1).bottom <= parent.getChildAt(i).top)
     }
-    @Test fun matchingDetailsUseScrollableBubbleAndKeepSelectableFullInformation() {
+
+    @Test @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    fun sourceDetailsWrapTheFullDescriptionInsteadOfUsingAnotherMarquee() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val description = "Apple Music 原生 · 逐字歌词 · 网易云音乐译文 · 离线日语字词对应发音 · 补充注音信息"
+        val row = TcrrryLyricsSettingsUi.sourceStatusLabel(activity, { description }, expanded = true)
+        val width = (220 * activity.resources.displayMetrics.density).toInt()
+        row.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        row.layout(0, 0, row.measuredWidth, row.measuredHeight)
+        val text = texts(row).single()
+        assertEquals(description, text.text.toString())
+        assertNull(text.ellipsize)
+        assertFalse(views(row).any { it is SmoothSourceTicker })
+        assertTrue(text.layout.lineCount > 1)
+        assertTrue(text.height <= row.height)
+        assertTrue(row.width <= width)
+        activity.finish()
+    }
+
+    @Test fun matchingDetailsKeepSelectableFullInformation() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         TcrrryLyricsSettingsUi.showMatchingInformation(activity, 321)
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
@@ -71,31 +116,299 @@ class TcrrrySettingsLayoutAndroidTest {
         assertFalse(dialog.isShowing)
     }
 
-    @Test fun rubyModeFollowsLyricsPreferenceAndDoesNotResetQualityPreference() {
-        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+    @Test fun preferencesMoveToSecondLevelAndPreserveIndependentChoices() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         val policy = com.tcrrry.lyrics.engine.lyrics.LyricsPreference
-        policy.update(activity,quality=true)
-        val first = page(activity).getChildAt(0) as ViewGroup
-        val views = texts(first)
-        assertTrue(views.indexOfFirst { it.text=="当前：质量优先" } < views.indexOfFirst { it.text=="逐字方式" })
-        assertTrue(views.indexOfFirst { it.text=="逐字方式" } < views.indexOfFirst { it.text=="歌词源" })
-        views.single { it.text=="当前：整行发音" }.performClick()
+        policy.update(activity, quality = true)
+        policy.updateRubyPronunciation(activity, true)
+        openMenu(page(activity), "歌词偏好")
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val labels = texts(dialog.window!!.decorView).map { it.text.toString() }
+        for (heading in listOf("匹配优先级", "发音排版", "质量优先", "字词对应"))
+            assertTrue(labels.contains(heading))
+        val originalGroups = views(dialog.window!!.decorView).filterIsInstance<SettingsSegmentedControl>()
+        texts(dialog.window!!.decorView).single { it.contentDescription == "发音排版：整行发音" }.performClick()
+        assertSame(dialog, ShadowAlertDialog.getLatestAlertDialog())
+        assertFalse(policy.rubyPronunciation(activity))
+        texts(dialog.window!!.decorView).single { it.contentDescription == "发音排版：字词对应" }.performClick()
+        assertTrue(policy.rubyPronunciation(activity))
+        val visible = texts(dialog.window!!.decorView).map { it.text.toString() }
+        assertFalse(visible.contains("自动匹配歌词"))
+        assertFalse(visible.contains("单曲循环歌词复位"))
+        activity.pluginPreferences("tcrrry_lyrics_policy", Context.MODE_PRIVATE).edit()
+            .putBoolean("force_repeat_reset", false).commit()
+        assertTrue(policy.forceRepeatReset(activity))
         assertTrue(policy.rubyPronunciation(activity))
         assertTrue(policy.qualityFirst(activity))
-        texts(page(activity)).single { it.text=="当前：字词对应发音" }.performClick()
-        assertFalse(policy.rubyPronunciation(activity))
-        assertTrue(policy.qualityFirst(activity))
+        assertEquals(originalGroups, views(dialog.window!!.decorView).filterIsInstance<SettingsSegmentedControl>())
+        dialog.dismiss()
     }
-    @Test fun repeatResetIsVisibleEnabledByDefaultAndTogglesWithoutChangingRubyOrQuality() {
-        val activity=Robolectric.buildActivity(Activity::class.java).setup().get()
-        val policy=com.tcrrry.lyrics.engine.lyrics.LyricsPreference
-        policy.update(activity,quality=true)
-        policy.updateRubyPronunciation(activity,true)
-        assertTrue(policy.forceRepeatReset(activity))
-        texts(page(activity)).single { it.text=="循环复位：开启 · 平滑滚回第一句" }.performClick()
-        assertFalse(policy.forceRepeatReset(activity))
-        assertTrue(policy.rubyPronunciation(activity));assertTrue(policy.qualityFirst(activity))
-        texts(page(activity)).single { it.text=="循环复位：关闭" }.performClick()
-        assertTrue(policy.forceRepeatReset(activity))
+
+    @Test fun guideHasThreePagesAndFirstRunRequiresCompletion() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        TcrrryLyricsSettingsUi.showOperationGuide(activity, required = true)
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        dialog.onBackPressed()
+        assertTrue(dialog.isShowing)
+        val prefs = activity.pluginPreferences("lyrics_operation_guide", Context.MODE_PRIVATE)
+        assertFalse(prefs.getBoolean("completed", false))
+        val root = dialog.window!!.decorView
+        val flipper = views(root).filterIsInstance<android.widget.ViewFlipper>().single()
+        assertEquals(0, flipper.displayedChild)
+        assertTrue(flipper.measureAllChildren)
+        texts(root).single { it.text == "下一页" }.performClick()
+        assertEquals(1, flipper.displayedChild)
+        assertNotNull(flipper.inAnimation)
+        assertNotNull(flipper.outAnimation)
+        assertEquals(240L, flipper.inAnimation.duration)
+        texts(root).single { it.text == "上一页" }.performClick()
+        assertEquals(0, flipper.displayedChild)
+        texts(root).single { it.text == "下一页" }.performClick()
+        texts(root).single { it.text == "下一页" }.performClick()
+        assertEquals(2, flipper.displayedChild)
+        texts(root).single { it.text == "开始使用" }.performClick()
+        assertTrue(prefs.getBoolean("completed", false))
+        assertFalse(dialog.isShowing)
+    }
+
+    @Test
+    @Config(qualifiers = "w420dp-h900dp")
+    fun nestedPopupsShareTheNarrowWidthWhileTheMainPageKeepsItsOriginalWidth() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val parent = page(activity)
+        val sourceText = texts(parent).single { it.text == CurrentLyricsSourceStatus.description(activity, 321) }
+        (sourceText.parent.parent as View).performClick()
+        val sourceDialog = ShadowAlertDialog.getLatestAlertDialog()
+        val sourceTitle = texts(sourceDialog.window!!.decorView).single { it.text == "当前歌曲歌词源" }
+        assertFalse(texts(sourceDialog.window!!.decorView).single { it.text == "重置偏移" }.isEnabled)
+        val sourcePanel = sourceTitle.parent.parent.parent as View
+        openMenu(sourceDialog.window!!.decorView, "选择歌词源")
+        val picker = ShadowAlertDialog.getLatestAlertDialog()
+        val pickerTitle = texts(picker.window!!.decorView).single { it.text == "选择歌词源" }
+        val pickerPanel = pickerTitle.parent.parent.parent as View
+        assertEquals(sourcePanel.layoutParams.width, pickerPanel.layoutParams.width)
+        val density = activity.resources.displayMetrics.density
+        assertTrue(sourcePanel.layoutParams.width < activity.resources.displayMetrics.widthPixels - (48 * density).toInt())
+        assertTrue(sourceDialog.isShowing)
+        val provider = com.tcrrry.lyrics.engine.hook.LyricsSourceMenuPolicy.thirdPartySources.first()
+        texts(picker.window!!.decorView).single { it.text == provider }.performClick()
+        assertFalse(picker.isShowing)
+        assertTrue(sourceDialog.isShowing)
+        assertTrue(texts(sourceDialog.window!!.decorView).any { it.text == provider })
+        sourceDialog.dismiss()
+        for (heading in listOf("歌词偏好", "翻译与注音", "歌词效果", "更多工具", "操作说明")) {
+            openMenu(parent, heading)
+            val dialog = ShadowAlertDialog.getLatestAlertDialog()
+            val title = texts(dialog.window!!.decorView).single {
+                it.text == if (heading == "歌词效果") "歌词辉光增强" else heading
+            }
+            val panel = title.parent.parent.parent as View
+            assertEquals("Width of $heading", pickerPanel.layoutParams.width, panel.layoutParams.width)
+            dialog.dismiss()
+        }
+        val main = TcrrryLyricsSettingsUi.mainDialog(activity, parent)
+        main.show()
+        val mainPanel = parent.parent.parent as View
+        assertEquals(activity.resources.displayMetrics.widthPixels - (48 * density).toInt(), mainPanel.layoutParams.width)
+        assertTrue(mainPanel.layoutParams.width > pickerPanel.layoutParams.width)
+        main.dismiss()
+    }
+
+    private fun assertMeasuredPopupIsNarrowerThanMain(activity: Activity) {
+        val body = page(activity)
+        val main = TcrrryLyricsSettingsUi.mainDialog(activity, body)
+        main.show()
+        fun measure(dialog: android.app.AlertDialog) {
+            val root = dialog.window!!.decorView
+            val metrics = activity.resources.displayMetrics
+            root.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, metrics.widthPixels, metrics.heightPixels)
+        }
+        measure(main)
+        val mainPanel = body.parent.parent as View
+        val density = activity.resources.displayMetrics.density
+        assertEquals(minOf(activity.resources.displayMetrics.widthPixels - (48 * density).toInt(),
+            (520 * density).toInt()), mainPanel.width)
+        for (heading in listOf("歌词偏好", "翻译与注音", "歌词效果", "更多工具", "操作说明")) {
+            openMenu(body, heading)
+            val popup = ShadowAlertDialog.getLatestAlertDialog()
+            measure(popup)
+            val title = texts(popup.window!!.decorView).single {
+                it.text == if (heading == "歌词效果") "歌词辉光增强" else heading
+            }
+            val panel = title.parent.parent.parent as View
+            assertTrue("$heading must be narrower than main", panel.width < mainPanel.width)
+            assertTrue("$heading must leave visible side margins", panel.width <= mainPanel.width - (24 * density).toInt())
+            popup.dismiss()
+        }
+        main.dismiss()
+    }
+
+    @Test @Config(qualifiers = "w320dp-h800dp")
+    fun narrowPhoneStillKeepsMainAndPopupWidthsDistinct() {
+        assertMeasuredPopupIsNarrowerThanMain(Robolectric.buildActivity(Activity::class.java).setup().visible().get())
+    }
+
+    @Test @Config(qualifiers = "w420dp-h900dp")
+    fun phoneMainAndPopupWidthsRemainDistinctAfterLayout() {
+        assertMeasuredPopupIsNarrowerThanMain(Robolectric.buildActivity(Activity::class.java).setup().visible().get())
+    }
+
+    @Test @Config(qualifiers = "w720dp-h1024dp")
+    fun tabletMainAndPopupWidthsRemainDistinctAfterLayout() {
+        assertMeasuredPopupIsNarrowerThanMain(Robolectric.buildActivity(Activity::class.java).setup().visible().get())
+    }
+
+    @Test
+    @Config(qualifiers = "w420dp-h900dp")
+    fun translationModesKeepTheSamePanelBoundsAndScrollLongContent() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        openMenu(page(activity), "翻译与注音")
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val root = dialog.window!!.decorView
+        val title = texts(root).single { it.text == "翻译与注音" }
+        val panel = title.parent.parent.parent as View
+        val metrics = activity.resources.displayMetrics
+        fun layout() {
+            root.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, metrics.widthPixels, metrics.heightPixels)
+        }
+        layout()
+        val bounds = android.graphics.Rect(panel.left, panel.top, panel.right, panel.bottom)
+        val originalSelector = views(root).filterIsInstance<SettingsSegmentedControl>().single()
+        for (mode in listOf("离线机翻", "自定义 API", "关闭", "自定义 API", "离线机翻")) {
+            texts(root).single { it.text == mode }.performClick()
+            layout()
+            assertEquals(mode, bounds, android.graphics.Rect(panel.left, panel.top, panel.right, panel.bottom))
+            assertSame(originalSelector, views(root).filterIsInstance<SettingsSegmentedControl>().single())
+        }
+        texts(root).single { it.text == "自定义 API" }.performClick()
+        layout()
+        val scroll = views(root).filterIsInstance<android.widget.ScrollView>().single()
+        assertTrue(scroll.getChildAt(0).height > scroll.height)
+        scroll.fullScroll(View.FOCUS_DOWN)
+        assertTrue(scroll.scrollY > 0)
+        dialog.dismiss()
+    }
+
+    @Test fun apiProfilePromptsValidateNamesAndCancelWithoutChangingProfiles() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        openMenu(page(activity), "翻译与注音")
+        val languageDialog = ShadowAlertDialog.getLatestAlertDialog()
+        texts(languageDialog.window!!.decorView).single { it.text == "自定义 API" }.performClick()
+        val policy = com.tcrrry.lyrics.sources.TranslationApiProfiles
+        val count = policy.all(activity).size
+        fun addPrompt() {
+            texts(languageDialog.window!!.decorView).single { it.text.toString().endsWith("⌄") }.performClick()
+            val picker = ShadowAlertDialog.getLatestAlertDialog()
+            texts(picker.window!!.decorView).single { it.text == "＋ 添加自定义 API" }.performClick()
+        }
+        addPrompt()
+        val canceled = ShadowAlertDialog.getLatestAlertDialog()
+        assertFalse(texts(canceled.window!!.decorView).single { it.text == "保存" }.isEnabled)
+        texts(canceled.window!!.decorView).single { it.text == "取消" }.performClick()
+        assertEquals(count, policy.all(activity).size)
+        assertTrue(languageDialog.isShowing)
+        addPrompt()
+        val saved = ShadowAlertDialog.getLatestAlertDialog()
+        views(saved.window!!.decorView).filterIsInstance<android.widget.EditText>().single().setText("  我的服务  ")
+        texts(saved.window!!.decorView).single { it.text == "保存" }.performClick()
+        assertFalse(saved.isShowing)
+        assertTrue(policy.all(activity).any { it.label == "我的服务" })
+        texts(languageDialog.window!!.decorView).single { it.text == "管理当前 API 配置" }.performClick()
+        val management = ShadowAlertDialog.getLatestAlertDialog()
+        texts(management.window!!.decorView).single { it.text == "删除此服务及其密钥" }.performClick()
+        val confirmation = ShadowAlertDialog.getLatestAlertDialog()
+        texts(confirmation.window!!.decorView).single { it.text == "取消" }.performClick()
+        assertTrue(policy.all(activity).any { it.label == "我的服务" })
+        languageDialog.dismiss()
+    }
+
+    @Test fun mainCloseButtonBackAndScrimAllWaitForTheExitAnimation() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val clock = org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+        for (path in listOf("button", "back", "scrim")) {
+            val body = page(activity)
+            val dialog = TcrrryLyricsSettingsUi.mainDialog(activity, body)
+            var dismissals = 0
+            dialog.setOnDismissListener { dismissals++ }
+            dialog.show()
+            val root = dialog.window!!.decorView
+            val metrics = activity.resources.displayMetrics
+            root.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY))
+            root.layout(0, 0, metrics.widthPixels, metrics.heightPixels)
+            val panel = body.parent.parent as View
+            panel.viewTreeObserver.dispatchOnPreDraw()
+            panel.viewTreeObserver.dispatchOnPreDraw()
+            clock.idleFor(java.time.Duration.ofSeconds(1))
+            assertEquals(1f, panel.alpha, .001f)
+            when (path) {
+                "button" -> texts(root).single { it.text == "关闭" }.performClick()
+                "back" -> @Suppress("DEPRECATION") dialog.onBackPressed()
+                "scrim" -> (panel.parent as ViewGroup).getChildAt(0).performClick()
+            }
+            assertTrue("Exit must animate: $path", dialog.isShowing)
+            dialog.dismiss()
+            clock.idleFor(java.time.Duration.ofSeconds(1))
+            assertFalse("Exit must finish: $path", dialog.isShowing)
+            assertEquals(1, dismissals)
+            assertEquals(0f, panel.alpha, .001f)
+        }
+    }
+
+    @Test fun mainCardCloseAndEverySettingsCommandDeclareTheirOwnGlassMaterial() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val body = page(activity)
+        val song = texts(body).single { it.text.toString().startsWith("一首很长的歌曲") }
+        assertEquals(SettingsGlassKind.Card, SettingsGlassMaterial.style(song.parent as View)?.kind)
+        fun checkCommands(root: View) {
+            val commands = views(root).filter { view -> view.isClickable &&
+                (view is LinearLayout || view is TextView && !view.isTextSelectable) }
+            assertTrue(commands.isNotEmpty())
+            commands.forEach { view ->
+                val style = SettingsGlassMaterial.style(view)
+                assertNotNull("Missing material: ${(view as? TextView)?.text ?: view.contentDescription}", style)
+                assertEquals(if (view is android.widget.EditText) SettingsGlassKind.Field else SettingsGlassKind.Button,
+                    style!!.kind)
+            }
+        }
+        val main = TcrrryLyricsSettingsUi.mainDialog(activity, body)
+        main.show()
+        checkCommands(main.window!!.decorView)
+        for (heading in listOf("歌词偏好", "翻译与注音", "歌词效果", "更多工具", "操作说明")) {
+            openMenu(body, heading)
+            val dialog = ShadowAlertDialog.getLatestAlertDialog()
+            if (heading == "翻译与注音") texts(dialog.window!!.decorView).single { it.text == "自定义 API" }.performClick()
+            checkCommands(dialog.window!!.decorView)
+            dialog.dismiss()
+        }
+        main.dismiss()
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h800dp")
+    fun narrowScreenAndLargeFontsDoNotClipTranslationModeButtons() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val configuration = android.content.res.Configuration(activity.resources.configuration).apply { fontScale = 1.7f }
+        @Suppress("DEPRECATION")
+        activity.resources.updateConfiguration(configuration, activity.resources.displayMetrics)
+        openMenu(page(activity), "翻译与注音")
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val root = dialog.window!!.decorView
+        val metrics = activity.resources.displayMetrics
+        root.measure(View.MeasureSpec.makeMeasureSpec(metrics.widthPixels, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY))
+        root.layout(0, 0, metrics.widthPixels, metrics.heightPixels)
+        for (caption in listOf("关闭", "离线机翻", "自定义 API")) {
+            val button = texts(root).single { it.text == caption }
+            val layout = requireNotNull(button.layout)
+            assertTrue("Clipped height: $caption", button.height >= layout.height + button.compoundPaddingTop + button.compoundPaddingBottom)
+            for (line in 0 until layout.lineCount) assertTrue("Clipped width: $caption",
+                layout.getLineWidth(line) <= button.width - button.compoundPaddingLeft - button.compoundPaddingRight + 1)
+        }
+        dialog.dismiss()
     }
 }

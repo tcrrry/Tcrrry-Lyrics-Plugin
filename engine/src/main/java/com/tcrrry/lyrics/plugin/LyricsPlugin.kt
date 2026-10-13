@@ -6,9 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
-import android.widget.Switch
 import dev.amenhancer.plugin.api.*
 import com.tcrrry.lyrics.engine.config.*
 import com.tcrrry.lyrics.engine.hook.*
@@ -24,7 +22,7 @@ class LyricsPlugin : AmppPlugin() {
     private val dialogs=java.util.Collections.newSetFromMap(java.util.WeakHashMap<android.app.Dialog,Boolean>())
     override fun onLoad(context: PluginContext) {
         if(context.hostPackageName !in setOf("com.apple.android.music","com.tcrrry.ampplyrics.coexist") || context.hostVersionCode !in setOf(1606L,1609L) || context.hostVersionName!="7.0.0-beta")
-            throw PluginUnsupportedException("插件 1.0.5 仅适配 Apple Music 7.0.0-beta / 1606、1609")
+            throw PluginUnsupportedException("插件 1.0.6 仅适配 Apple Music 7.0.0-beta / 1606、1609")
         runtime=context;PluginLifetime.attach(context)
         NativeLyricsHostContract.verify(context.hostClassLoader)
         context.claimResource("com.tcrrry.lyrics.settings",true)
@@ -51,7 +49,7 @@ class LyricsPlugin : AmppPlugin() {
         })
         context.onClose { android.os.Handler(android.os.Looper.getMainLooper()).post { onStop() } }
     }
-    override fun onStart() { runtime.log("Tcrrry Lyrics 1.0.5 started; baseline v1.5",null) }
+    override fun onStart() { runtime.log("Tcrrry Lyrics 1.0.6 started; baseline v1.5",null); ReleaseUpdates.start(runtime.application) }
     override fun onStop() {
         RubyPronunciationRows.close()
         dialogs.toList().forEach { it.dismiss() };dialogs.clear()
@@ -64,32 +62,31 @@ class LyricsPlugin : AmppPlugin() {
         repeat(12) { if(value is Activity) return value as Activity;value=(value as? ContextWrapper)?.baseContext ?: throw IllegalArgumentException("需要 Activity 设置上下文") }
         error("设置上下文嵌套过深")
     }
-    private fun render(activity:Activity):View {
-        val scroll=ScrollView(activity);val body=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL };scroll.addView(body)
+    private fun render(activity:Activity, hostSurface:Int?=null):LinearLayout {
+        val body=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL }
+        if(hostSurface!=null) SettingsSurfaceContext.mark(body,hostSurface)
         fun refresh() {
             if(activity.isFinishing || !PluginLifetime.alive) return
-            body.removeAllViews()
-            val prefs=configuration.settings()
-            body.addView(TextView(activity).apply { text="Tcrrry 歌词设置 · 插件 1.0.5";textSize=20f;setTextColor(SettingsUiTheme.colors(activity).text);setPadding(24,24,24,12) })
-            body.addView(Switch(activity).apply {
-                text="自动匹配歌词";isChecked=prefs.customLyricsEnabled && prefs.automaticLyricsEnabled
-                setTextColor(SettingsUiTheme.colors(activity).text)
-                setOnCheckedChangeListener { _,checked -> configuration.saveSettings(prefs.copy(customLyricsEnabled=checked,automaticLyricsEnabled=checked));CurrentLyricsSourceStatus.refresh(currentSong.current()?.details?.appleMusicId?:0L);refresh() }
-            })
-            TcrrryLyricsSettingsUi.render(activity,body,currentSong.current()?.details,::refresh,::refresh,prefs,{next -> configuration.saveSettings(next)},::refresh)
-            body.addView(SettingsUiTheme.appearanceCard(activity,::refresh))
+            SettingsSurfaceContext.from(body) {
+                body.removeAllViews()
+                val prefs=configuration.settings()
+                body.addView(TextView(activity).apply { text="Tcrrry 歌词设置 · ${ReleaseUpdates.channel.label} ${ReleaseUpdates.channel.version}";textSize=20f;setTextColor(SettingsUiTheme.colors(activity).text);setPadding(24,24,24,12) })
+                TcrrryLyricsSettingsUi.render(activity,body,currentSong.current()?.details,::refresh,prefs,{next -> configuration.saveSettings(next)})
+            }
         }
-        refresh();settingsViews.add(scroll);return scroll
+        refresh();settingsViews.add(body);return body
     }
     private fun openSettings(activity:Activity) {
-        val dialog=SettingsUiTheme.dialogBuilder(activity).setView(render(activity)).setNegativeButton("关闭",null).create()
+        val dialog=TcrrryLyricsSettingsUi.mainDialog(activity,render(activity))
         dialogs.add(dialog);dialog.setOnDismissListener { dialogs.remove(dialog) };dialog.show()
     }
     override fun createSettings(context:Context):PluginSettingsSession {
-        val view=render(activity(context))
+        val body=render(activity(context),SettingsSurfaceContext.background(context))
+        val view=SettingsHostPage(context,body)
+        settingsViews.add(view)
         return object:PluginSettingsSession {
             override fun getView()=view
-            override fun close() { settingsViews.remove(view);(view.parent as? android.view.ViewGroup)?.removeView(view) }
+            override fun close() { settingsViews.remove(body);settingsViews.remove(view);view.close() }
         }
     }
 }

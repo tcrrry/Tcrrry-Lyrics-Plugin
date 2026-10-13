@@ -9,10 +9,7 @@ internal object LyricsPreference {
     fun qualityFirst(context: Context) = prefs(context).getBoolean("quality_first", false)
     fun smoothShortUnits(context: Context) = prefs(context).getBoolean("smooth_short_units", true)
     fun rubyPronunciation(context: Context) = prefs(context).getBoolean("ruby_pronunciation", false)
-    fun forceRepeatReset(context: Context) = prefs(context).getBoolean("force_repeat_reset", true)
-    fun updateForceRepeatReset(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean("force_repeat_reset", enabled).apply()
-    }
+    fun forceRepeatReset(context: Context) = true
     fun updateRubyPronunciation(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean("ruby_pronunciation", enabled)
             .putInt("revision", revision(context) + 1).apply()

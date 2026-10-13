@@ -31,6 +31,8 @@ with zipfile.ZipFile(package) as archive:
     assert 'Lja/i0;' not in classes
     assert 'Landroidx/recyclerview/widget/RecyclerView$D;' not in classes
     assert not any(c.startswith('Lcom/google/android/flexbox/') for c in classes), 'Test Flexbox class leaked into DEX'
+    assert not any(c.startswith(('Lcom/kyant/', 'Landroidx/compose/')) for c in classes), 'Host glass or Compose class leaked into DEX'
+    assert not any(c.startswith('Landroidx/savedstate/R') for c in classes), 'Test saved-state resources leaked into DEX'
     with zipfile.ZipFile(root/'dist/Tcrrry-Lyrics-Offline-1.0.3.apk') as apk:
         native=[name for name in apk.namelist() if name.startswith('lib/') and name.endswith('.so')]
         assert native,'ML Kit native libraries missing in companion'

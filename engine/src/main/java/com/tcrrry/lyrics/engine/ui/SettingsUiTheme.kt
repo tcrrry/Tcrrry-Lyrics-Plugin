@@ -1,26 +1,13 @@
 package com.tcrrry.lyrics.engine.ui
-import com.tcrrry.lyrics.plugin.PluginStorage.pluginPreferences
-
 import android.app.AlertDialog
 import android.content.Context
 import android.content.res.Configuration
-import android.graphics.drawable.GradientDrawable
 import android.view.ContextThemeWrapper
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
-import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.TextView
 import java.lang.ref.WeakReference
-
-internal enum class SettingsAppearance(val label: String) {
-    FOLLOW("跟随原软件"), LIGHT("日间"), DARK("夜间");
-    companion object {
-        fun decode(value: String?) = entries.firstOrNull { it.name == value } ?: FOLLOW
-    }
-}
 
 internal data class SettingsColors(
     val dark: Boolean, val background: Int, val surface: Int, val raised: Int,
@@ -36,79 +23,105 @@ internal data class SettingsColors(
         val Dark = SettingsColors(true, 0xFF0B0B0C.toInt(), 0xFF1C1C1E.toInt(), 0xFF2C2C2E.toInt(),
             0xFFF5F5F7.toInt(), 0xFFB7B7BF.toInt(), 0xFF9999A2.toInt(), 0xFF444448.toInt(),
             0xFFFF6B83.toInt(), 0xFF3B2029.toInt(), 0xFF353538.toInt())
-        fun resolve(mode: SettingsAppearance, hostNight: Boolean) = when (mode) {
-            SettingsAppearance.FOLLOW -> if (hostNight) Dark else Light
-            SettingsAppearance.LIGHT -> Light
-            SettingsAppearance.DARK -> Dark
-        }
+        fun resolve(hostNight: Boolean) = if (hostNight) Dark else Light
     }
 }
 
-/** Shared appearance for the two independent settings roots, stored in the host's private prefs. */
+/** Settings follow the host's current day/night configuration. */
 internal object SettingsUiTheme {
     private var host = WeakReference<Context>(null)
-    private fun prefs(context: Context) = context.pluginPreferences("tcrrry_settings_appearance", Context.MODE_PRIVATE)
     fun bind(context: Context) { host = WeakReference(context) }
-    fun mode(context: Context) = SettingsAppearance.decode(prefs(context).getString("mode", null))
-    fun setMode(context: Context, mode: SettingsAppearance) { prefs(context).edit().putString("mode", mode.name).apply() }
     private fun hostNight(context: Context) = context.resources.configuration.uiMode and
         Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
-    fun hostColors(context: Context) = SettingsColors.resolve(SettingsAppearance.FOLLOW, hostNight(context))
-    fun colors(context: Context) = SettingsColors.resolve(mode(context), hostNight(context))
+    fun hostColors(context: Context) = SettingsColors.resolve(hostNight(context))
+    fun colors(context: Context) = SettingsSurfaceContext.hostColor?.let {
+        SettingsColors.resolve(android.graphics.Color.luminance(it) < .5f)
+    } ?: hostColors(context)
     val currentColors get() = host.get()?.let(::colors) ?: SettingsColors.Light
 
-    fun dialogBuilder(context: Context): AlertDialog.Builder {
+    private fun owned(dialog: AlertDialog): AlertDialog = dialog.apply {
+        val reference = WeakReference(this)
+        com.tcrrry.lyrics.plugin.PluginLifetime.close {
+            android.os.Handler(android.os.Looper.getMainLooper()).post { reference.get()?.dismiss() }
+        }
+    }
+
+    fun contentDialog(hostContext: Context, content: View,
+        animateClose: ((() -> Unit) -> Unit)? = null): AlertDialog = owned(
+        object : AlertDialog(themedContext(hostContext, floating = false), themeStyle(hostContext, floating = false)) {
+            private var closing = false
+            private var completing = false
+
+            override fun dismiss() {
+                val activity = hostContext as? android.app.Activity
+                if (completing || !isShowing || animateClose == null ||
+                    !com.tcrrry.lyrics.plugin.PluginLifetime.alive || activity?.isFinishing == true ||
+                    activity?.isDestroyed == true) {
+                    super.dismiss()
+                } else if (!closing) {
+                    closing = true
+                    animateClose {
+                        completing = true
+                        super.dismiss()
+                    }
+                }
+            }
+
+            override fun onCreate(savedInstanceState: android.os.Bundle?) {
+                super.onCreate(savedInstanceState)
+                window?.apply {
+                    setBackgroundDrawableResource(android.R.color.transparent)
+                    setWindowAnimations(0)
+                    clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                    setGravity(android.view.Gravity.FILL)
+                    setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+                    setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+                    decorView.setPadding(0, 0, 0, 0)
+                    @Suppress("DEPRECATION")
+                    (hostContext as? android.app.Activity)?.window?.decorView?.systemUiVisibility?.let {
+                        decorView.systemUiVisibility = it
+                    }
+                    @Suppress("DEPRECATION")
+                    statusBarColor = android.graphics.Color.TRANSPARENT
+                    @Suppress("DEPRECATION")
+                    navigationBarColor = android.graphics.Color.TRANSPARENT
+                    if (android.os.Build.VERSION.SDK_INT >= 29) {
+                        isStatusBarContrastEnforced = false
+                        isNavigationBarContrastEnforced = false
+                    }
+                }
+                setContentView(content)
+            }
+        })
+
+    private fun themeStyle(context: Context, floating: Boolean): Int {
+        val dark = colors(context).dark
+        return if (floating) {
+            if (dark) android.R.style.Theme_Material_Dialog_Alert else android.R.style.Theme_Material_Light_Dialog_Alert
+        } else {
+            if (dark) android.R.style.Theme_Material_NoActionBar else android.R.style.Theme_Material_Light_NoActionBar
+        }
+    }
+
+    private fun themedContext(context: Context, floating: Boolean): ContextThemeWrapper {
         val palette = colors(context)
-        val themed = ContextThemeWrapper(context, if (palette.dark)
-            android.R.style.Theme_Material_Dialog_Alert else android.R.style.Theme_Material_Light_Dialog_Alert)
+        val themed = ContextThemeWrapper(context, themeStyle(context, floating))
         themed.applyOverrideConfiguration(Configuration().apply {
             uiMode = (context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or
                 if (palette.dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO
         })
-        return object : AlertDialog.Builder(themed) {
-            override fun create(): AlertDialog = super.create().apply {
-                val owned = java.lang.ref.WeakReference(this)
-                com.tcrrry.lyrics.plugin.PluginLifetime.close { android.os.Handler(android.os.Looper.getMainLooper()).post { owned.get()?.dismiss() } }
+        return themed
+    }
+
+    fun dialogBuilder(context: Context): AlertDialog.Builder {
+        val palette = colors(context)
+        return object : AlertDialog.Builder(themedContext(context, floating = true)) {
+            override fun create(): AlertDialog = owned(super.create()).apply {
                 setOnShowListener {
                     listOf(AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL)
                         .forEach { getButton(it)?.setTextColor(palette.primary) }
                 }
             }
-        }
-    }
-
-    fun appearanceCard(context: Context, refresh: () -> Unit): View {
-        fun dp(v: Int) = (v * context.resources.displayMetrics.density).toInt()
-        val palette = colors(context)
-        return LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(14), dp(16), dp(14))
-            background = GradientDrawable().apply { setColor(palette.surface); cornerRadius = dp(18).toFloat() }
-            addView(TextView(context).apply {
-                text = "外观"; textSize = 17f; setTextColor(palette.text)
-            })
-            addView(TextView(context).apply {
-                text = "两页共用 · 当前${if (palette.dark) "夜间" else "日间"}模式"
-                textSize = 12f; setTextColor(palette.secondary)
-                setPadding(0, dp(4), 0, dp(10))
-            })
-            addView(LinearLayout(context).apply {
-                SettingsAppearance.entries.forEachIndexed { index, option ->
-                    addView(TextView(context).apply {
-                        text = option.label; textSize = 13f; gravity = Gravity.CENTER
-                        isSelected = mode(context) == option
-                        setTextColor(if (isSelected) palette.primary else palette.text)
-                        background = GradientDrawable().apply {
-                            setColor(if (isSelected) palette.selected else palette.raised)
-                            cornerRadius = dp(12).toFloat()
-                            setStroke(dp(1), if (isSelected) palette.primary else palette.outline)
-                        }
-                        isClickable = true; isFocusable = true
-                        contentDescription = "外观：${option.label}"
-                        setOnClickListener { if (mode(context) != option) { setMode(context, option); refresh() } }
-                    }, LinearLayout.LayoutParams(0, dp(48), 1f).apply { if (index > 0) marginStart = dp(6) })
-                }
-            })
         }
     }
 
@@ -133,7 +146,7 @@ internal object SettingsUiTheme {
         }
     }
 
-    /** Appearance changes preserve unsaved API fields, selection, focus and scroll. */
+    /** Rebuilds preserve unsaved API fields, selection, focus and scroll. */
     fun refreshPreservingInput(root: View, render: () -> Unit) {
         data class Field(val hint: String?, val value: String, val start: Int, val end: Int, val focused: Boolean)
         val fields = descendants(root).filterIsInstance<EditText>().map {

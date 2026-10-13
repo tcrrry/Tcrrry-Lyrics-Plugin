@@ -12,6 +12,32 @@ AMPP Lyrics v1.5. It retains their GPL-3.0 source and copyright notices. The ful
 GPL is in `LICENSE`. Provenance is in `docs/MIGRATION.md` and `docs/provenance.json`.
 The SDK API JAR is compile-only; the author's PluginStore source is test-only.
 
+## AM++ glass settings backdrop
+
+The settings dialog uses the AM++ host's Kyant Backdrop rendering interface.
+`lib/ampp-backdrop-host.jar` is a compile-only API reference built from
+Zennmn/AM-plus-plus commit
+`75dde33e51c6c724c4697d25f5c7788b3e7a8099`; they are not bundled into
+the plugin DEX. The original AndroidLiquidGlass project by Kyant is licensed
+under Apache-2.0; its license is preserved in
+`assets/licenses/AndroidLiquidGlass.txt`.
+
+The standalone Compose host and window-capture technique were adapted from
+Kifranei/AM-plus-plus-media-plugin (GPL-3.0). The settings implementation here
+is independently maintained and is not part of that plugin.
+
+Settings selection strips call AM++'s actual `LiquidBottomTabs` and
+`LiquidBottomTab`, with their native drag selection and release animations.
+The compile-only reference `lib/ampp-liquid-controls-host.jar` is pinned to the
+AM++ commit above. Dialogs use a shared, pre-blurred native snapshot with an
+artwork-adaptive wash for readability. The offscreen blur uses Android's
+HardwareRenderer / RenderEffect APIs following the framework migration guide:
+https://developer.android.com/guide/topics/renderscript/migrate
+Ordinary actions retain lightweight native surfaces
+and whole-View press feedback. Slider and list gestures remain native. Selection
+text is rendered inside the actual glass component; native sizing, accessible
+labels, fallback controls and saved settings remain available.
+
 ## Kuromoji IPADIC 0.9.0
 
 `com.atilika.kuromoji:kuromoji-core:0.9.0` and `kuromoji-ipadic:0.9.0`, Apache-2.0.

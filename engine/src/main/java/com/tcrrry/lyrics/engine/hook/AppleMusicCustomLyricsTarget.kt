@@ -36,16 +36,7 @@ internal class AppleMusicCustomLyricsTarget(
         } catch (error: Throwable) { registration.close(); throw error }
     }
     private fun hook(method: java.lang.reflect.Executable, callback: ModernMethodHook): Boolean =
-        ModernXposedRuntime.hookMethod(method, object : ModernMethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                val enabled = config.settings().let { it.customLyricsEnabled && it.automaticLyricsEnabled }
-                param.extras["plugin-lyrics-enabled"] = enabled
-                if (enabled) callback.beforeHookedMethod(param)
-            }
-            override fun afterHookedMethod(param: MethodHookParam) {
-                if (param.extras.remove("plugin-lyrics-enabled") == true) callback.afterHookedMethod(param)
-            }
-        },registration)
+        ModernXposedRuntime.hookMethod(method, callback, registration)
     private fun installOnce(): TargetCapabilityInstall {
         val installMethodResolution = symbols.resolve(AppleMusicSymbols.LyricsInstallMethod)
         val installMethod = installMethodResolution.valueOrNull()
@@ -159,7 +150,6 @@ internal class AppleMusicCustomLyricsTarget(
         val autoSession = autoLyricsRuntime?.let { runtime ->
             AutoLyricsReplacementSession(
                 fetchCandidate = fetch@{ appleMusicId ->
-                    if (!config.settings().let { it.customLyricsEnabled && it.automaticLyricsEnabled }) return@fetch null
                     val policyRevision = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.revision(application)
                     val current = currentSong.current()
                         ?.takeIf { it.details.appleMusicId == appleMusicId }
@@ -399,7 +389,7 @@ internal class AppleMusicCustomLyricsTarget(
             NativeLyricsMetadataRefresh(currentSong, seam::currentItemAdamIdOf,
                 { page -> activeFragment?.get() === page && fragmentUsable(page) },
                 dispatch = { action -> mainHandler.post {
-                    if (registration.isActive && config.settings().let { it.customLyricsEnabled && it.automaticLyricsEnabled }) runCatching(action)
+                    if (registration.isActive) runCatching(action)
                         .onFailure { ModernXposedRuntime.log("Lyrics metadata recovery failed open", it) }
                 } }, replay = replay, recovered = { fragment, id ->
                     ModernXposedRuntime.log("Lyrics page identity recovered id=$id")
@@ -619,8 +609,7 @@ internal class AppleMusicCustomLyricsTarget(
                         val ref = WeakReference(fragment)
                         mainHandler.post {
                             val current = ref.get() ?: return@post
-                            if (!registration.isActive || activeFragment?.get() !== current ||
-                                !config.settings().let { it.customLyricsEnabled && it.automaticLyricsEnabled }) return@post
+                            if (!registration.isActive || activeFragment?.get() !== current) return@post
                             runCatching {
                                 if (repairTimedPage(current)) immediateAnchor?.schedule(current)
                             }.onFailure { ModernXposedRuntime.log("Timed replacement binding recovery failed open", it) }

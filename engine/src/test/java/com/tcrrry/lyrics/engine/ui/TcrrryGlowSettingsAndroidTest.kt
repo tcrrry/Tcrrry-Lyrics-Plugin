@@ -54,6 +54,11 @@ class TcrrryGlowSettingsAndroidTest {
         assertTrue(saved.futureBlurEnabled)
         val maximum = TcrrryLyricsSettingsUi.glowSettingsCard(activity, saved, {}, {})
         assertEquals(450, (0 until maximum.childCount).map(maximum::getChildAt).filterIsInstance<SeekBar>().single().progress)
+        (0 until card.childCount).map(card::getChildAt).filterIsInstance<TextView>()
+            .single { it.text == "恢复默认灵敏度" }.performClick()
+        assertEquals(100, saved.lyricGlowSensitivity)
+        assertEquals(50, slider.progress)
+        assertEquals(LyricGlowPosition.TAIL_ONLY, saved.lyricGlowPosition)
     }
 
     @Test fun enhancementControlsStayAvailableWithoutAMasterSwitchAndSmoothDefaultsOn() {
@@ -70,6 +75,10 @@ class TcrrryGlowSettingsAndroidTest {
         assertEquals(SettingsUiTheme.colors(activity).primary, smooth.currentTextColor)
         smooth.performClick()
         assertFalse(policy.smoothShortUnits(activity))
+        assertEquals(SettingsUiTheme.colors(activity).text, smooth.currentTextColor)
+        smooth.performClick()
+        assertTrue(policy.smoothShortUnits(activity))
+        smooth.performClick()
         assertTrue(refreshed)
         assertFalse(policy.smoothShortUnits(activity)) // Explicit saved off remains off on later renders.
     }

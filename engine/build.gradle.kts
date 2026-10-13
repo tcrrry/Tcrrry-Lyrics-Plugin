@@ -1,14 +1,26 @@
-plugins { id("com.android.application") }
+plugins { id("com.android.application"); id("org.jetbrains.kotlin.plugin.compose") }
 android {
  namespace = "com.tcrrry.lyrics.engine"
  compileSdk = 37
  defaultConfig { applicationId = "com.tcrrry.lyrics.plugin.compiler"; minSdk = 26; targetSdk = 37; versionCode = 4; versionName = "1.0.3"; buildConfigField("String","HOST_PACKAGE","\"com.apple.android.music\"") }
- buildFeatures { buildConfig = true }
+ buildFeatures { buildConfig = true; compose = true }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  packaging { resources { merges += listOf("META-INF/LICENSE.md", "META-INF/NOTICE.md", "META-INF/CONTRIBUTORS.md") } }
 }
+val glassHost = files(rootProject.file("lib/ampp-backdrop-host.jar"), rootProject.file("lib/ampp-liquid-controls-host.jar"))
+val glassRendering = listOf(
+ "org.jetbrains.compose.foundation:foundation:1.12.0",
+ "org.jetbrains.compose.ui:ui:1.12.0",
+ "org.jetbrains.compose.ui:ui-graphics:1.12.0",
+ "io.github.kyant0:shapes:1.2.1",
+ "androidx.lifecycle:lifecycle-runtime:2.9.4",
+ "androidx.savedstate:savedstate:1.3.3",
+ "org.jetbrains:annotations:26.1.0",
+)
 dependencies {
  compileOnly(files(rootProject.file("lib/ampp-plugin-api-v1.jar")))
+ compileOnly(glassHost)
+ glassRendering.forEach { compileOnly(it); testImplementation(it) }
  compileOnly("io.github.libxposed:api:102.0.0")
  compileOnly("org.luckypray:dexkit:2.2.0")
  implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.10")
@@ -23,6 +35,7 @@ dependencies {
  testImplementation("org.robolectric:robolectric:4.14.1")
  testImplementation("org.json:json:20240303")
  testImplementation(files(rootProject.file("lib/ampp-plugin-api-v1.jar")))
+ testImplementation(glassHost)
 }
 tasks.withType<Test>().configureEach {
     providers.gradleProperty("fullPluginFixture").orNull?.let { systemProperty("fullPluginFixture", it); inputs.file(it) }

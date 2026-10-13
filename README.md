@@ -38,7 +38,7 @@
 
 更新时导入新 ZIP 覆盖同一插件 ID，可保留插件配置；删除插件会删除其配置。不要把伴随 APK 导入插件管理器。建议仅启用一套歌词增强，避免重复挂载独立插件与整合包内置功能。
 
-想直接安装完整 Apple Music 增强版，请下载 [AMPP-Lyrics v1.6](https://github.com/tcrrry/AMPP-Lyrics/releases/tag/v1.6) 的普通 APK、共存 APK、APKS 或模块。完整安装包已移植 1.0.4 的歌词修复，仍针对 1606 构建，无需再导入本插件；没有插件管理器的旧整合包不能通过 ZIP 获得插件系统。
+想直接安装完整 Apple Music 增强版，请下载 [AMPP-Lyrics v1.7 / 1609](https://github.com/tcrrry/AMPP-Lyrics/releases/tag/v1.7) 的普通 APK、共存 APK、APKS 或模块，要求 Android 12+。v1.7 已内置同一套 1.0.6 歌词插件、插件管理器和离线机翻，无需手动导入 ZIP 或安装伴随 APK；整合包的检查更新指向主项目版本。Android 11 用户可继续使用 [v1.6 / 1606](https://github.com/tcrrry/AMPP-Lyrics/releases/tag/v1.6)，旧版整合包不能仅通过 ZIP 获得新的插件系统。
 
 ## 兼容性与验证
 

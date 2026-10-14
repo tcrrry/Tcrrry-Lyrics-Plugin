@@ -81,6 +81,15 @@ class RubyPronunciationRowLayoutTest {
         assertTrue(words.all { it.paddingBottom==0 })
         assertTrue(words.all { !(it.layoutParams as FlexboxLayout.LayoutParams).isWrapBefore })
     }
+    @Test fun readingsFillTheFirstRowInsteadOfBalancingTwoHalfEmptyRows() {
+        val (words,ruby)=row("あいうえおか",List(6) { "a" })
+        layout(360)
+        val width=words.take(5).sumOf { it.measuredWidth }+1
+        repeat(6) { layout(width);ruby.onPreDraw() }
+        assertNotNull(ruby.placements())
+        assertEquals(1,words.take(5).map { it.top }.distinct().size)
+        assertTrue(words.last().top>words.first().top)
+    }
     @Test fun sameWidthNativePaddingResetRestoresSpaceBeforeDrawingSecondLineReadings() {
         val(words,ruby)=row("君の花を見た",listOf("kimi","no","hana","wo","mi","ta"))
         layout(120);ruby.onPreDraw();layout(120);ruby.onPreDraw()

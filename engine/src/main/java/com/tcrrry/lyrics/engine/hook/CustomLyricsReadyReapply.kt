@@ -38,6 +38,7 @@ internal class CustomLyricsReadyReapply(
     private val isFragmentUsable: (Any) -> Boolean,
     private val currentSong: CurrentSongIdentityCache,
     private val logger: (String) -> Unit,
+    private val installReplacement: (Any, Any) -> Unit = { fragment, replacement -> installMethod.invoke(fragment, replacement) },
 ) {
     /**
      * Strongly holds only the weak key wrappers, never the fragment referents.
@@ -105,7 +106,7 @@ internal class CustomLyricsReadyReapply(
                     rebound = rebindStaleFragmentToCurrent(fragment, fragmentAdamId, appleMusicId)
                     if (!rebound) continue
                 }
-                installMethod.invoke(fragment, replacement)
+                installReplacement(fragment, replacement)
             } catch (error: Throwable) {
                 logger("custom lyrics ready-late re-entry failed: $error")
             }

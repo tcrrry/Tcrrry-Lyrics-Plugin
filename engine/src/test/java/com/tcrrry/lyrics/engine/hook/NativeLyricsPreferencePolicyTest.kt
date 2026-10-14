@@ -13,6 +13,13 @@ class NativeLyricsPreferencePolicyTest {
         assertFalse(NativeLyricsPreferencePolicy.preferNative(true, "QQ音乐"))
         assertFalse(NativeLyricsPreferencePolicy.preferNative(false, null))
     }
+    @Test fun lateNativeLineDoesNotDiscardReadyWordCacheOrRestartPendingLookup() {
+        assertFalse(NativeLyricsPreferencePolicy.refreshForNativeDocument(false, null, TtmlTimingMode.WORD, false))
+        assertFalse(NativeLyricsPreferencePolicy.refreshForNativeDocument(false, null, null, true))
+        assertTrue(NativeLyricsPreferencePolicy.refreshForNativeDocument(false, null, TtmlTimingMode.NON_WORD, false))
+        assertTrue(NativeLyricsPreferencePolicy.refreshForNativeDocument(true, null, TtmlTimingMode.WORD, false))
+        assertFalse(NativeLyricsPreferencePolicy.refreshForNativeDocument(false, "QQ音乐", null, false))
+    }
     @Test fun emptyTimedSpansAndMetadataAreNotNativeLyrics() {
         assertFalse(NativeLyricsPreferencePolicy.hasContent("<tt><head>title</head><body><p><span begin=\"1s\" end=\"2s\"> </span></p></body></tt>"))
         assertTrue(NativeLyricsPreferencePolicy.hasContent("<tt><body><p><span begin=\"1s\">君</span></p></body></tt>"))

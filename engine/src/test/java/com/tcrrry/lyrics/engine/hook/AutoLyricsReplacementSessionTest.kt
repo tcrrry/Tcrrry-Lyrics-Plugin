@@ -63,6 +63,34 @@ class AutoLyricsReplacementSessionTest {
         queued.runAll()
         assertSame(pointer, session.readyReplacementFor(42L))
     }
+    @Test fun pendingRefreshKeepsVisiblePointerAndIdenticalContentDoesNotReparse() {
+        val queued = QueuedExecutor()
+        var parses = 0
+        val lyrics = session(queued, fetch = { AutoLyricsCandidate("desktop-lyrics:test", WORD_TTML) },
+            parse = { parses++; Pointer() })
+        lyrics.onSongChanged(42)
+        lyrics.ensureRequested(42); queued.runAll()
+        val original = lyrics.readyReplacementFor(42)
+        lyrics.refreshCurrent(42)
+        assertSame(original, lyrics.readyReplacementFor(42))
+        queued.runAll()
+        assertSame(original, lyrics.readyReplacementFor(42))
+        assertEquals(1, parses)
+        lyrics.onSongChanged(99)
+        assertNull(lyrics.readyReplacementFor(42))
+    }
+    @Test fun changedTranslationReplacesOnlyAfterTheNewDocumentIsReady() {
+        val queued = QueuedExecutor()
+        var document = WORD_TTML
+        val lyrics = session(queued, fetch = { AutoLyricsCandidate("desktop-lyrics:test", document) }, parse = { Pointer() })
+        lyrics.onSongChanged(42); lyrics.ensureRequested(42); queued.runAll()
+        val original = lyrics.readyReplacementFor(42)
+        document = WORD_TTML.replace("hello", "translated")
+        lyrics.refreshCurrent(42)
+        assertSame(original, lyrics.readyReplacementFor(42))
+        queued.runAll()
+        org.junit.Assert.assertNotSame(original, lyrics.readyReplacementFor(42))
+    }
     @Test
     fun `cold lookup keeps original path until a validated candidate publishes without caching fallback`() {
         val queued = QueuedExecutor()

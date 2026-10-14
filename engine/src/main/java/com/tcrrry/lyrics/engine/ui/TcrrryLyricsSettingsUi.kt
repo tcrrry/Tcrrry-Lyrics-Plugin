@@ -37,7 +37,8 @@ internal object TcrrryLyricsSettingsUi {
     private var activeGuide: android.app.AlertDialog? = null
 
     fun render(activity: Activity, parent: LinearLayout, song: CurrentSongDetails?, refreshPage: () -> Unit,
-        settings: ModuleSettings, onSettingsChanged: (ModuleSettings) -> Unit) {
+        settings: ModuleSettings, onSettingsChanged: (ModuleSettings) -> Unit,
+        readSettings: () -> ModuleSettings = { settings }) {
         val id = song?.appleMusicId ?: 0L
         parent.setBackgroundColor(android.graphics.Color.TRANSPARENT)
         parent.setPadding(dp(activity, 18), dp(activity, 16), dp(activity, 18), dp(activity, 28))
@@ -60,7 +61,7 @@ internal object TcrrryLyricsSettingsUi {
             showLanguageSettings(activity, id, refreshPage)
         }, fullMargin(activity, 12))
         parent.addView(menuRow(activity, "歌词效果", "辉光灵敏度、触发位置与短单元平滑") {
-            bubbleDialog(activity, glowSettingsCard(activity, settings, onSettingsChanged, refreshPage, id)).show()
+            bubbleDialog(activity, glowSettingsCard(activity, readSettings(), onSettingsChanged, refreshPage, id)).show()
         }, fullMargin(activity, 12))
         parent.addView(menuRow(activity, "更多工具", "缓存与系统链接") {
             showMoreSettings(activity, id)
@@ -200,6 +201,7 @@ internal object TcrrryLyricsSettingsUi {
         body.addView(settingSwitch(activity, "新版本自动提醒", com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity)) { enabled ->
             com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity, enabled)
         }, fullMargin(activity, 8))
+        body.addView(action(activity, "歌词缓存") { showCacheSettings(activity) }, fullMargin(activity, 14))
         body.addView(action(activity, "清理补充译文缓存") {
             val folder = java.io.File(activity.pluginCacheDir, "translations")
             folder.listFiles()?.filter { it.isFile }?.forEach { it.delete() }
@@ -213,6 +215,52 @@ internal object TcrrryLyricsSettingsUi {
                 .onFailure { toast(activity, "无法打开系统链接设置") }
         }, fullMargin(activity, 8))
         bubbleDialog(activity, body).show()
+    }
+
+    private fun showCacheSettings(activity: Activity) {
+        val storage = com.tcrrry.lyrics.engine.hook.LyricsCacheStorage
+        val body = card(activity).apply { addView(title(activity, "歌词缓存", 20f)) }
+        val value = title(activity, "", 17f)
+        fun capacity(mb: Int) = when (mb) { 0 -> "不保存磁盘缓存"; 1024 -> "缓存上限 · 1 GB"; else -> "缓存上限 · $mb MB" }
+        value.text = capacity(storage.limitMb(activity))
+        body.addView(value, fullMargin(activity, 16))
+        val usage = label(activity, "正在统计缓存", 14f, SettingsUiTheme.colors(activity).secondary)
+        val handler = com.tcrrry.lyrics.plugin.PluginHandler()
+        val worker = com.tcrrry.lyrics.plugin.PluginExecutors.newSingleThreadExecutor()
+        fun updateUsage(bytes: Long) {
+            usage.text = String.format(Locale.getDefault(), "已使用 %.1f MB", bytes / (1024.0 * 1024.0))
+        }
+        body.addView(SeekBar(activity).apply {
+            max = storage.MAX_MB / 16
+            progress = storage.limitMb(activity) / 16
+            progressTintList = ColorStateList.valueOf(SettingsUiTheme.colors(activity).primary)
+            thumbTintList = progressTintList
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar?, progress: Int, fromUser: Boolean) { if (fromUser) value.text = capacity(progress * 16) }
+                override fun onStartTrackingTouch(bar: SeekBar?) = Unit
+                override fun onStopTrackingTouch(bar: SeekBar?) {
+                    storage.setLimitMb(activity, (bar?.progress ?: 4) * 16)
+                    worker.execute { val remaining = storage.trim(activity); handler.post { if (!activity.isFinishing) updateUsage(remaining) } }
+                }
+            })
+        }, fullMargin(activity, 10))
+        body.addView(usage, fullMargin(activity, 8))
+        val clear = action(activity, "清理歌词缓存") {}
+        clear.setOnClickListener {
+            clear.isEnabled = false
+            worker.execute {
+                val remaining = storage.clear(activity)
+                handler.post {
+                    if (!activity.isFinishing) {
+                        updateUsage(remaining); clear.isEnabled = true
+                        toast(activity, if (remaining == 0L) "歌词缓存已清理" else "部分缓存未能清理，请稍后重试")
+                    }
+                }
+            }
+        }
+        body.addView(clear, fullMargin(activity, 16))
+        worker.execute { val bytes = storage.bytes(activity); handler.post { if (!activity.isFinishing) updateUsage(bytes) } }
+        bubbleDialog(activity, body, compact = true).apply { setOnDismissListener { worker.shutdown() } }.show()
     }
 
     private fun maybeShowFirstRunGuide(activity: Activity, parent: View) {
@@ -863,7 +911,10 @@ internal object TcrrryLyricsSettingsUi {
                         Class.forName("com.kyant.backdrop.catalog.components.LiquidBottomTabsKt", false,
                             SettingsGlassHostView::class.java.classLoader)
                         SettingsGlassHostView(settingsGlassContext(activity))
-                    }.getOrNull() else null
+                    }.getOrElse {
+                        android.util.Log.w("TcrrrySettings", "Liquid selection unavailable; retaining native controls", it)
+                        null
+                    } else null
                     controls = SettingsGlassControls(frame, body, host, glass.second, palette)
                     if (host != null) frame.addView(host, 1, android.widget.FrameLayout.LayoutParams(-1, -1))
                 }

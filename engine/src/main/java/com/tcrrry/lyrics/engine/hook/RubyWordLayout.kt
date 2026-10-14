@@ -118,7 +118,7 @@ internal class RubyWordLayout private constructor(private val saved: List<Saved>
                     (margins?.leftMargin?:0)+(margins?.rightMargin?:0)
             }
             val widths=words.indices.map(::nativeWidth)
-            data class Column(val first:Int,val last:Int,val width:Float,val before:Float,val characters:Int)
+            data class Column(val last:Int,val width:Float,val before:Float)
             val columns=mutableListOf<Column>()
             var lastEnd=0; var previousLast=-1
             for (unit in alignment.units) {
@@ -138,40 +138,32 @@ internal class RubyWordLayout private constructor(private val saved: List<Saved>
                 val extra=ceil(required-native).toInt().coerceAtLeast(0)
                 // Widen the entire original/reading pair, never the font.
                 left[first] += extra/2; right[last] += extra-extra/2
-                columns+=Column(first,last,native+extra,intervening,end-start)
+                columns+=Column(last,native+extra,intervening)
                 previousLast=last
             }
             if(columns.isEmpty()) return null
-            // Minimize the number of rows first, then balance their widths.
-            // An isolated character is expensive, but never changes a font or
-            // splits a native timed view to force an impossible fit.
+            // Fill each row before wrapping, keeping each reading pair intact.
+            // Balancing slack across rows caused conspicuous early line breaks.
             val n=columns.size
-            val rows=IntArray(n+1) { Int.MAX_VALUE };rows[n]=0
-            val cost=DoubleArray(n+1) { Double.POSITIVE_INFINITY };cost[n]=0.0
             val next=IntArray(n)
-            for(i in n-1 downTo 0) {
-                var width=columns[i].before;var characters=0
+            for(i in 0 until n) {
+                var width=columns[i].before
                 for(j in i until n) {
                     if(j>i) width+=columns[j].before
-                    width+=columns[j].width;characters+=columns[j].characters
+                    width+=columns[j].width
                     if(width>available) break
-                    if(rows[j+1]==Int.MAX_VALUE) continue
-                    val candidateRows=1+rows[j+1]
-                    val slack=(available-width).toDouble()/available
-                    val candidateCost=cost[j+1]+slack*slack+if(characters==1 && n>1) 4.0 else 0.0
-                    if(candidateRows<rows[i] || candidateRows==rows[i] && candidateCost<cost[i]) {
-                        rows[i]=candidateRows;cost[i]=candidateCost;next[i]=j+1
-                    }
+                    next[i]=j+1
                 }
             }
-            if(rows[0]==Int.MAX_VALUE) return null
-            val lineCount=rows[0];var i=0;var line=0;previousLast=-1
+            var i=0;var line=0;previousLast=-1
             while(i<n) {
                 val end=next[i]
+                if(end<=i) return null
                 if(i>0) wraps[previousLast+1]=true
                 for(k in previousLast+1..columns[end-1].last) lines[k]=line
                 previousLast=columns[end-1].last;i=end;line++
             }
+            val lineCount=line
             for(i in previousLast+1 until words.size) lines[i]=lineCount-1
             RubyWordLayout(saved,words.indices.map { i -> Plan(left[i],right[i],if(lines[i]<lineCount-1) band else 0,wraps[i]) })
         }.getOrNull()

@@ -16,12 +16,14 @@ internal object TcrrryLyricsHistory {
         val file = file(context, id)
         if (!file.isFile || file.length() > 8 * 1024 * 1024) return@runCatching emptyList()
         val array = JSONArray(file.readText())
+        file.setLastModified(System.currentTimeMillis())
         (0 until array.length()).mapNotNull { index -> array.optJSONObject(index)?.let(::decode) }
     }.getOrDefault(emptyList())
 
     @Synchronized fun remember(context: Context, id: Long, result: DirectLyricsRepository.Result) {
         if (id <= 0 || result.recordId.isBlank() || result.lyrics.isBlank()) return
-        runCatching {
+        val epoch = LyricsCacheStorage.epoch
+        LyricsCacheStorage.store(context, epoch) { runCatching {
             val all = entries(context, id).filterNot { it.source == result.source && it.recordId == result.recordId } + result
             val destination = file(context, id)
             destination.parentFile?.mkdirs()
@@ -30,7 +32,8 @@ internal object TcrrryLyricsHistory {
                 all.forEach { put(it.toJson().apply { remove("alternatives") }) }
             }.toString())
             java.nio.file.Files.move(pending.toPath(), destination.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
-        }
+            true
+        }.getOrDefault(false) }
     }
 
     fun selected(context: Context, id: Long, source: String?): DirectLyricsRepository.Result? {

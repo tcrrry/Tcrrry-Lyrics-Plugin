@@ -28,6 +28,7 @@ internal class NativeTimedLyricsPage private constructor(private val type: Class
     private val repairing = ThreadLocal.withInitial { false }
     internal val isRepairing: Boolean get() = repairing.get() == true
     internal val bindingMethod get() = render
+    internal fun contentView(fragment: Any): View? = runCatching { binding.get(fragment)?.let { recycler.get(it) as? View } }.getOrNull()
 
     /** Never clear a pointer, replace a player item, or change playback/catalog identity. */
     fun repair(fragment: Any, id: Long, replacement: Any): Boolean {

@@ -82,11 +82,14 @@ internal class SettingsGlassHostView(context: Context) : FrameLayout(context) {
     }
 }
 
+internal fun settingsGlassModuleNames(hostPackage: String): List<String> =
+    if (hostPackage == "com.tcrrry.ampplyrics.coexist") listOf("dev.amenhancer.module.coexist")
+    else listOf("dev.amenhancer.module", "dev.amenhancer.module.debug")
+
 internal fun settingsGlassContext(activity: Context): Context {
-    val names = setOf("dev.amenhancer.module", "dev.amenhancer.module.debug")
-    val info = names.firstNotNullOfOrNull { name ->
-        runCatching { activity.packageManager.getApplicationInfo(name, 0) }.getOrNull()
-    } ?: PluginContext::class.java.classLoader!!.getResources("AndroidManifest.xml").asSequence()
+    val names = settingsGlassModuleNames(activity.packageName)
+    // Prefer the loaded module archive: an installed ordinary module may be a different build.
+    val info = PluginContext::class.java.classLoader!!.getResources("AndroidManifest.xml").asSequence()
         .firstNotNullOfOrNull { resource ->
             runCatching {
                 val jar = resource.openConnection() as? JarURLConnection ?: return@runCatching null
@@ -97,6 +100,8 @@ internal fun settingsGlassContext(activity: Context): Context {
                         publicSourceDir = file.path
                     }
             }.getOrNull()
+        } ?: names.firstNotNullOfOrNull { name ->
+            runCatching { activity.packageManager.getApplicationInfo(name, 0) }.getOrNull()
         } ?: error("AM++ glass resources unavailable")
     val resources = activity.packageManager.getResourcesForApplication(info)
     @Suppress("DEPRECATION")

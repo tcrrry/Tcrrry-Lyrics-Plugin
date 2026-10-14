@@ -56,6 +56,19 @@ class TcrrrySettingsLayoutAndroidTest {
         dialog.dismiss()
         activity.finish()
     }
+    @Test fun cacheControlsLiveInACompactToolsSubmenuWithOneGbMaximum() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val body = page(activity)
+        openMenu(body, "更多工具")
+        val tools = ShadowAlertDialog.getLatestAlertDialog()
+        assertTrue(texts(tools.window!!.decorView).single { it.text == "歌词缓存" }.performClick())
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val contents = dialog.window!!.decorView
+        assertTrue(texts(contents).any { it.text == "缓存上限 · 64 MB" })
+        assertTrue(texts(contents).any { it.text == "清理歌词缓存" })
+        assertEquals(64, views(contents).filterIsInstance<android.widget.SeekBar>().single().max)
+        dialog.dismiss(); tools.dismiss()
+    }
 
     @Test fun compactHomeRoutesCurrentSourceToItsOwnPage() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
@@ -67,7 +80,7 @@ class TcrrrySettingsLayoutAndroidTest {
         assertFalse(home.any { it == "外观" || it.contains("双击寻找") || it == "恢复自动选源" })
         assertFalse(home.any { it.startsWith("当前来源") })
         val sourceText = texts(parent).single { it.text == CurrentLyricsSourceStatus.description(activity, 321) }
-        assertEquals(android.text.TextUtils.TruncateAt.MARQUEE, sourceText.ellipsize)
+        assertNull(sourceText.ellipsize)
         assertTrue(sourceText.parent is SmoothSourceTicker)
         val source = sourceText.parent.parent as View
         assertTrue(source.isClickable)

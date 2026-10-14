@@ -17,6 +17,7 @@ import android.view.View
 
 /** Android's offscreen RenderEffect path: blur a small snapshot once, not a full window every frame. */
 internal object SettingsFrostedBitmap {
+    @androidx.annotation.RequiresApi(31)
     fun blur(source: Bitmap, radius: Float): Bitmap {
         val reader = ImageReader.newInstance(source.width, source.height, PixelFormat.RGBA_8888, 1,
             HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE or HardwareBuffer.USAGE_GPU_COLOR_OUTPUT)

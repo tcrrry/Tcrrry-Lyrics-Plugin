@@ -1,6 +1,8 @@
 package com.tcrrry.lyrics.engine.hook
 
 internal object NativeLyricsPreferencePolicy {
+    fun refreshForNativeDocument(preferNative: Boolean, selectedSource: String?, preparedTiming: TtmlTimingMode?, preparing: Boolean): Boolean =
+        preferNative || (selectedSource == null && !preparing && preparedTiming != TtmlTimingMode.WORD)
     fun preferNative(qualityFirst: Boolean, selectedSource: String?, nativeTtml: String? = null): Boolean =
         selectedSource == LyricsSourceMenuPolicy.NATIVE || (selectedSource == null &&
             (qualityFirst || nativeTtml?.let(TtmlTimingPolicy::hasTimedWords) == true))

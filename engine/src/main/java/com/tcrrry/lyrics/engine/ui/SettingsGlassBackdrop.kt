@@ -68,6 +68,7 @@ internal class SettingsGlassBackdrop(private val activity: Activity,
                     try {
                         if (!closed) {
                             output = runCatching {
+                                if (android.os.Build.VERSION.SDK_INT < 31) error("Offscreen blur requires Android 12")
                                 SettingsFrostedBitmap.blur(target, SettingsGlassPanelMaterial.BLUR_DP * activity.resources.displayMetrics.density * scale)
                             }.getOrElse {
                                 android.util.Log.w("TcrrrySettings", "Offscreen blur unavailable; using a low-detail color snapshot", it)

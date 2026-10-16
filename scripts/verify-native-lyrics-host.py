@@ -73,6 +73,12 @@ def main():
     # Immediate reanchoring reuses the native current-ID scroll callback after layout.
     lyrics = 'com/apple/android/music/player/fragment/PlayerLyricsViewFragment'
     method(lyrics, 'onResume()V')
+    if version[1] == '1609':
+        field('q8/X4', 'o0', 'Landroid/widget/ImageView;')
+        checks += 1
+        constructors = classes['Lq8/X4;']['methods']
+        if not any(name.startswith('<init>(') for name in constructors):
+            raise RuntimeError('Missing 1609 lyrics binding constructor for early menu anchor')
     field(lyrics, 'n0', 'Lq8/Y4;')
     field('q8/Y4', 'f0', 'Landroidx/recyclerview/widget/RecyclerView;')
     # Header refresh must not depend on native lyrics availability.

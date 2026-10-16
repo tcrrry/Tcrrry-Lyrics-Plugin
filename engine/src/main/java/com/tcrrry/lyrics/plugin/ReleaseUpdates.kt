@@ -9,11 +9,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.ViewGroup
-import android.widget.LinearLayout
-import android.widget.TextView
 import android.widget.Toast
-import com.tcrrry.lyrics.engine.ui.SettingsUiTheme
 import com.tcrrry.lyrics.engine.ui.TcrrryLyricsSettingsUi
 import com.tcrrry.lyrics.plugin.PluginStorage.pluginPreferences
 import org.json.JSONObject
@@ -168,28 +164,19 @@ internal object ReleaseUpdates {
 
     private fun show(activity: Activity, tag: String, policy: UpdateReminderPolicy) {
         if (dialog.get()?.isShowing == true) return
-        val colors = SettingsUiTheme.colors(activity)
-        val density = activity.resources.displayMetrics.density
-        fun dp(value: Int) = (value * density).toInt()
-        val body = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), dp(20), dp(20), dp(20)) }
-        body.addView(TextView(activity).apply { text = "${channel.label}有新版本 ${channel.versionOf(tag)}"; textSize = 19f; setTextColor(colors.text) })
-        body.addView(TextView(activity).apply { text = "当前版本 ${channel.version}"; textSize = 13f; setTextColor(colors.secondary); setPadding(0, dp(8), 0, dp(8)) })
-        val popup = TcrrryLyricsSettingsUi.bubbleDialog(activity, body, compact = true, outsideCancelable = false)
-        fun option(caption: String, action: () -> Unit) {
-            body.addView(TextView(activity).apply {
-                text = caption; textSize = 15f; gravity = android.view.Gravity.CENTER; minimumHeight = dp(48)
-                setTextColor(colors.primary); isClickable = true; isFocusable = true
-                background = android.graphics.drawable.GradientDrawable().apply { setColor(colors.raised); cornerRadius = dp(12).toFloat() }
-                setOnClickListener { popup.dismiss(); action() }
-            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) })
-        }
-        option("查看并下载更新") {
-            runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(channel.release(tag)))) }
-                .onFailure { toast(activity, "无法打开浏览器") }
-        }
-        option("稍后提醒") { policy.later(tag, System.currentTimeMillis()) }
-        option("忽略此版本") { policy.ignore(tag) }
-        option("不再自动提醒") { policy.automatic = false }
+        lateinit var popup: android.app.AlertDialog
+        fun option(caption: String, action: () -> Unit) = caption to { popup.dismiss(); action() }
+        val body = TcrrryLyricsSettingsUi.updateReminderBody(activity,
+            "${channel.label}有新版本 ${channel.versionOf(tag)}", "当前版本 ${channel.version}", listOf(
+                option("查看并下载更新") {
+                    runCatching { activity.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(channel.release(tag)))) }
+                        .onFailure { toast(activity, "无法打开浏览器") }
+                },
+                option("稍后提醒") { policy.later(tag, System.currentTimeMillis()) },
+                option("忽略此版本") { policy.ignore(tag) },
+                option("不再自动提醒") { policy.automatic = false },
+            ))
+        popup = TcrrryLyricsSettingsUi.bubbleDialog(activity, body, compact = true, outsideCancelable = false)
         popup.setOnCancelListener { policy.later(tag, System.currentTimeMillis()) }
         dialog = WeakReference(popup)
         popup.show()

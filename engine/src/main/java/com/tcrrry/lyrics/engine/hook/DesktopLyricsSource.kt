@@ -74,9 +74,14 @@ internal class DesktopLyricsSource(
         val excluded = selected?.let { CurrentLyricsSourceStatus.excludedRecords(context, track.appleMusicId, it) }.orEmpty()
         val key = listOf(track.appleMusicId, track.title, track.artist, track.album, track.durationMs, selected, excluded.sorted(), com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(context)).joinToString("|")
         val result = if (selected == null) findAuto(track, key) else {
-            TcrrryLyricsHistory.selected(context, track.appleMusicId, selected)
+            val saved = TcrrryLyricsHistory.selected(context, track.appleMusicId, selected)
                 ?: TcrrryLyricsHistory.best(context, track.appleMusicId, selected, excluded,
                     wordFirst = !com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(context))
+            saved?.let { found ->
+                repository.completeQqLyrics(found).also { repaired ->
+                    if (repaired !== found) TcrrryLyricsHistory.remember(context, track.appleMusicId, repaired)
+                }
+            }
                 ?: repository.rematch(selected, track.title, track.artist, track.album,
                     track.durationMs, excluded)?.also {
                     TcrrryLyricsHistory.remember(context, track.appleMusicId, it)
@@ -143,7 +148,8 @@ internal class DesktopLyricsSource(
             withJapanesePronunciation
         }
         val ttml = DesktopLyricsTtmlConverter.convert(withPronunciation, track.durationMs, offset, primaryPronunciation,
-            com.tcrrry.lyrics.engine.lyrics.LyricsPreference.smoothShortUnits(context)) ?: run {
+            com.tcrrry.lyrics.engine.lyrics.LyricsPreference.smoothShortUnits(context),
+            hideOpeningCredits = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.hideOpeningCredits(context)) ?: run {
             CurrentLyricsSourceStatus.rememberMatchStatus(context, track.appleMusicId, "已找到 ${result.source}，歌词格式转换失败")
             return null
         }

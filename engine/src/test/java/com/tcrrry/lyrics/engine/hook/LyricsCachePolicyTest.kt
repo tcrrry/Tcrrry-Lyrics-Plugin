@@ -17,6 +17,16 @@ class LyricsCachePolicyTest {
     @org.junit.Before fun attach() { TestPluginContext.attach() }
     @org.junit.After fun close() { TestPluginContext.current.close() }
     private val document = "<?xml version=\"1.0\"?><tt><body><p>hello</p></body></tt>"
+    @Test fun creditVisibilitySwitchInvalidatesRenderedCacheInBothDirections() {
+        val application = RuntimeEnvironment.getApplication()
+        val cache = createAutoLyricsRuntime(application).cache
+        assertFalse(LyricsPreference.hideOpeningCredits(application))
+        assertNull(cache.read(42)); assertTrue(cache.write(42, document)); assertNotNull(cache.read(42))
+        LyricsPreference.updateHideOpeningCredits(application, true)
+        assertNull(cache.read(42)); assertTrue(cache.write(42, document)); assertNotNull(cache.read(42))
+        LyricsPreference.updateHideOpeningCredits(application, false)
+        assertNull(cache.read(42))
+    }
     @Test fun stampsAreIdempotentAndChangingAnyPolicyInvalidatesThem() {
         val policy = AutoLyricsCachePolicy(true, true, "api|profile-a")
         val stamped = policy.stamp(document)

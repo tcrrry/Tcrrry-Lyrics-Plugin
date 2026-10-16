@@ -42,6 +42,64 @@ class TcrrrySettingsLayoutAndroidTest {
         assertTrue(row.performClick())
     }
 
+    @Test fun languageSearchFiltersAndSelectsWithoutResizingItsPopup() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        var selected = ""
+        TcrrryLyricsSettingsUi.showLanguageSearch(activity, listOf("auto","en","ja","ko"), "auto") { selected=it }
+        val dialog=ShadowAlertDialog.getLatestAlertDialog()
+        val root=dialog.window!!.decorView
+        val input=views(root).filterIsInstance<android.widget.EditText>().single()
+        assertEquals(SettingsGlassKind.Field,SettingsGlassMaterial.style(input)?.kind)
+        input.setText("Japanese")
+        assertTrue(texts(root).any { it.text == "日语 · ja" })
+        assertFalse(texts(root).any { it.text == "英语 · en" })
+        input.setText("不存在的语言")
+        assertTrue(texts(root).any { it.text == "未找到匹配语言" })
+        assertEquals("",selected)
+        input.setText("日语")
+        texts(root).single { it.text == "日语 · ja" }.performClick()
+        assertEquals("ja",selected); assertFalse(dialog.isShowing)
+    }
+
+    @Test fun updateReminderPreferencesAndPopupUseTheSharedGlassControls() {
+        val activity=Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        openMenu(page(activity),"更多工具")
+        val tools=ShadowAlertDialog.getLatestAlertDialog()
+        val selector=texts(tools.window!!.decorView).single { it.contentDescription == "新版本自动提醒" }
+        assertTrue(selector.isSelected)
+        assertNull(SettingsGlassMaterial.style(selector))
+        selector.performClick()
+        assertFalse(com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity))
+        selector.performClick()
+        assertTrue(com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity))
+        tools.dismiss()
+        var clicks=0
+        val body=TcrrryLyricsSettingsUi.updateReminderBody(activity,"有新版本","当前版本",listOf("查看并下载更新" to { clicks++ },"稍后提醒" to { clicks++ }))
+        val actions=texts(body).filter { it.isClickable }
+        assertEquals(2,actions.size)
+        assertTrue(actions.all { SettingsGlassMaterial.style(it)?.kind == SettingsGlassKind.Button })
+        assertTrue(SettingsGlassMaterial.style(actions.first())!!.filled)
+        actions.last().performClick(); assertEquals(1,clicks)
+    }
+
+    @Test fun pronunciationChoicesUseLightweightNativeButtonsAndPersistTheirOriginalKeys() {
+        val activity=Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        activity.pluginPreferences("japanese_pronunciation",Context.MODE_PRIVATE).edit()
+            .putBoolean("enabled",false).putBoolean("korean_enabled",false).putBoolean("cantonese_321",false).commit()
+        openMenu(page(activity),"翻译与注音")
+        val dialog=ShadowAlertDialog.getLatestAlertDialog()
+        assertEquals(1,views(dialog.window!!.decorView).filterIsInstance<SettingsSegmentedControl>().size)
+        for ((heading,key) in listOf("日语注音" to "enabled","韩语注音" to "korean_enabled","当前歌曲粤语注音" to "cantonese_321")) {
+            val button=texts(dialog.window!!.decorView).single { it.contentDescription == heading }
+            assertNull(SettingsGlassMaterial.style(button))
+            button.performClick()
+            assertTrue(activity.pluginPreferences("japanese_pronunciation",Context.MODE_PRIVATE).getBoolean(key,false))
+            button.performClick()
+            assertFalse(activity.pluginPreferences("japanese_pronunciation",Context.MODE_PRIVATE).getBoolean(key,true))
+        }
+        dialog.dismiss()
+    }
+
     @Test fun settingsUseSoftScrollEdgesWithoutAScrollbarOrFooterDivider() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         val body = page(activity)
@@ -139,6 +197,12 @@ class TcrrrySettingsLayoutAndroidTest {
         val labels = texts(dialog.window!!.decorView).map { it.text.toString() }
         for (heading in listOf("匹配优先级", "发音排版", "质量优先", "字词对应"))
             assertTrue(labels.contains(heading))
+        val credits = texts(dialog.window!!.decorView).single { it.contentDescription == "隐藏开头署名" }
+        assertFalse(credits.isSelected)
+        credits.performClick()
+        assertTrue(policy.hideOpeningCredits(activity))
+        credits.performClick()
+        assertFalse(policy.hideOpeningCredits(activity))
         val originalGroups = views(dialog.window!!.decorView).filterIsInstance<SettingsSegmentedControl>()
         texts(dialog.window!!.decorView).single { it.contentDescription == "发音排版：整行发音" }.performClick()
         assertSame(dialog, ShadowAlertDialog.getLatestAlertDialog())
@@ -157,7 +221,7 @@ class TcrrrySettingsLayoutAndroidTest {
         dialog.dismiss()
     }
 
-    @Test fun guideHasThreePagesAndFirstRunRequiresCompletion() {
+    @Test fun guideHasMenuIllustrationAndThreeGesturePagesAndFirstRunRequiresCompletion() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         TcrrryLyricsSettingsUi.showOperationGuide(activity, required = true)
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
@@ -168,7 +232,17 @@ class TcrrrySettingsLayoutAndroidTest {
         val root = dialog.window!!.decorView
         val flipper = views(root).filterIsInstance<android.widget.ViewFlipper>().single()
         assertEquals(0, flipper.displayedChild)
+        assertEquals(4, flipper.childCount)
         assertTrue(flipper.measureAllChildren)
+        val illustration = views(flipper.getChildAt(0)).filterIsInstance<GuideSourceMenuIllustration>().single()
+        assertTrue(illustration.imageAvailable)
+        illustration.measure(View.MeasureSpec.makeMeasureSpec(240, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(210, View.MeasureSpec.EXACTLY))
+        illustration.layout(0,0,240,210)
+        assertTrue(illustration.sourceHighlight.left >= 0)
+        assertTrue(illustration.sourceHighlight.right <= illustration.width)
+        assertTrue(illustration.sourceHighlight.top > illustration.height / 2)
+        assertTrue(illustration.sourceHighlight.bottom < illustration.height)
         texts(root).single { it.text == "下一页" }.performClick()
         assertEquals(1, flipper.displayedChild)
         assertNotNull(flipper.inAnimation)
@@ -179,6 +253,8 @@ class TcrrrySettingsLayoutAndroidTest {
         texts(root).single { it.text == "下一页" }.performClick()
         texts(root).single { it.text == "下一页" }.performClick()
         assertEquals(2, flipper.displayedChild)
+        texts(root).single { it.text == "下一页" }.performClick()
+        assertEquals(3, flipper.displayedChild)
         texts(root).single { it.text == "开始使用" }.performClick()
         assertTrue(prefs.getBoolean("completed", false))
         assertFalse(dialog.isShowing)
@@ -290,12 +366,12 @@ class TcrrrySettingsLayoutAndroidTest {
         }
         layout()
         val bounds = android.graphics.Rect(panel.left, panel.top, panel.right, panel.bottom)
-        val originalSelector = views(root).filterIsInstance<SettingsSegmentedControl>().single()
+        val originalSelector = views(root).filterIsInstance<SettingsSegmentedControl>().single { it.heading == "补充翻译" }
         for (mode in listOf("离线机翻", "自定义 API", "关闭", "自定义 API", "离线机翻")) {
-            texts(root).single { it.text == mode }.performClick()
+            originalSelector.labels.single { it.text == mode }.performClick()
             layout()
             assertEquals(mode, bounds, android.graphics.Rect(panel.left, panel.top, panel.right, panel.bottom))
-            assertSame(originalSelector, views(root).filterIsInstance<SettingsSegmentedControl>().single())
+            assertSame(originalSelector, views(root).filterIsInstance<SettingsSegmentedControl>().single { it.heading == "补充翻译" })
         }
         texts(root).single { it.text == "自定义 API" }.performClick()
         layout()
@@ -372,7 +448,7 @@ class TcrrrySettingsLayoutAndroidTest {
         }
     }
 
-    @Test fun mainCardCloseAndEverySettingsCommandDeclareTheirOwnGlassMaterial() {
+    @Test fun mainCardAndCommandsUseGlassWhileBinaryButtonsStayNative() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         val body = page(activity)
         val song = texts(body).single { it.text.toString().startsWith("一首很长的歌曲") }
@@ -383,6 +459,10 @@ class TcrrrySettingsLayoutAndroidTest {
             assertTrue(commands.isNotEmpty())
             commands.forEach { view ->
                 val style = SettingsGlassMaterial.style(view)
+                if (view.contentDescription in setOf("隐藏开头署名", "日语注音", "韩语注音", "当前歌曲粤语注音", "新版本自动提醒", "强制覆盖循环方式", "短单元平滑")) {
+                    assertNull(style)
+                    return@forEach
+                }
                 assertNotNull("Missing material: ${(view as? TextView)?.text ?: view.contentDescription}", style)
                 assertEquals(if (view is android.widget.EditText) SettingsGlassKind.Field else SettingsGlassKind.Button,
                     style!!.kind)
@@ -416,7 +496,8 @@ class TcrrrySettingsLayoutAndroidTest {
             View.MeasureSpec.makeMeasureSpec(metrics.heightPixels, View.MeasureSpec.EXACTLY))
         root.layout(0, 0, metrics.widthPixels, metrics.heightPixels)
         for (caption in listOf("关闭", "离线机翻", "自定义 API")) {
-            val button = texts(root).single { it.text == caption }
+            val button = views(root).filterIsInstance<SettingsSegmentedControl>().single { it.heading == "补充翻译" }
+                .labels.single { it.text == caption }
             val layout = requireNotNull(button.layout)
             assertTrue("Clipped height: $caption", button.height >= layout.height + button.compoundPaddingTop + button.compoundPaddingBottom)
             for (line in 0 until layout.lineCount) assertTrue("Clipped width: $caption",

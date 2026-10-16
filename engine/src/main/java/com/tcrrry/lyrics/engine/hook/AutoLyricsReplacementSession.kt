@@ -80,6 +80,9 @@ internal fun createAutoLyricsRuntime(
             options.put(org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } })
         }
         options.put(NativeLyricsEmphasisVisibility.visible(application))
+        options.put(com.tcrrry.lyrics.engine.lyrics.LyricsPreference.hideOpeningCredits(application))
+            options.put("opening-credits-raw-text-2")
+        options.put("qq-completeness-1")
         return AutoLyricsCachePolicy(
             com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
             com.tcrrry.lyrics.engine.lyrics.LyricsPreference.smoothShortUnits(application), options.toString())

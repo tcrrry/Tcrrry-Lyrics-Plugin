@@ -13,8 +13,167 @@ import org.xml.sax.InputSource
 @org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(manifest = org.robolectric.annotation.Config.NONE, sdk = [35])
 class DesktopLyricsTtmlConverterTest {
+    @Test fun actualZeroDurationQqSeparatorsRemainAvailableToOpeningCreditDetection() {
+        val raw = requireNotNull(javaClass.getResource("/lyrics/opening-credits-qq-hua-zhong-lai.qrc")).readText()
+        val repository = DirectLyricsRepository()
+        fun convertTrack(name: String) = repository.javaClass.getDeclaredMethod(name, String::class.java)
+            .apply { isAccessible = true }.invoke(repository, raw) as String
+        val source = DirectLyricsRepository.Result(source = "QQ音乐", title = "画中来", artist = "黄霄雲",
+            lyrics = convertTrack("qrcToLineLrc"), wordLyrics = convertTrack("qrcToCanonicalWordLyrics"))
+        for (provider in listOf("QQ音乐", "网易云音乐")) {
+            // Also verify saved word-only results: detection must not require a separate line track.
+            for (lineTrack in listOf(source.lyrics, "")) {
+                val result = source.copy(source = provider, lyrics = lineTrack)
+                val filtered = requireNotNull(DesktopLyricsTtmlConverter.convert(result, hideOpeningCredits = true))
+                val document = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(InputSource(StringReader(filtered)))
+                assertEquals(2, document.getElementsByTagName("p").length)
+                assertFalse(filtered.contains("Studio"))
+                assertTrue(filtered.contains("<span begin=\"0:19.470\" end=\"0:20.280\">细</span>"))
+                val preview = DesktopLyricsTtmlConverter.preview(result, true)
+                assertTrue(preview.startsWith("[00:19.470]"))
+                assertFalse(preview.contains("Studio"))
+                assertTrue(DesktopLyricsTtmlConverter.preview(result, false).contains("词：曹韵/刘思情@骁Studio"))
+                assertTrue(requireNotNull(DesktopLyricsTtmlConverter.convert(result)).contains("Studio"))
+            }
+        }
+    }
+
+    @Test fun zeroDurationDialoguePunctuationDoesNotMakeSungWordsIntoCredits() {
+        val source = DirectLyricsRepository.Result(source = "QQ音乐",
+            wordLyrics = "[0,1000](0,200)我说(200,0)：(200,800)你好\n[1000,1000](1000,200)男(1200,0)：(1200,800)回来")
+        assertEquals(DesktopLyricsTtmlConverter.convert(source),
+            DesktopLyricsTtmlConverter.convert(source, hideOpeningCredits = true))
+        assertTrue(DesktopLyricsTtmlConverter.preview(source, true).contains("我说：你好"))
+    }
     @org.junit.Before fun attachPlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.attach() }
     @org.junit.After fun closePlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.current.close() }
+    @Test fun actualQqTaiYangUnknownInstrumentDoesNotKeepTheRestOfTheCredits() {
+        val raw=requireNotNull(javaClass.getResource("/lyrics/opening-credits-qq-tai-yang.qrc")).readText()
+        val repository=DirectLyricsRepository()
+        fun converted(method: String) = DirectLyricsRepository::class.java.getDeclaredMethod(method,String::class.java)
+            .apply { isAccessible=true }.invoke(repository,raw) as String
+        val source=DirectLyricsRepository.Result(source="QQ音乐",title="没了我你依然拥有太阳",artist="黄霄雲",
+            lyrics=converted("qrcToLineLrc"),wordLyrics=converted("qrcToCanonicalWordLyrics"))
+        for (input in listOf(source,source.copy(wordLyrics=""))) {
+            val ttml=requireNotNull(DesktopLyricsTtmlConverter.convert(input,hideOpeningCredits=true))
+            val doc=DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(InputSource(StringReader(ttml)))
+            assertEquals(2,doc.getElementsByTagName("p").length)
+            assertTrue(ttml.contains("begin=\"0:01.841\""))
+            assertFalse(ttml.contains("Double"));assertFalse(ttml.contains("MASTERING"));assertFalse(ttml.contains("Studios"))
+            assertTrue(DesktopLyricsTtmlConverter.preview(input,true).startsWith("[00:01.841]"))
+        }
+        assertTrue(requireNotNull(DesktopLyricsTtmlConverter.convert(source)).contains("Double"))
+    }
+    @Test fun threeActualQqOpeningBlocksKeepTheirFirstSungLine() {
+        for ((file,title,first) in listOf(Triple("qq-da-kai","打开","0:35.590"),
+            Triple("qq-er-shi-yi","二十一","0:09.900"),Triple("qq-yi-qian-ling-yi-ye","一千零一夜","0:18.100"))) {
+            val raw=requireNotNull(javaClass.getResource("/lyrics/opening-credits-$file.lrc")).readText()
+            val source=DirectLyricsRepository.Result(source="QQ音乐",title=title,artist="黄霄雲",lyrics=raw)
+            val ttml=requireNotNull(DesktopLyricsTtmlConverter.convert(source,hideOpeningCredits=true))
+            val doc=DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(InputSource(StringReader(ttml)))
+            assertEquals(title,1,doc.getElementsByTagName("p").length)
+            assertTrue(ttml.contains("begin=\"$first\""))
+            assertFalse(ttml.contains("OP"));assertFalse(ttml.contains("Rap"));assertFalse(ttml.contains("和音"))
+            assertTrue(DesktopLyricsTtmlConverter.preview(source,true).startsWith("[0$first]"))
+        }
+    }
+    @Test fun actualAiRuQingYunCompoundInstrumentCreditsKeepFirstSungLineAt28220() {
+        val raw = requireNotNull(javaClass.getResource("/lyrics/opening-credits-ai-ru-qing-yun-2753868431.lrc")).readText()
+        val source=DirectLyricsRepository.Result(source="网易云音乐",title="爱入青云",artist="黄霄雲",lyrics=raw)
+        val filtered=requireNotNull(DesktopLyricsTtmlConverter.convert(source,hideOpeningCredits=true))
+        val doc=DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(InputSource(StringReader(filtered)))
+        assertEquals(2,doc.getElementsByTagName("p").length)
+        assertTrue(filtered.contains("begin=\"0:28.220\""))
+        assertTrue(DesktopLyricsTtmlConverter.preview(source,true).startsWith("[00:28.220]"))
+        assertFalse(filtered.contains("录音棚"))
+    }
+    @Test fun actualJiangAnOstHeaderAndCompoundRolesDoNotStopOpeningFilter() {
+        val raw = requireNotNull(javaClass.getResource("/lyrics/opening-credits-jiang-an-2740837489.lrc")).readText()
+        // Synthetic word envelopes exercise the other rendering path using the same real credit text.
+        val wordFixture = Regex("\\[(\\d+):(\\d+\\.\\d+)\\](.*)").findAll(raw).joinToString("\n") {
+            val start = it.groupValues[1].toLong() * 60_000L +
+                it.groupValues[2].toBigDecimal().multiply(1000.toBigDecimal()).toLong()
+            "[$start,1000]($start,1000,0)${it.groupValues[3]}"
+        }
+        for (provider in listOf("网易云音乐", "QQ音乐")) {
+          for (words in listOf("", wordFixture)) {
+            val source = DirectLyricsRepository.Result(source=provider, title="将安", artist="黄霄雲", lyrics=raw, wordLyrics=words)
+            val filtered = requireNotNull(DesktopLyricsTtmlConverter.convert(source, hideOpeningCredits=true))
+            val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(InputSource(StringReader(filtered)))
+            assertEquals(provider, 2, doc.getElementsByTagName("p").length)
+            assertTrue(filtered.contains("begin=\"0:32.600\""))
+            assertFalse(filtered.contains("制作企划"))
+            assertFalse(filtered.contains("日生Nissyo"))
+            assertTrue(DesktopLyricsTtmlConverter.preview(source,true).startsWith("[00:32.600]"))
+            assertTrue(DesktopLyricsTtmlConverter.preview(source,false).contains("作词"))
+            assertTrue(requireNotNull(DesktopLyricsTtmlConverter.convert(source)).contains("制作企划"))
+          }
+        }
+    }
+    @Test fun lateIntroMasteringAndSupervisorCreditsAreHiddenWithoutChangingFirstSungTime() {
+        val source=DirectLyricsRepository.Result(source="QQ音乐",title="回音如果",artist="黄霄雲",
+            lyrics="[00:00.000]回音如果 - 黄霄雲\n[00:01.000]作词：作者\n[00:25.000]监制Supervisor：黄霄雲\n[00:26.000]录音师Recording Engineer：日生 RSS Studios\n[00:32.000]后期母带处理制作人Mastering Producer：黄霄雲\n[00:33.000]混音母带Mixing/Mastering：工程师\n[00:42.000]测试正文",
+            wordLyrics="[0,1000](0,1000,0)回音如果 - 黄霄雲\n[1000,1000](1000,1000,0)作词：作者\n[25000,1000](25000,1000,0)监制Supervisor：黄霄雲\n[26000,3000](26000,500,0)录音师(26500,500,0)Recording (27000,2000,0)Engineer：日生 RSS Studios\n[32000,1000](32000,300,0)后期母带处理制作人(32300,300,0)Mastering (32600,400,0)Producer：黄霄雲\n[33000,1000](33000,1000,0)混音母带Mixing/Mastering：工程师\n[42000,2000](42000,2000,0)测试正文")
+        val filtered=requireNotNull(DesktopLyricsTtmlConverter.convert(source,hideOpeningCredits=true))
+        assertFalse(filtered.contains("Supervisor")); assertFalse(filtered.contains("Recording")); assertFalse(filtered.contains("Mastering"))
+        assertTrue(filtered.contains("<span begin=\"0:42.000\" end=\"0:44.000\">测试正文</span>"))
+        assertEquals("[00:42.000]测试正文",DesktopLyricsTtmlConverter.preview(source,true))
+        assertTrue(DesktopLyricsTtmlConverter.preview(source,false).contains("Mastering"))
+    }
+    @Test fun screenshotMixedCreditsAreHiddenInBothPlaybackAndVersionPreview() {
+        val raw = requireNotNull(javaClass.getResource("/lyrics/opening-credits-mixed-roles.lrc")).readText()
+        val source = DirectLyricsRepository.Result(source="QQ音乐", title="没语季节", artist="黄霄雲", lyrics=raw)
+        val filtered = requireNotNull(DesktopLyricsTtmlConverter.convert(source, hideOpeningCredits=true))
+        assertFalse(filtered.contains("Music Producer")); assertFalse(filtered.contains("词Lyricist"))
+        assertFalse(filtered.contains("没语季节")); assertFalse(filtered.contains("Vocal Editing"))
+        assertTrue(filtered.contains("begin=\"0:35.000\""))
+        val doc=DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(InputSource(StringReader(filtered)))
+        assertEquals(2,doc.getElementsByTagName("p").length)
+        val preview=DesktopLyricsTtmlConverter.preview(source,true)
+        assertTrue(preview.startsWith("[00:35.000]")); assertFalse(preview.contains("Producer"))
+        assertTrue(DesktopLyricsTtmlConverter.preview(source,false).contains("Music Producer"))
+        assertTrue(requireNotNull(DesktopLyricsTtmlConverter.convert(source)).contains("Music Producer"))
+    }
+    @Test fun wordTimedCreditsAndPlainPreviewUseSamePolicyAsPlayback() {
+        val source=DirectLyricsRepository.Result(source="网易云音乐", title="测试歌", artist="歌手",
+            wordLyrics="[0,800](0,800,0)测试歌 - 歌手\n[800,700](800,700,0)词Lyricist：作者\n[1500,700](1500,700,0)制作人Music Producer：作者\n[20000,1000](20000,1000,0)Hello",
+            lyrics="[00:00.000]测试歌 - 歌手\n[00:00.800]词Lyricist：作者\n[00:01.500]制作人Music Producer：作者\n[00:20.000]Hello")
+        val filtered=requireNotNull(DesktopLyricsTtmlConverter.convert(source, hideOpeningCredits=true))
+        assertTrue(filtered.contains("<span begin=\"0:20.000\" end=\"0:21.000\">Hello</span>"))
+        assertFalse(filtered.contains("Producer"))
+        assertEquals("[00:20.000]Hello",DesktopLyricsTtmlConverter.preview(source,true))
+        val plain=source.copy(wordLyrics="", lyrics="作词：作者\n作曲：作者\nHello")
+        assertEquals("Hello",DesktopLyricsTtmlConverter.preview(plain,true))
+    }
+    @Test fun structuredYrcMetadataIsNotRenderedAsASungRow() {
+        val source=DirectLyricsRepository.Result(source="网易云音乐",
+            wordLyrics="{\"t\":0,\"c\":[{\"tx\":\"作词: \"},{\"tx\":\"作者\"}]}\n[5000,1000](5000,1000,0)Hello")
+        assertEquals("[00:05.000]Hello",DesktopLyricsTtmlConverter.preview(source,true))
+        assertFalse(requireNotNull(DesktopLyricsTtmlConverter.convert(source,hideOpeningCredits=true)).contains("作者"))
+    }
+    @Test fun hiddenCreditsPreserveWordsTimingAndAuxiliaryReferences() {
+        val source = DirectLyricsRepository.Result(source = "QQ音乐",
+            lyrics = "[00:01.000]作曲：Someone\n[00:05.000]Hello world",
+            wordLyrics = "[1000,1000](1000,1000)作曲：Someone\n[5000,2000](5000,1000)Hello (6000,1000)world",
+            translatedLyrics = "[00:01.000]作曲：某某\n[00:05.000]你好世界",
+            romanizedLyrics = "[00:01.000]credit reading\n[00:05.000]hello reading")
+        val filtered = requireNotNull(DesktopLyricsTtmlConverter.convert(source, hideOpeningCredits = true))
+        val doc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(InputSource(StringReader(filtered)))
+        assertEquals(1, doc.getElementsByTagName("p").length)
+        assertTrue(filtered.contains("<p begin=\"0:05.000\" end=\"0:07.000\""))
+        assertTrue(filtered.contains("<span begin=\"0:06.000\" end=\"0:07.000\">world</span>"))
+        assertFalse(filtered.contains("Someone")); assertFalse(filtered.contains("credit reading"))
+        assertFalse(filtered.contains("for=\"L2\"")); assertTrue(filtered.contains("for=\"L1\""))
+        assertTrue(requireNotNull(DesktopLyricsTtmlConverter.convert(source)).contains("Someone"))
+    }
+    @Test fun hiddenLineCreditsDoNotPullFirstLyricEarlierOrEraseOnlyContent() {
+        val source = DirectLyricsRepository.Result(source = "网易云音乐",
+            lyrics = "[00:00.000]编曲：某某\n[00:12.000]第一句\n[00:17.000]第二句")
+        val filtered = requireNotNull(DesktopLyricsTtmlConverter.convert(source, hideOpeningCredits = true))
+        assertFalse(filtered.contains("编曲")); assertTrue(filtered.contains("begin=\"0:12.000\""))
+        assertTrue(requireNotNull(DesktopLyricsTtmlConverter.convert(source.copy(source = "LRCLIB"), hideOpeningCredits = true)).contains("编曲"))
+        assertTrue(requireNotNull(DesktopLyricsTtmlConverter.convert(source.copy(lyrics = "[00:00.000]编曲：某某"), hideOpeningCredits = true)).contains("编曲"))
+    }
     @Test fun standaloneTimedEnglishSpaceSurvivesOutsideSpans() {
         val source = DirectLyricsRepository.Result(lyrics = "[00:01.000]stay forever",
             wordLyrics = "[1000,2200](1000,1000)stay(2000,50) (2050,1150)forever", source = "QQ音乐")

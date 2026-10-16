@@ -68,6 +68,15 @@ internal object NativeLyricsSourceMenu {
         NativeLyricsPronunciation.install(loader)
         NativeLyricsPronunciationSubtitle.install(loader, build)
         val fragment = loader.lyricsClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
+        val boundButton: ((Any) -> View?)? = if (build.versionCode == 1609L && build.versionName == "7.0.0-beta") {
+            runCatching {
+                val binding = fragment.lyricsDeclaredField("n0").apply { isAccessible = true }
+                val button = binding.type.getDeclaredField("o0").apply { isAccessible = true }
+                require(button.type == ImageView::class.java)
+                val resolve: (Any) -> View? = { page -> binding.get(page)?.let { button.get(it) as? View } }
+                resolve
+            }.onFailure { ModernXposedRuntime.log("native lyrics anchor binding unavailable", it) }.getOrNull()
+        } else null
         var application: WeakReference<Context>? = null
         val visibilityObserver = loader.lyricsClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment\$37")
         ModernXposedRuntime.hookMethod(visibilityObserver.getDeclaredMethod("onChanged", java.lang.Boolean::class.java),
@@ -90,7 +99,7 @@ internal object NativeLyricsSourceMenu {
                 NativeLyricsAuxiliaryControls.restorePronunciation(context, model)
             }.onFailure { ModernXposedRuntime.log("saved pronunciation visibility restoration failed", it) }
             val id = root.resources.getIdentifier("translations_button", "id", ModuleConstants.RESOURCE_PACKAGE)
-            val button = root.findViewById<View>(id) ?: return
+            val button = fragment?.let { boundButton?.invoke(it) } ?: root.findViewById<View>(id) ?: return
             registerAnchor(button)
             if (fragment != null) {
                 registerPage(button, fragment)
@@ -106,6 +115,10 @@ internal object NativeLyricsSourceMenu {
                         param.args[0] = requestedVisibility(param.thisObject, param.args[0] as Int)
                     }
                 })
+        }
+        if (build.versionCode == 1609L && build.versionName == "7.0.0-beta") {
+            runCatching { installBindingAnchorHooks(loader.loadClass("q8.X4")) }
+                .onFailure { ModernXposedRuntime.log("early lyrics menu anchor unavailable", it) }
         }
         ModernXposedRuntime.hookAllMethods(fragment, "onCreateView", object : ModernMethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) { bind(param.result as? View, param.thisObject) }
@@ -127,6 +140,10 @@ internal object NativeLyricsSourceMenu {
         // entry instead of relying on optimized framework delegation to the fourth.
         installPopupHooks(currentId, openSettings)
         NativeLyricsAuxiliaryControls.install(loader)
+        if (boundButton != null) {
+            // Do not publish/reapply lyrics from F2: that can recursively invoke F2.
+            installAvailabilityAnchorHooks(fragment, boundButton)
+        }
         runCatching {
             val click = loader.lyricsClass("com.apple.android.music.player.fragment.b0")
             val page = click.lyricsDeclaredField("a").apply { isAccessible = true }
@@ -144,6 +161,51 @@ internal object NativeLyricsSourceMenu {
             })
         }.onFailure { ModernXposedRuntime.log("lyrics menu click seam unavailable", it) }
         ModernXposedRuntime.log("native lyrics source menu installed")
+    }
+
+    internal fun installBindingAnchorHooks(binding: Class<*>) {
+        // Register before onCreateView finishes wiring synchronous observers and
+        // native availability/control transitions, rather than waiting for its return.
+        val button = binding.getDeclaredField("o0").apply { isAccessible = true }
+        require(button.type == ImageView::class.java)
+        for (constructor in binding.declaredConstructors) {
+            ModernXposedRuntime.hookMethod(constructor, object : ModernMethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    if (param.throwable != null) return
+                    (button.get(param.thisObject) as? View)?.let(::registerAnchor)
+                }
+            })
+        }
+    }
+
+    internal fun installAvailabilityAnchorHooks(fragment: Class<*>, buttonForPage: (Any) -> View?,
+        onBound: (View, Any) -> Unit = { button, page -> registerAnchor(button); registerPage(button, page) }) {
+        var reports = 0
+        val methods = ModernXposedRuntime.hookAllMethods(fragment, "F2", object : ModernMethodHook() {
+            override fun beforeHookedMethod(param: MethodHookParam) {
+                if (!com.tcrrry.lyrics.plugin.PluginLifetime.alive) return
+                val page = param.thisObject ?: return
+                val button = buttonForPage(page) ?: return
+                param.extras["anchor"] = button
+                param.extras["immersive"] = button.visibility == View.INVISIBLE
+                registerAnchor(button)
+                registerPage(button, page)
+            }
+            override fun afterHookedMethod(param: MethodHookParam) {
+                if (param.throwable != null || !com.tcrrry.lyrics.plugin.PluginLifetime.alive) return
+                val button = param.extras["anchor"] as? View ?: return
+                val page = param.thisObject ?: return
+                val previous = button.visibility
+                // Native F2 hides no-auxiliary songs again. Reconcile after that
+                // write even when ART's compiled framework call bypassed our hook.
+                if (param.extras["immersive"] == true) button.visibility = View.INVISIBLE
+                else registerAnchor(button)
+                onBound(button, page)
+                if (reports++ < 8) ModernXposedRuntime.log(
+                    "lyrics source anchor after F2: $previous -> ${button.visibility}, immersive=${param.extras["immersive"]}")
+            }
+        })
+        require(methods.isNotEmpty()) { "Missing native lyrics availability update" }
     }
 
     internal fun installPopupHooks(currentId: () -> Long?, openSettings: (Activity) -> Unit) {

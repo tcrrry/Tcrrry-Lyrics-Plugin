@@ -22,7 +22,7 @@ class LyricsPlugin : AmppPlugin() {
     private val dialogs=java.util.Collections.newSetFromMap(java.util.WeakHashMap<android.app.Dialog,Boolean>())
     override fun onLoad(context: PluginContext) {
         if(context.hostPackageName !in setOf("com.apple.android.music","com.tcrrry.ampplyrics.coexist") || context.hostVersionCode !in setOf(1606L,1609L) || context.hostVersionName!="7.0.0-beta")
-            throw PluginUnsupportedException("插件 1.0.7 仅适配 Apple Music 7.0.0-beta / 1606、1609")
+            throw PluginUnsupportedException("歌词插件仅适配 Apple Music 7.0.0-beta / 1606、1609")
         runtime=context;PluginLifetime.attach(context)
         NativeLyricsHostContract.verify(context.hostClassLoader)
         context.claimResource("com.tcrrry.lyrics.settings",true)
@@ -47,10 +47,12 @@ class LyricsPlugin : AmppPlugin() {
         context.hooks.hook(parser.getDeclaredMethod("songInfoFromTTML",String::class.java),false,object:PluginHook {
             override fun before(call:PluginCall) { (call.arguments[0] as? String)?.let { call.arguments[0]=TtmlNormalizer.spaces(it) } }
         })
+        PlaybackModeOptimization.attach(context)
         context.onClose { android.os.Handler(android.os.Looper.getMainLooper()).post { onStop() } }
     }
-    override fun onStart() { runtime.log("Tcrrry Lyrics 1.0.7 started; baseline v1.5",null); ReleaseUpdates.start(runtime.application) }
+    override fun onStart() { runtime.log("Tcrrry Lyrics started; baseline v1.5",null); PlaybackModeOptimization.start(); ReleaseUpdates.start(runtime.application) }
     override fun onStop() {
+        PlaybackModeOptimization.close()
         RubyPronunciationRows.close()
         dialogs.toList().forEach { it.dismiss() };dialogs.clear()
         settingsViews.toList().forEach { (it.parent as? android.view.ViewGroup)?.removeView(it) };settingsViews.clear()
@@ -76,7 +78,7 @@ class LyricsPlugin : AmppPlugin() {
                 if(renderedColors==colors && renderedSong==song) return@from
                 body.removeAllViews()
                 val prefs=configuration.settings()
-                body.addView(TextView(activity).apply { text="Tcrrry 歌词设置 · ${ReleaseUpdates.channel.label} ${ReleaseUpdates.channel.version}";textSize=20f;setTextColor(SettingsUiTheme.colors(activity).text);setPadding(24,24,24,12) })
+                body.addView(TextView(activity).apply { text="Tcrrry 歌词设置 · ${ReleaseUpdates.channel.label} ${com.tcrrry.lyrics.engine.BuildConfig.PLUGIN_VERSION}";textSize=20f;setTextColor(SettingsUiTheme.colors(activity).text);setPadding(24,24,24,12) })
                 TcrrryLyricsSettingsUi.render(activity,body,song,::refresh,prefs,{next -> configuration.saveSettings(next)},configuration::settings)
                 renderedSong=song
                 renderedColors=colors

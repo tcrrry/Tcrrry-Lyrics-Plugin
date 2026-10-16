@@ -155,4 +155,33 @@ class SettingsGlassControlsAndroidTest {
         assertTrue(button.background is android.graphics.drawable.RippleDrawable)
         controls.close()
     }
+
+    @Test fun scrollingSegmentsKeepTheirNativeTextAndBackgroundTogetherDuringScrolling() {
+        val context=activity()
+        val panel=FrameLayout(context)
+        val body=LinearLayout(context).apply { orientation=LinearLayout.VERTICAL }
+        val scroll=ScrollView(context).apply { addView(body) }
+        panel.addView(scroll,FrameLayout.LayoutParams(-1,200))
+        body.addView(View(context),LinearLayout.LayoutParams(-1,80))
+        val group=SettingsSegmentedControl(context,"Translation",listOf("Off","Offline","API"),0) {}
+        body.addView(group,LinearLayout.LayoutParams(-1,80))
+        body.addView(View(context),LinearLayout.LayoutParams(-1,800))
+        layout(panel)
+        val controls=SettingsGlassControls(panel,body,SettingsGlassHostView(context),backdrop,SettingsColors.Light)
+        controls.enable()
+        assertFalse(group.glassActive)
+        assertNotNull(group.background)
+        val background=group.background
+        val before=IntArray(2); SettingsDialogMotion.layoutPositionOnScreen(group,before)
+        scroll.scrollTo(0,100)
+        android.view.ViewTreeObserver::class.java.getDeclaredMethod("dispatchOnScrollChanged").apply { isAccessible=true }
+            .invoke(panel.viewTreeObserver)
+        val after=IntArray(2); SettingsDialogMotion.layoutPositionOnScreen(group,after)
+        assertEquals(before[1]-100,after[1])
+        assertFalse(group.glassActive)
+        assertTrue(group.labels.none { it.currentTextColor==android.graphics.Color.TRANSPARENT })
+        assertNotNull(group.background)
+        assertSame(background,group.background)
+        controls.close()
+    }
 }

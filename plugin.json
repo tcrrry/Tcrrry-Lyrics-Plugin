@@ -4,9 +4,9 @@
   "id": "com.tcrrry.lyrics",
   "name": "Tcrrry 歌词增强",
   "author": "Tcrrry",
-  "versionName": "1.0.7",
-  "versionCode": 27,
+  "versionName": "1.0.8",
+  "versionCode": 36,
   "entryClass": "com.tcrrry.lyrics.plugin.LyricsPlugin",
   "minAndroidApi": 31,
-  "description": "重设计歌词设置、磨砂玻璃与收回转场，新增版本检查；支持 Apple Music 1606、1609。"
+  "description": "开头署名过滤、玻璃语言选项和语言搜索；融合 1609 播放模式修复与原生电台循环按钮。歌词支持 1606、1609。"
 }

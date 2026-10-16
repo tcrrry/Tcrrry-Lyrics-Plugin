@@ -6,7 +6,8 @@ import java.util.Locale
 /** Converts Desktop Lyrics' LRC/YRC result into the format consumed by Apple's parser. */
 internal object DesktopLyricsTtmlConverter {
     private data class Word(val start: Long, val end: Long, val text: String)
-    private data class Line(val start: Long, val end: Long, val words: List<Word>)
+    private data class Line(val start: Long, val end: Long, val words: List<Word>,
+        val sourceText: String = words.joinToString("") { it.text })
     private data class TimedText(val start: Long, val text: String)
 
     private val wordLine = Regex("^\\[(\\d+),(\\d+)\\](.*)$")
@@ -28,6 +29,7 @@ internal object DesktopLyricsTtmlConverter {
         offsetMs: Int = 0,
         primaryPronunciation: Boolean = false,
         smoothShortUnits: Boolean = false,
+        hideOpeningCredits: Boolean = false,
     ): String? {
         val timed = parseLrc(result.lyrics)
         val ordinary = if (timed.isNotEmpty()) timed else {
@@ -48,9 +50,16 @@ internal object DesktopLyricsTtmlConverter {
             Line(line.start, end, listOf(Word(line.start, end, line.text)))
         }
         if (lines.isEmpty()) return null
+        val hidden = OpeningCreditsPolicy.hiddenIndices(result.source,
+            lines.map { it.sourceText }, hideOpeningCredits,
+            result.title, result.artist, lines.map { it.start })
+        val visibleKeys = lines.indices.filterNot { it in hidden }.withIndex()
+            .associate { it.value to "L${it.index + 1}" }
         val translations = parseLrc(result.translatedLyrics)
-        val chineseSong = ChineseSubtitlePolicy.isChineseSong(lines.map { it.words.joinToString("") { word -> word.text } })
-        val selectedTranslations = lines.map { line ->
+        val chineseSong = ChineseSubtitlePolicy.isChineseSong(lines.filterIndexed { index, _ -> index !in hidden }
+            .map { it.words.joinToString("") { word -> word.text } })
+        val selectedTranslations = lines.mapIndexed { index, line ->
+            if (index in hidden) return@mapIndexed null
             val closest = translations.minByOrNull { kotlin.math.abs(it.start - line.start) }
                 ?.takeIf { kotlin.math.abs(it.start - line.start) <= 1_200L }
             val text = if (chineseSong) null else ChineseSubtitlePolicy.usable(
@@ -60,7 +69,8 @@ internal object DesktopLyricsTtmlConverter {
         val translated = selectedTranslations.map { it?.text }
         val hasTranslation = translated.any { !it.isNullOrBlank() }
         val romanized = parseLrc(result.romanizedLyrics)
-        val selectedPronunciation = lines.map { line ->
+        val selectedPronunciation = lines.mapIndexed { index, line ->
+            if (index in hidden) return@mapIndexed null
             romanized.minByOrNull { kotlin.math.abs(it.start - line.start) }
                 ?.takeIf { candidate ->
                     val distance = kotlin.math.abs(candidate.start - line.start)
@@ -126,14 +136,16 @@ internal object DesktopLyricsTtmlConverter {
                 if (hasTranslation) {
                     append("<translations><translation type=\"subtitle\" xml:lang=\"zh-Hans\">")
                     translated.forEachIndexed { index, value ->
-                        append("<text for=\"L${index + 1}\">${escape(value ?: " ")}</text>")
+                        if (index in hidden) return@forEachIndexed
+                        append("<text for=\"${visibleKeys.getValue(index)}\">${escape(value ?: " ")}</text>")
                     }
                     append("</translation></translations>")
                 }
                 if (hasPronunciation) {
                     append("<transliterations><transliteration xml:lang=\"ko-Latn\">")
                     auxiliaryPronunciation.forEachIndexed { index, value ->
-                        append("<text for=\"L${index + 1}\">${escape(value ?: " ")}</text>")
+                        if (index in hidden) return@forEachIndexed
+                        append("<text for=\"${visibleKeys.getValue(index)}\">${escape(value ?: " ")}</text>")
                     }
                     append("</transliteration></transliterations>")
                 }
@@ -141,9 +153,10 @@ internal object DesktopLyricsTtmlConverter {
             }
             append("<body><div>")
             displayedLines.forEachIndexed { index, line ->
+                if (index in hidden) return@forEachIndexed
                 val lineBegin = (line.start - offsetMs).coerceAtLeast(0L)
                 val lineEnd = (line.end - offsetMs).coerceAtLeast(lineBegin + 1L)
-                append("<p begin=\"${stamp(lineBegin)}\" end=\"${stamp(lineEnd)}\" itunes:key=\"L${index + 1}\">")
+                append("<p begin=\"${stamp(lineBegin)}\" end=\"${stamp(lineEnd)}\" itunes:key=\"${visibleKeys.getValue(index)}\">")
                 if (!displayedWordTimed) {
                     append(escape(line.words.joinToString("") { it.text }))
                 } else (if (smoothShortUnits) smooth(line.words, emphasizePronunciation && !pronunciation[index].isNullOrBlank()) else line.words).forEach { word ->
@@ -249,6 +262,19 @@ internal object DesktopLyricsTtmlConverter {
 
     fun hasWordTiming(result: DirectLyricsRepository.Result): Boolean = parseWords(result.wordLyrics).isNotEmpty()
 
+    fun preview(result: DirectLyricsRepository.Result, hideOpeningCredits: Boolean, maxLines: Int = 16): String {
+        val words = parseWords(result.wordLyrics)
+        val timed = if (words.isNotEmpty()) words.map { TimedText(it.start, it.sourceText) }
+            else parseLrc(result.lyrics)
+        val texts = if (timed.isNotEmpty()) timed.map { it.text } else result.lyrics.lineSequence()
+            .map(String::trim).filter { it.isNotBlank() && !it.matches(Regex("^\\[[^]]+]$")) }.toList()
+        val hidden = OpeningCreditsPolicy.hiddenIndices(result.source, texts, hideOpeningCredits,
+            result.title, result.artist, timed.map { it.start })
+        return texts.withIndex().filterNot { it.index in hidden }.take(maxLines).joinToString("\n") { (index, text) ->
+            timed.getOrNull(index)?.let { "[${stamp(it.start).padStart(9, '0')}]$text" } ?: text
+        }
+    }
+
     private fun parseWords(raw: String): List<Line> = raw.lineSequence().mapNotNull { text ->
         val match = wordLine.matchEntire(text.trim()) ?: return@mapNotNull null
         val start = match.groupValues[1].toLongOrNull() ?: return@mapNotNull null
@@ -262,7 +288,9 @@ internal object DesktopLyricsTtmlConverter {
                 markers.getOrNull(index + 1)?.range?.first ?: body.length)
             if (value.isEmpty() || (length <= 0L && !value.isBlank())) null else Word(begin, begin + length.coerceAtLeast(0L), value)
         }
-        if (words.isEmpty()) null else Line(start, maxOf(start + duration, words.maxOf(Word::end)), words)
+        // Zero-duration QQ punctuation is not a sung span, but is essential to detect credits.
+        if (words.isEmpty()) null else Line(start, maxOf(start + duration, words.maxOf(Word::end)), words,
+            body.replace(wordToken, ""))
     }.sortedBy(Line::start).take(4096).toList()
 
     private fun parseLrc(raw: String): List<TimedText> = raw.lineSequence().flatMap { line ->

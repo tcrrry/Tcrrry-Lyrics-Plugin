@@ -33,7 +33,7 @@ with zipfile.ZipFile(plugin,'w',zipfile.ZIP_DEFLATED) as package:
         if asset.is_file(): package.write(asset, asset.relative_to(ROOT).as_posix())
     for name in ['README.md','THIRD_PARTY_NOTICES.md','LICENSE','docs/INSTALL.md','docs/VALIDATION.md']:
         package.write(ROOT/name,'assets/documentation/'+Path(name).name)
-    for name in [f'docs/RELEASE-{version}.md', 'docs/NO-LYRICS-SPINNER-1807802486.md']:
+    for name in [f'docs/RELEASE-{version}.md', 'docs/NO-LYRICS-SPINNER-1807802486.md', 'docs/QQ-INCOMPLETE-1669861760.md']:
         if (ROOT/name).exists():
             package.write(ROOT/name,'assets/documentation/'+Path(name).name)
     if '-ruby-' in version:

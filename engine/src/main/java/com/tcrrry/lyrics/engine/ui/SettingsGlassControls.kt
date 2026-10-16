@@ -103,7 +103,7 @@ internal class SettingsGlassControls(private val panel: ViewGroup, private val c
     private val touchSlop = ViewConfiguration.get(panel.context).scaledTouchSlop
     private val inverse = Matrix()
     private val layout = ViewTreeObserver.OnGlobalLayoutListener { update() }
-    private val scroll = ViewTreeObserver.OnScrollChangedListener { update() }
+    private val scroll = ViewTreeObserver.OnScrollChangedListener { if (groups.isNotEmpty()) update() }
 
     init {
         host?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
@@ -184,24 +184,38 @@ internal class SettingsGlassControls(private val panel: ViewGroup, private val c
     private fun update() {
         if (!enabled || closed) return
         val next = settingsGlassBounds(panel, content)
-        val native = next.filter { it.style.kind != SettingsGlassKind.Segments }
-        val visible = native.mapTo(mutableSetOf()) { it.view }
+        // Native plates stay on their own views. Do not recreate them during each fling frame.
+        val native = mutableListOf<Pair<View, SettingsGlassStyle>>()
+        fun visit(view: View) {
+            if (view.visibility != View.VISIBLE || view is SettingsGlassHostView) return
+            SettingsGlassMaterial.style(view)?.takeIf { it.kind != SettingsGlassKind.Segments }
+                ?.let { if (view !== content) native += view to it }
+            if (view is SettingsSegmentedControl) return
+            if (view is ViewGroup) for (index in 0 until view.childCount) visit(view.getChildAt(index))
+        }
+        visit(panel)
+        val visible = native.mapTo(mutableSetOf()) { it.first }
         bindings.keys.filter { it !in visible }.forEach { restore(it) }
-        native.forEach { surface ->
-            val view = surface.view
+        native.forEach { (view, style) ->
             val binding = bindings[view]
             if (binding == null) {
-                val draw = material(surface.style)
-                bindings[view] = Binding(view.background, draw, surface.style, view.stateListAnimator)
+                val draw = material(style)
+                bindings[view] = Binding(view.background, draw, style, view.stateListAnimator)
                 view.background = draw
-                if (surface.style.kind == SettingsGlassKind.Button) view.stateListAnimator = pressAnimator(view)
-            } else if (binding.style != surface.style || view.background !== binding.material) {
+                if (style.kind == SettingsGlassKind.Button) view.stateListAnimator = pressAnimator(view)
+            } else if (binding.style != style || view.background !== binding.material) {
                 if (view.background !== binding.material) binding.original = view.background
-                binding.material = material(surface.style); binding.style = surface.style
+                binding.material = material(style); binding.style = style
                 view.background = binding.material
             }
         }
-        val selectors = if (host == null) emptyList() else next.filter { it.style.kind == SettingsGlassKind.Segments }
+        fun scrollable(view: View): Boolean {
+            if (view is SettingsGlassHostView) return false
+            if (view is ScrollView && (view.getChildAt(0)?.height ?: 0) > view.height - view.paddingTop - view.paddingBottom) return true
+            return view is ViewGroup && (0 until view.childCount).any { scrollable(view.getChildAt(it)) }
+        }
+        // A scrolling page uses native segments, keeping their text/background in the same render node.
+        val selectors = if (host == null || scrollable(panel)) emptyList() else next.filter { it.style.kind == SettingsGlassKind.Segments }
         groups.filter { old -> selectors.none { it.view === old.view } }.forEach { (it.view as SettingsSegmentedControl).glassActive = false }
         selectors.forEach { (it.view as SettingsSegmentedControl).let { group -> if (!group.glassActive) group.glassActive = true } }
         if (groups != selectors) groups = selectors

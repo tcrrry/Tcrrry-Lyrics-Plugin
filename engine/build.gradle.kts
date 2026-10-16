@@ -1,9 +1,11 @@
 plugins { id("com.android.application"); id("org.jetbrains.kotlin.plugin.compose") }
+val pluginManifest = groovy.json.JsonSlurper().parse(rootProject.file("plugin.json")) as Map<*, *>
 android {
  namespace = "com.tcrrry.lyrics.engine"
  compileSdk = 37
  defaultConfig { applicationId = "com.tcrrry.lyrics.plugin.compiler"; minSdk = 26; targetSdk = 37; versionCode = 4; versionName = "1.0.3"; buildConfigField("String","HOST_PACKAGE","\"com.apple.android.music\"") }
  buildFeatures { buildConfig = true; compose = true }
+ defaultConfig { buildConfigField("String", "PLUGIN_VERSION", "\"${pluginManifest["versionName"]}\"") }
  compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
  packaging { resources { merges += listOf("META-INF/LICENSE.md", "META-INF/NOTICE.md", "META-INF/CONTRIBUTORS.md") } }
 }

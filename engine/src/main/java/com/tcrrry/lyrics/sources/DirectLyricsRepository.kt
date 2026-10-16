@@ -444,7 +444,7 @@ class DirectLyricsRepository(private val wordFirst: Boolean = false) {
                         .getOrNull()
                 }
                 if (richLyrics != null && isUsableLyrics(richLyrics.lineLyrics)) {
-                    val result = OptionalQqPronunciation.enrich(Result(
+                    val result = OptionalQqPronunciation.enrich(completeQqLyrics(Result(
                         lyrics = richLyrics.lineLyrics,
                         translatedLyrics = richLyrics.translatedLyrics,
                         wordLyrics = richLyrics.wordLyrics,
@@ -458,7 +458,7 @@ class DirectLyricsRepository(private val wordFirst: Boolean = false) {
                         album = song.optString("albumname"),
                         artist = song.optJSONArray("singer").joinNames("name"),
                         score = score + 5
-                    ), { queryQqPronunciation(song.optLong("songid"), headers, song) }, onCandidate)
+                    )), { queryQqPronunciation(song.optLong("songid"), headers, song) }, onCandidate)
                 if (best == null || rank(result) > rank(best!!)) best = result
                 if (firstSong != null || !needsEnrichment(result)) return best
                 firstSong = song
@@ -538,6 +538,13 @@ class DirectLyricsRepository(private val wordFirst: Boolean = false) {
             romanizedLyrics = romanized,
             romanizedWordLyrics = qqRomanizedWordLyrics(response),
         )
+    }
+
+    internal fun completeQqLyrics(result: Result): Result = QqLyricsCompleteness.repair(result) {
+        val url="https://c.y.qq.com/lyric/fcgi-bin/fcg_query_lyric_new.fcg" +
+            "?songmid=${encode(result.recordId)}&format=json&nobase64=1&trans=1"
+        val response=parseJsonFlexible(getBytes(url, mapOf("Referer" to "https://y.qq.com/", "User-Agent" to USER_AGENT)))
+        response?.optString("lyric")?.let(::unescapeHtml).orEmpty()
     }
 
     internal fun qqRomanizedLyrics(response: String): String = runCatching {

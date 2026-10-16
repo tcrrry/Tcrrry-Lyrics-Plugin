@@ -161,6 +161,11 @@ internal object TcrrryLyricsSettingsUi {
                 CurrentLyricsSourceStatus.refreshSilently(id)
                 refreshPage()
             }, fullMargin(activity, 14))
+            body.addView(binaryChoice(activity, "隐藏开头署名", policy.hideOpeningCredits(activity)) { enabled ->
+                policy.updateHideOpeningCredits(activity, enabled)
+                CurrentLyricsSourceStatus.refreshSilently(id)
+                refreshPage()
+            }, fullMargin(activity, 14))
         }
         redraw()
         dialog.show()
@@ -176,15 +181,15 @@ internal object TcrrryLyricsSettingsUi {
             renderTranslationSettings(activity, body, id, refreshPage)
             val prefs = activity.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
             body.addView(title(activity, "离线注音", 17f), fullMargin(activity, 20))
-            body.addView(settingSwitch(activity, "日语注音", prefs.getBoolean("enabled", true)) { enabled ->
+            body.addView(binaryChoice(activity, "日语注音", prefs.getBoolean("enabled", true)) { enabled ->
                 prefs.edit().putBoolean("enabled", enabled).apply()
                 CurrentLyricsSourceStatus.refreshSilently(id); refreshPage()
             }, fullMargin(activity, 8))
-            body.addView(settingSwitch(activity, "韩语注音", prefs.getBoolean("korean_enabled", true)) { enabled ->
+            body.addView(binaryChoice(activity, "韩语注音", prefs.getBoolean("korean_enabled", true)) { enabled ->
                 prefs.edit().putBoolean("korean_enabled", enabled).apply()
                 CurrentLyricsSourceStatus.refreshSilently(id); refreshPage()
             }, fullMargin(activity, 10))
-            body.addView(settingSwitch(activity, "当前歌曲粤语注音", prefs.getBoolean("cantonese_$id", false), id > 0L) { enabled ->
+            body.addView(binaryChoice(activity, "当前歌曲粤语注音", prefs.getBoolean("cantonese_$id", false), id > 0L) { enabled ->
                 prefs.edit().putBoolean("cantonese_$id", enabled).apply()
                 CurrentLyricsSourceStatus.refreshSilently(id); refreshPage()
             }, fullMargin(activity, 10))
@@ -198,9 +203,12 @@ internal object TcrrryLyricsSettingsUi {
         body.addView(action(activity, "检查更新") {
             com.tcrrry.lyrics.plugin.ReleaseUpdates.check(activity)
         }, fullMargin(activity, 14))
-        body.addView(settingSwitch(activity, "新版本自动提醒", com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity)) { enabled ->
+        body.addView(binaryChoice(activity, "新版本自动提醒", com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity)) { enabled ->
             com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity, enabled)
-        }, fullMargin(activity, 8))
+        }, fullMargin(activity, 14))
+        body.addView(binaryChoice(activity, "强制覆盖循环方式", com.tcrrry.lyrics.plugin.PlaybackModeOptimization.enabled(activity)) { enabled ->
+            com.tcrrry.lyrics.plugin.PlaybackModeOptimization.setEnabled(activity, enabled)
+        }, fullMargin(activity, 14))
         body.addView(action(activity, "歌词缓存") { showCacheSettings(activity) }, fullMargin(activity, 14))
         body.addView(action(activity, "清理补充译文缓存") {
             val folder = java.io.File(activity.pluginCacheDir, "translations")
@@ -280,6 +288,7 @@ internal object TcrrryLyricsSettingsUi {
         val body = card(activity)
         body.addView(title(activity, "操作说明", 20f))
         val steps = listOf(
+            Triple("歌词源入口", "播放页的歌词源菜单", "红框内是歌词源入口，名称随来源变化；以下三页介绍单击、双击和长按。"),
             Triple("单击", "切换歌词源", "播放页单击歌词源按钮，按顺序尝试可用来源；当前来源没有结果时会继续尝试。"),
             Triple("双击", "换一个匹配", "播放页双击歌词源按钮，在当前来源寻找另一条匹配记录。"),
             Triple("长按", "打开歌词设置", "播放页长按歌词源按钮，进入这里查看匹配信息、选源和调整偏移。"),
@@ -288,14 +297,20 @@ internal object TcrrryLyricsSettingsUi {
             minimumHeight = dp(activity, 190)
             measureAllChildren = true
         }
-        steps.forEach { (gesture, heading, description) ->
+        steps.forEachIndexed { index, (gesture, heading, description) ->
             pages.addView(LinearLayout(activity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, dp(activity, 20), 0, dp(activity, 14))
-                addView(label(activity, gesture, 28f, colors.primary).apply {
-                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                })
-                addView(title(activity, heading, 19f), fullMargin(activity, 13))
+                if (index == 0) {
+                    addView(title(activity, heading, 16f))
+                    addView(GuideSourceMenuIllustration(activity), LinearLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 210)).apply { topMargin = dp(activity, 8) })
+                } else {
+                    addView(label(activity, gesture, 28f, colors.primary).apply {
+                        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    })
+                    addView(title(activity, heading, 19f), fullMargin(activity, 13))
+                }
                 addView(label(activity, description, 14f, colors.secondary), fullMargin(activity, 9))
             })
         }
@@ -429,22 +444,10 @@ internal object TcrrryLyricsSettingsUi {
             addView(label(activity, "句尾优先会减少句中触发；仅句尾按歌词位置判断，不识别人声。", 12f,
                 SettingsUiTheme.colors(activity).secondary), fullMargin(activity, 7))
             val policy = com.tcrrry.lyrics.engine.lyrics.LyricsPreference
-            var smooth = policy.smoothShortUnits(activity)
-            addView(chip(activity, "短单元平滑：" + if (smooth) "开启" else "关闭", selected = smooth).apply {
-                minimumHeight = dp(activity, 48)
-                isClickable = true; isFocusable = true
-                setOnClickListener {
-                    smooth = !smooth
-                    policy.update(activity, smooth = smooth)
-                    text = "短单元平滑：" + if (smooth) "开启" else "关闭"
-                    setTextColor(if (smooth) SettingsUiTheme.colors(activity).primary else SettingsUiTheme.colors(activity).text)
-                    background = shape(activity, if (smooth) SettingsUiTheme.colors(activity).selected
-                        else SettingsUiTheme.colors(activity).raised, 12,
-                        if (smooth) SettingsUiTheme.colors(activity).primary else SettingsUiTheme.colors(activity).outline)
-                    SettingsGlassMaterial.mark(this, SettingsGlassKind.Button, accent = smooth)
-                    if (songId > 0L) CurrentLyricsSourceStatus.refreshSilently(songId)
-                    refreshPage()
-                }
+            addView(binaryChoice(activity, "短单元平滑", policy.smoothShortUnits(activity)) { enabled ->
+                policy.update(activity, smooth = enabled)
+                if (songId > 0L) CurrentLyricsSourceStatus.refreshSilently(songId)
+                refreshPage()
             }, fullMargin(activity, 14))
             addView(label(activity, "默认开启。合并同句内相邻、少于 100ms 的单元，保留完整时间范围。原文不跨英文单词空格；突出发音时，相邻短读音可共用一次高亮。", 12f,
                 SettingsUiTheme.colors(activity).secondary), fullMargin(activity, 7))
@@ -688,22 +691,23 @@ internal object TcrrryLyricsSettingsUi {
     }
 
     private fun renderOfflineControls(activity: Activity, card: LinearLayout, id: Long) {
-        card.addView(label(activity, "离线机翻使用单独的 Tcrrry 离线翻译 APK，模型与下载由伴随应用管理；插件本体无需它即可匹配平台译文、使用 API 翻译和离线注音。",12f,SettingsUiTheme.colors(activity).secondary),fullMargin(activity,8))
         val prefs=activity.pluginPreferences("supplement_translation",Context.MODE_PRIVATE)
         val codes=listOf("auto") + com.tcrrry.lyrics.plugin.OfflineTranslationClient.languages
         fun languageName(code: String) = if (code == "auto") "自动判断"
             else Locale.forLanguageTag(code).getDisplayLanguage(Locale.SIMPLIFIED_CHINESE)
         val language = action(activity, "原语言：" + languageName(prefs.getString("offline_source_language", "auto") ?: "auto")) {}
         language.setOnClickListener { clicked -> SettingsDialogMotion.from(clicked) {
-            showChoiceBubble(activity,"选择原语言",codes.map { if(it=="auto") "自动判断" else Locale.forLanguageTag(it).getDisplayLanguage(Locale.SIMPLIFIED_CHINESE) }, codes.indexOf(prefs.getString("offline_source_language","auto"))) { which ->
-                prefs.edit().putString("offline_source_language",codes[which]).apply()
-                language.text = "原语言：" + languageName(codes[which])
+            showLanguageSearch(activity, codes, prefs.getString("offline_source_language","auto") ?: "auto") { code ->
+                prefs.edit().putString("offline_source_language",code).apply()
+                language.text = "原语言：" + languageName(code)
                 CurrentLyricsSourceStatus.refresh(id)
             }
         } }
         card.addView(language, fullMargin(activity, 8))
         card.addView(action(activity,"打开离线翻译／语言包管理") {
-            com.tcrrry.lyrics.plugin.OfflineTranslationClient.openManager(activity)
+            val backend = com.tcrrry.lyrics.plugin.EmbeddedOfflineModels.find(activity)
+            if (backend == null) com.tcrrry.lyrics.plugin.OfflineTranslationClient.openManager(activity)
+            else showOfflineModelManager(activity, backend)
         },fullMargin(activity,8))
         val state=label(activity,com.tcrrry.lyrics.plugin.OfflineTranslationClient.statusText(activity),12f,SettingsUiTheme.colors(activity).secondary)
         card.addView(state,fullMargin(activity,8))
@@ -728,6 +732,146 @@ internal object TcrrryLyricsSettingsUi {
         setPadding(dp(activity, 14), dp(activity, 9), dp(activity, 14), dp(activity, 9))
         background = shape(activity, SettingsUiTheme.colors(activity).raised, 12, SettingsUiTheme.colors(activity).outline)
         SettingsGlassMaterial.mark(this, SettingsGlassKind.Field)
+    }
+
+    internal fun showLanguageSearch(activity: Activity, codes: List<String>, selected: String, choose: (String) -> Unit) {
+        val body = card(activity).apply { addView(title(activity, "选择原语言", 20f)) }
+        val input = field(activity, "搜索语言、English 或代码")
+        input.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+        body.addView(input, fullMargin(activity, 12))
+        val results = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        body.addView(results, fullMargin(activity, 8))
+        val dialog = bubbleDialog(activity, body, compact = true, fixedHeight = true)
+        fun render(query: String) {
+            results.removeAllViews()
+            val matches = LanguageSearchPolicy.filter(codes, query)
+            if (matches.isEmpty()) results.addView(label(activity, "未找到匹配语言", 14f, SettingsUiTheme.colors(activity).secondary))
+            matches.forEach { code ->
+                val name = if (code == "auto") "自动判断" else Locale.forLanguageTag(code).getDisplayLanguage(Locale.SIMPLIFIED_CHINESE)
+                results.addView(action(activity, if (code == "auto") name else "$name · $code", emphasized = code == selected) {
+                    dialog.dismiss(); choose(code)
+                }, fullMargin(activity, 8))
+            }
+        }
+        input.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { render(s.toString()) }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
+        render("")
+        dialog.show()
+    }
+
+    internal fun showOfflineModelManager(activity: Activity, backend: com.tcrrry.lyrics.plugin.OfflineModelBackend) {
+        val body = card(activity).apply { addView(title(activity, "离线翻译语言包", 20f)) }
+        val input = field(activity, "搜索语言、English 或代码")
+        input.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+        body.addView(input, fullMargin(activity, 12))
+        val results = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val list = android.widget.ScrollView(activity).apply {
+            isVerticalScrollBarEnabled = false
+            isVerticalFadingEdgeEnabled = true
+            setFadingEdgeLength(dp(activity, 12))
+            addView(results)
+        }
+        body.addView(list, LinearLayout.LayoutParams(-1, dp(activity, 176)).apply { topMargin = dp(activity, 8) })
+        val status = label(activity, "正在读取语言包…", 13f, SettingsUiTheme.colors(activity).secondary)
+        body.addView(status, fullMargin(activity, 10))
+        var selected = activity.pluginPreferences("supplement_translation", Context.MODE_PRIVATE)
+            .getString("offline_source_language", "ja")?.takeIf { it in backend.languages }
+            ?: backend.languages.firstOrNull { it == "ja" } ?: backend.languages.firstOrNull().orEmpty()
+        var installed = emptySet<String>()
+        var busy = true
+        var alive = true
+        val download = action(activity, "下载语言包", emphasized = true) {}
+        val delete = action(activity, "删除语言包") {}
+        body.addView(download, fullMargin(activity, 10))
+        body.addView(delete, fullMargin(activity, 8))
+        val close = action(activity, "关闭") {}
+        val footer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 18), dp(activity, 8), dp(activity, 18), dp(activity, 16))
+            addView(close, fullMargin(activity, 0))
+        }
+        val dialog = bubbleDialog(activity, body, footer, compact = true, fixedHeight = true)
+        dialog.setOnDismissListener { alive = false }
+        close.setOnClickListener { dialog.dismiss() }
+        fun name(code: String) = Locale.forLanguageTag(code).getDisplayLanguage(Locale.SIMPLIFIED_CHINESE)
+        fun updateActions() {
+            download.text = "下载${name(selected)}与中文模型"
+            delete.text = "删除${name(selected)}模型"
+            download.isEnabled = !busy && selected.isNotBlank()
+            delete.isEnabled = !busy && selected != "en" && selected in installed
+            download.alpha = if (download.isEnabled) 1f else .45f
+            delete.alpha = if (delete.isEnabled) 1f else .45f
+        }
+        fun render() {
+            results.removeAllViews()
+            val codes = LanguageSearchPolicy.filter(backend.languages, input.text.toString())
+            if (codes.isEmpty()) results.addView(label(activity, "未找到匹配语言", 14f, SettingsUiTheme.colors(activity).secondary))
+            codes.forEach { code ->
+                val ready = code == "en" || code in installed
+                val row = label(activity, "${name(code)} · $code\n${if (code == "en") "无需下载" else if (ready) "已下载" else "未下载"}", 14f,
+                    if (code == selected) SettingsUiTheme.colors(activity).primary else SettingsUiTheme.colors(activity).text).apply {
+                    minimumHeight = dp(activity, 52)
+                    setPadding(dp(activity, 10), dp(activity, 8), dp(activity, 10), dp(activity, 8))
+                    isClickable = true; isFocusable = true; isSelected = code == selected
+                    contentDescription = "选择${name(code)}语言包"
+                    background = android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x24FFFFFF), null,
+                        shape(activity, android.graphics.Color.WHITE, 8, android.graphics.Color.WHITE))
+                    setOnClickListener { if (!busy) { selected = code; render(); updateActions() } }
+                }
+                results.addView(row, fullMargin(activity, 2))
+            }
+        }
+        fun active() = alive && dialog.isShowing && !activity.isDestroyed && !activity.isFinishing &&
+            com.tcrrry.lyrics.plugin.PluginLifetime.alive
+        fun refresh(message: String? = null) {
+            backend.query { models, error -> com.tcrrry.lyrics.plugin.PluginHandler().post {
+                if (!active()) return@post
+                busy = false
+                if (models != null) installed = models
+                status.text = error ?: message ?: "已下载 ${installed.size} 个语言包"
+                render(); updateActions()
+            } }
+        }
+        fun finish(error: String?, success: String) {
+            com.tcrrry.lyrics.plugin.PluginHandler().post {
+                if (!active()) return@post
+                if (error != null) { busy = false; status.text = error; updateActions() }
+                else refresh(success)
+            }
+        }
+        download.setOnClickListener {
+            if (busy) return@setOnClickListener
+            val code = selected
+            busy = true; status.text = "正在下载${name(code)}与中文模型…"; updateActions()
+            backend.download(code) { finish(it, "${name(code)}与中文模型已就绪") }
+        }
+        delete.setOnClickListener {
+            if (busy || selected == "en" || selected !in installed) return@setOnClickListener
+            val code = selected
+            showConfirmation(activity, "删除${name(code)}模型", "其他语言包将保留") {
+                if (!active()) return@showConfirmation
+                busy = true; status.text = "正在删除${name(code)}模型…"; updateActions()
+                backend.delete(code) { finish(it, "${name(code)}模型已删除") }
+            }
+        }
+        input.addTextChangedListener(object : android.text.TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { render() }
+            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        })
+        render(); updateActions(); dialog.show(); refresh()
+    }
+
+    internal fun updateReminderBody(activity: Activity, heading: String, current: String,
+        actions: List<Pair<String, () -> Unit>>): LinearLayout = card(activity).apply {
+        addView(title(activity, heading, 20f))
+        addView(label(activity, current, 13f, SettingsUiTheme.colors(activity).secondary), fullMargin(activity, 8))
+        actions.forEachIndexed { index, (caption, callback) ->
+            addView(action(activity, caption, emphasized = index == 0, click = callback), fullMargin(activity, 10))
+        }
     }
 
     private fun showTextPrompt(activity: Activity, heading: String, initial: String, save: (String) -> Unit) {
@@ -984,6 +1128,31 @@ internal object TcrrryLyricsSettingsUi {
         }
     }
 
+    internal fun binaryChoice(activity: Activity, heading: String, checked: Boolean,
+        enabled: Boolean = true, change: (Boolean) -> Unit): TextView {
+        var selected = checked
+        val colors = SettingsUiTheme.colors(activity)
+        val button = TextView(activity).apply {
+            textSize = 15f; gravity = Gravity.CENTER; minimumHeight = dp(activity, 48)
+            setPadding(dp(activity, 14), dp(activity, 12), dp(activity, 14), dp(activity, 12))
+            isClickable = true; isFocusable = true; isEnabled = enabled
+            contentDescription = heading
+        }
+        fun paint() {
+            button.text = "$heading：${if (selected) "开启" else "关闭"}"
+            button.isSelected = selected
+            button.setTextColor(if (selected) colors.primary else colors.text)
+            button.background = android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(
+                if (colors.dark) 0x24FFFFFF else 0x14000000),
+                shape(activity, if (selected) colors.selected else colors.raised, 12,
+                    if (selected) colors.primary else colors.outline), null)
+            if (Build.VERSION.SDK_INT >= 30) button.stateDescription = if (selected) "开启" else "关闭"
+        }
+        paint()
+        button.setOnClickListener { if (button.isEnabled) { selected = !selected; paint(); change(selected) } }
+        return button
+    }
+
     private fun segmentedChoice(activity: Activity, heading: String, choices: List<String>,
         selected: Int, choose: (Int) -> Unit): View = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
@@ -1031,7 +1200,8 @@ internal object TcrrryLyricsSettingsUi {
         history.forEach { result ->
             body.addView(action(activity, "${result.source} · ${result.title.ifBlank { song?.title.orEmpty() }}") {
                 dialog.dismiss()
-                val preview = result.lyrics.lineSequence().take(16).joinToString("\n")
+                val preview = com.tcrrry.lyrics.engine.lyrics.DesktopLyricsTtmlConverter.preview(result,
+                    com.tcrrry.lyrics.engine.lyrics.LyricsPreference.hideOpeningCredits(activity))
                 val detail = card(activity).apply {
                     addView(title(activity, result.title.ifBlank { song?.title.orEmpty() }, 19f))
                     addView(label(activity,

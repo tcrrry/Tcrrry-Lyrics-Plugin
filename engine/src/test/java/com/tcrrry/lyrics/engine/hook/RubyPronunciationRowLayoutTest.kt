@@ -339,7 +339,7 @@ class RubyPronunciationRowLayoutTest {
         assertTrue(runs.all { it.left>=0 && it.right<=330 })
         val bitmap=android.graphics.Bitmap.createBitmap(330,root.height,android.graphics.Bitmap.Config.ARGB_8888)
         root.draw(android.graphics.Canvas(bitmap))
-        val file=java.io.File("../../release-audit/cantonese-20261018/per-character-layout.png")
+        val file=java.io.File("../../release-audit/cantonese-20261018/per-character-layout.png").apply { parentFile.mkdirs() }
         file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };bitmap.recycle()
         ruby.restore();assertEquals(originalSpacing,words.map { it.letterSpacing })
     }
@@ -399,7 +399,7 @@ class RubyPronunciationRowLayoutTest {
             if(original.startsWith("환")) {
                 val bitmap=android.graphics.Bitmap.createBitmap(360,root.height,android.graphics.Bitmap.Config.ARGB_8888)
                 root.draw(android.graphics.Canvas(bitmap))
-                val file=java.io.File("../../release-audit/cantonese-20261018/korean-character-layout.png")
+                val file=java.io.File("../../release-audit/cantonese-20261018/korean-character-layout.png").apply { parentFile.mkdirs() }
                 file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };bitmap.recycle()
             }
             ruby.restore();assertTrue(words.all { it.letterSpacing==0f })
@@ -450,7 +450,7 @@ class RubyPronunciationRowLayoutTest {
             if(original.startsWith("왜 전화") && singleView && width==360) {
                 val bitmap=android.graphics.Bitmap.createBitmap(width,root.height,android.graphics.Bitmap.Config.ARGB_8888)
                 root.draw(android.graphics.Canvas(bitmap))
-                java.io.File("../../release-audit/fixed-size-preview15/korean-full-size.png").outputStream().use {
+                java.io.File("../../release-audit/fixed-size-preview15/korean-full-size.png").apply { parentFile.mkdirs() }.outputStream().use {
                     bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)
                 };bitmap.recycle()
             }

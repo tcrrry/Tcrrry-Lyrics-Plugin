@@ -2,7 +2,7 @@
 
 当前正式版 **1.0.10**，适用于 AM++ SDK v1 / Apple Music 7.0.0-beta 1606、1609，已适配 AM++ 1017。
 
-[![下载歌词插件 ZIP](docs/images/downloads/plugin-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.10/Tcrrry-Lyrics-Plugin-1.0.10.zip)
+[![下载歌词插件 ZIP](docs/images/downloads/plugin-zip-1.0.10.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.10/Tcrrry-Lyrics-Plugin-1.0.10.zip)
 [![下载翻译插件 ZIP](docs/images/downloads/translation-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.9/Tcrrry-Translation-Plugin-1.0.0.zip)
 
 [1.0.10 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.0.10) · [安装说明](docs/INSTALL.md) · [翻译扩展](docs/TRANSLATION-EXTENSION.md) · [完整安装包](https://github.com/tcrrry/AMPP-Lyrics)

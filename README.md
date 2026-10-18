@@ -1,6 +1,6 @@
 # Tcrrry 歌词增强
 
-当前正式版 **1.0.9**，适用于 AM++ SDK v1 / Apple Music 7.0.0-beta 1606、1609，已适配 AM++ 1017。
+当前正式版 **1.0.10**，适用于 AM++ SDK v1 / Apple Music 7.0.0-beta 1606、1609，已适配 AM++ 1017。
 
 [![下载歌词插件 ZIP](docs/images/downloads/plugin-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.10/Tcrrry-Lyrics-Plugin-1.0.10.zip)
 [![下载翻译插件 ZIP](docs/images/downloads/translation-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.9/Tcrrry-Translation-Plugin-1.0.0.zip)

@@ -6,7 +6,6 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.view.View
 import android.widget.LinearLayout
-import android.widget.TextView
 import dev.amenhancer.plugin.api.*
 import com.tcrrry.lyrics.engine.config.*
 import com.tcrrry.lyrics.engine.hook.*
@@ -78,7 +77,6 @@ class LyricsPlugin : AmppPlugin() {
                 if(renderedColors==colors && renderedSong==song) return@from
                 body.removeAllViews()
                 val prefs=configuration.settings()
-                body.addView(TextView(activity).apply { text="Tcrrry 歌词设置 · ${ReleaseUpdates.channel.label} ${com.tcrrry.lyrics.engine.BuildConfig.PLUGIN_VERSION}";textSize=20f;setTextColor(SettingsUiTheme.colors(activity).text);setPadding(24,24,24,12) })
                 TcrrryLyricsSettingsUi.render(activity,body,song,::refresh,prefs,{next -> configuration.saveSettings(next)},configuration::settings)
                 renderedSong=song
                 renderedColors=colors

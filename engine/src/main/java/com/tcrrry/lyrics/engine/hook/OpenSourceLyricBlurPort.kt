@@ -49,6 +49,7 @@ internal class OpenSourceLyricBlurPort(
     private var scrollChangedListener: ViewTreeObserver.OnScrollChangedListener? = null
     private var isUserScrolling = false
     private var lastNativePosition: Long? = null
+    private var currentDocument: Any? = null
     private val playbackEpoch = LyricPlaybackEpoch()
     private var lastUserTouchAt = Long.MIN_VALUE
     private var offscreenSince = 0L
@@ -85,6 +86,7 @@ internal class OpenSourceLyricBlurPort(
     override fun onSessionChanged(songInfo: Any) = onProcessPosition(songInfo, null)
 
     override fun onProcessPosition(songInfo: Any, position: Long?) {
+        currentDocument = songInfo
         val change = playbackEpoch.update(songInfo, position)
         if (change != LyricPlaybackEpoch.Change.CONTINUOUS) LyricsPlaybackDiagnostics.record("blur-reset", "change=$change pos=$position")
         if (change != LyricPlaybackEpoch.Change.CONTINUOUS) {
@@ -186,6 +188,7 @@ internal class OpenSourceLyricBlurPort(
         wordHighlightState.clear()
         lastNativePosition = null
         offscreenSince = 0L
+        currentDocument = null
         recyclerView = null
         lyricsRootView = null
         lyricsFragmentOwner = null
@@ -251,22 +254,6 @@ internal class OpenSourceLyricBlurPort(
         try {
             val view = rv as View
             detachScrollListener()
-            view.setOnTouchListener { _, event ->
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
-                        isUserScrolling = true
-                        lastUserTouchAt = SystemClock.uptimeMillis()
-                        offscreenSince = 0L
-                        scrollHandler.removeCallbacks(restoreBlurRunnable)
-                        if (event.actionMasked == MotionEvent.ACTION_DOWN) applyBlur(includeFocus = false, immediate = true)
-                    }
-                    MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
-                        lastUserTouchAt = SystemClock.uptimeMillis()
-                        scheduleScrollRestore()
-                    }
-                }
-                false
-            }
             val listener = ViewTreeObserver.OnScrollChangedListener(::onScrollDetected)
             view.viewTreeObserver.addOnScrollChangedListener(listener)
             observedScrollView = view
@@ -277,13 +264,29 @@ internal class OpenSourceLyricBlurPort(
         }
     }
 
+    override fun onLyricsTouch(view: View, event: MotionEvent) {
+        if (view !== observedScrollView) return
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                isUserScrolling = true
+                lastUserTouchAt = SystemClock.uptimeMillis()
+                offscreenSince = 0L
+                scrollHandler.removeCallbacks(restoreBlurRunnable)
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) applyBlur(includeFocus = false, immediate = true)
+            }
+            MotionEvent.ACTION_CANCEL, MotionEvent.ACTION_UP -> {
+                lastUserTouchAt = SystemClock.uptimeMillis()
+                scheduleScrollRestore()
+            }
+        }
+    }
+
     private fun detachScrollListener() {
         val view = observedScrollView
         val listener = scrollChangedListener
         if (view != null && listener != null) {
             val observer = view.viewTreeObserver
             if (observer.isAlive) observer.removeOnScrollChangedListener(listener)
-            view.setOnTouchListener(null)
         }
         observedScrollView = null
         scrollChangedListener = null
@@ -301,15 +304,6 @@ internal class OpenSourceLyricBlurPort(
     private fun scheduleScrollRestore() {
         scrollHandler.removeCallbacks(restoreBlurRunnable)
         scrollHandler.postDelayed(restoreBlurRunnable, SCROLL_RESTORE_DELAY_MS)
-    }
-
-    private fun clearAllBlur() {
-        val rv = getRv() as? ViewGroup ?: return
-        for (i in 0 until rv.childCount) {
-            val child = rv.getChildAt(i) ?: continue
-            if (!isLyricsLine(child)) continue
-            blurRenderer.clear(child)
-        }
     }
 
     private fun getRv(): Any? {
@@ -363,9 +357,6 @@ internal class OpenSourceLyricBlurPort(
             visiblePositions = visibleRows.map { (_, position) -> position },
             gapAnchorPosition = gapAnchorPosition,
         )
-        recoverLostFollow(rv, followHighlights(), visibleRows.filter { (child, _) ->
-            child.bottom > rv.paddingTop && child.top < rv.height - rv.paddingBottom
-        }.map { it.second })
         // One bounded diagnostic observation per coalesced frame; individual
         // renderer setters remain intentionally silent.
         LyricsPlaybackDiagnostics.record("blur-frame", "active=$activeIds effective=$effectiveIds visible=${visibleRows.map { it.second }} focus=$focusEnabled immediate=$immediate", sample = true)
@@ -461,9 +452,14 @@ internal class OpenSourceLyricBlurPort(
             return
         }
         LyricsPlaybackDiagnostics.record("follow-state", "active=$activeIds visible=$visiblePositions user=$isUserScrolling gap=${highlightSession.isGap()}", sample = true)
-        val target = LyricFollowRecoveryPolicy.offscreenTarget(
+        val offscreen = LyricFollowRecoveryPolicy.offscreenTarget(
             activeIds, visiblePositions, highlightSession.isGap() && wordHighlightState.liveSnapshot().isEmpty(),
         )
+        // A suspended native renderer can lose highlight/follow while its row is still visible.
+        val suspended = !isUserScrolling && activeIds.isNotEmpty() &&
+            (!highlightSession.isGap() || wordHighlightState.liveSnapshot().isNotEmpty()) &&
+            targetAccess.nativeFollowSuspended(lyricsFragmentOwner, rv, currentDocument, activeIds)
+        val target = offscreen ?: activeIds.minOrNull().takeIf { suspended }
         if (target == null || isUserScrolling) {
             offscreenSince = 0L
             return
@@ -477,18 +473,18 @@ internal class OpenSourceLyricBlurPort(
         ) return
         lastFollowRecoveryAt = now
         offscreenSince = 0L
+        val document = currentDocument
+        val owner = lyricsFragmentOwner
         rv.post {
-            if (recyclerView !== rv || target !in followHighlights() || isUserScrolling ||
+            if (document !== currentDocument || owner !== lyricsFragmentOwner || recyclerView !== rv || target !in followHighlights() || isUserScrolling ||
                 (lastUserTouchAt != Long.MIN_VALUE &&
                     SystemClock.uptimeMillis() - lastUserTouchAt < USER_BROWSING_GRACE_MS)) return@post
             runCatching {
-                if (targetAccess.recoverFollow(lyricsFragmentOwner, rv, target)) {
+                if (targetAccess.recoverFollow(owner, rv, document, followHighlights())) {
                     LyricsPlaybackDiagnostics.record("follow-native", "target=$target")
-                } else {
-                    rv.javaClass.getMethod("smoothScrollToPosition", Int::class.javaPrimitiveType).invoke(rv, target)
-                    LyricsPlaybackDiagnostics.record("follow-legacy", "target=$target")
+                    Log.i(TAG, "Recovered native lyric presentation at row $target")
                 }
-                Log.i(TAG, "Recovered lyric follow at row $target")
+
             }.onFailure { error -> LyricsPlaybackDiagnostics.record("follow-error", error.javaClass.simpleName); Log.w(TAG, "Lyric follow recovery unavailable", error) }
         }
     }
@@ -508,6 +504,7 @@ internal class OpenSourceLyricBlurPort(
 internal interface LyricBlurRuntime {
     fun onSessionChanged(songInfo: Any)
     fun onProcessPosition(songInfo: Any, position: Long?) = onSessionChanged(songInfo)
+    fun onLyricsTouch(view: View, event: MotionEvent) = Unit
     fun onPresentationRecovered(lineIds: Set<Int>) = Unit
     fun currentLineHighlights(songInfo: Any): Set<Int>? = null
     fun onHighlightsChanged(lineIds: Set<Int>)
@@ -525,5 +522,6 @@ internal interface LyricBlurTargetAccess {
     fun isInstrumentalRow(view: View): Boolean
     fun isCreditsRow(view: View): Boolean
     fun adapterPosition(view: View): Int
-    fun recoverFollow(owner: Any?, recycler: ViewGroup, target: Int): Boolean = false
+    fun nativeFollowSuspended(owner: Any?, recycler: ViewGroup, document: Any?, active: Set<Int>): Boolean = false
+    fun recoverFollow(owner: Any?, recycler: ViewGroup, document: Any?, active: Set<Int>): Boolean = false
 }

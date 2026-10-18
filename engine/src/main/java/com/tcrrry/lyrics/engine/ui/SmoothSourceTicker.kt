@@ -15,6 +15,9 @@ internal class SmoothSourceTicker(context: Context, color: Int) : FrameLayout(co
     val label = object : TextView(context) {
         override fun onDraw(canvas: Canvas) {
             val textLayout = layout ?: return
+            // TextView may rebuild its Layout without laying out the parent again.
+            // Never draw the second copy using the previous source's shorter period.
+            updateGeometry(textLayout.getLineWidth(0))
             paint.color = currentTextColor
             paint.drawableState = drawableState
             val saved = canvas.save()
@@ -62,13 +65,23 @@ internal class SmoothSourceTicker(context: Context, color: Int) : FrameLayout(co
     }
 
     fun display(value: String) {
-        if (label.text.toString() != value) label.text = value
+        if (label.text.toString() == value) return
+        stopClock()
+        motion.geometry(0f, 0f, 0f)
+        label.text = value
+        requestLayout()
+        label.invalidate()
     }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)
+        updateGeometry(label.layout?.getLineWidth(0) ?: 0f)
+        schedule()
+    }
+
+    private fun updateGeometry(textWidth: Float) {
         val viewport = (label.width - label.compoundPaddingLeft - label.compoundPaddingRight).toFloat()
-        motion.geometry(label.layout?.getLineWidth(0) ?: 0f, viewport,
+        motion.geometry(textWidth, viewport,
             maxOf(48f * resources.displayMetrics.density, viewport / 3f))
         schedule()
     }

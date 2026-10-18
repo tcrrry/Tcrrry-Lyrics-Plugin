@@ -27,6 +27,75 @@ class FallbackLyricsTranslationTest {
     private val source = DirectLyricsRepository.Result(lyrics = "[00:01.000]君の声", translatedLyrics = "[00:01.000]你的声音", source = "QQ音乐", score = 100)
     private val direct = Executor { it.run() }
 
+    @Test fun firstMachineRowIsVisibleAndRefreshesBeforeTheRestOfTheSongFinishes() {
+        val context=context()
+        context.pluginPreferences("supplement_translation",0).edit().putString("mode","offline").commit()
+        val local=mutableListOf<Runnable>();val network=mutableListOf<Runnable>()
+        var refreshes=0;var sawPartial=false
+        CurrentLyricsSourceStatus.rememberCandidate(context,track.appleMusicId,"desktop-lyrics:QQ音乐",candidate.ttml)
+        CurrentLyricsSourceStatus.installRefreshHandler { id,_ -> assertEquals(track.appleMusicId,id);refreshes++;true }
+        lateinit var enrichment:FallbackLyricsTranslation
+        enrichment=FallbackLyricsTranslation(context,{ emptyList() },Executor { local+=it },
+            networkWorker=Executor { network+=it },translateRows={ _,emit ->
+                emit(org.json.JSONObject().put("id",0).put("text","第一句机翻"))
+                sawPartial=TtmlSubtitleTrack.subtitleValues(enrichment.enrichWithTrack(track.appleMusicId,candidate,track).ttml)[0]=="第一句机翻"
+                throw IllegalStateException("later rows failed")
+            })
+        try {
+            enrichment.enrichWithTrack(track.appleMusicId,candidate,track)
+            local.single().run()
+            assertTrue(sawPartial);assertEquals(1,refreshes)
+            assertEquals("第一句机翻",TtmlSubtitleTrack.subtitleValues(enrichment.enrichWithTrack(track.appleMusicId,candidate,track).ttml)[0])
+        } finally { CurrentLyricsSourceStatus.installRefreshHandler { _,_->false } }
+    }
+
+    @Test fun queuedOldSongDoesNotStartTranslationOrPlatformLookup() {
+        val context=context()
+        context.pluginPreferences("supplement_translation",0).edit().putString("mode","offline").commit()
+        var current=true;val pending=mutableListOf<Runnable>()
+        val enrichment=FallbackLyricsTranslation(context,{ error("old provider must not start") },Executor { pending+=it },
+            translateRows={ _,_->error("old translator must not start") },isCurrent={current})
+        enrichment.enrichWithTrack(track.appleMusicId,candidate,track)
+        current=false;pending.forEach(Runnable::run)
+        assertEquals(2,pending.size)
+    }
+
+    @Test fun offlineRowsPublishBeforeAnyPlatformRequestRunsAndProviderLaterWins() {
+        val context=context()
+        context.pluginPreferences("supplement_translation",0).edit().putString("mode","offline").commit()
+        val local=mutableListOf<Runnable>();val network=mutableListOf<Runnable>();var calls=0
+        val enrichment=FallbackLyricsTranslation(context,{ calls++;listOf(source) },Executor { local+=it },
+            networkWorker=Executor { network+=it },translateRows={ _,emit -> emit(org.json.JSONObject().put("id",0).put("text","本地机翻")) })
+        assertTrue(TtmlSubtitleTrack.subtitleValues(enrichment.enrichWithTrack(track.appleMusicId,candidate,track).ttml).isEmpty())
+        local.single().run()
+        assertEquals(0,calls)
+        assertEquals("本地机翻",TtmlSubtitleTrack.subtitleValues(enrichment.enrichWithTrack(track.appleMusicId,candidate,track).ttml)[0])
+        network.single().run()
+        assertEquals(1,calls)
+        assertEquals("你的声音",TtmlSubtitleTrack.subtitleValues(enrichment.enrichWithTrack(track.appleMusicId,candidate,track).ttml)[0])
+    }
+
+    @Test fun earlyCompletionReturnsItsResultEvenBeforeFirstSourcePublication() {
+        val enrichment=FallbackLyricsTranslation(context(),{ listOf(source) },direct)
+        val first=enrichment.enrichWithTrack(track.appleMusicId,candidate,track)
+        assertEquals("你的声音",TtmlSubtitleTrack.subtitleValues(first.ttml)[0])
+    }
+
+    @Test fun incompleteMachineRunRetainsRowsAndCanRetryWithoutWaitingForPlatformCooldown() {
+        val context=context()
+        context.pluginPreferences("supplement_translation",0).edit().putString("mode","offline").commit()
+        var clock=0L;var attempts=0
+        val enrichment=FallbackLyricsTranslation(context,{ emptyList() },direct,{clock},translateRows={ _,emit ->
+            attempts++;if(attempts==1) throw IllegalStateException("temporary connection failure")
+            emit(org.json.JSONObject().put("id",0).put("text","本地机翻"))
+        })
+        enrichment.enrichWithTrack(track.appleMusicId,candidate,track)
+        clock=4999;enrichment.enrichWithTrack(track.appleMusicId,candidate,track);assertEquals(1,attempts)
+        clock=5000
+        assertEquals("本地机翻",TtmlSubtitleTrack.subtitleValues(enrichment.enrichWithTrack(track.appleMusicId,candidate,track).ttml)[0])
+        assertEquals(2,attempts)
+    }
+
     @Test fun firstNativeDocumentHasDictionaryReadingBeforeNetworkWorkerRuns() {
         val context = context()
         context.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE).edit().putBoolean("enabled", true).commit()

@@ -22,6 +22,7 @@ internal class LyricsResultSubmissionBridge private constructor(
 ) {
     private val lock = Any()
     private var attachedFragment = java.lang.ref.WeakReference<Any>(null)
+    internal var pageObserver: ((Any) -> Unit)? = null
     private val pendingFragments = mutableListOf<Pair<WeakReference<Any>, WeakReference<Any>>>()
     private val postedEmptyGenerations = WeakIdentityMap<Any, Long>()
     private val diagnostics = mutableSetOf<String>()
@@ -257,6 +258,8 @@ internal class LyricsResultSubmissionBridge private constructor(
                 }
             }
             if (publishedId != null && publishedId != id) return
+            runCatching { pageObserver?.invoke(fragment) }
+                .onFailure { report("lyric playback observer failed", it) }
             if (!recoverRequestBinding()) return
             // An old stored document must not prevent attaching the new owner.
             // Only hydrate a live result belonging to the verified current item.
@@ -351,6 +354,7 @@ internal class LyricsResultSubmissionBridge private constructor(
     }
 
     fun close() {
+        pageObserver = null
         mainHandler.removeCallbacksAndMessages(null)
         synchronized(lock) {
             closed = true

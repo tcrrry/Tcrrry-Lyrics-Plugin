@@ -18,6 +18,15 @@ import org.robolectric.annotation.Config
 @Config(manifest=Config.NONE,sdk=[35])
 @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
 class RubyPronunciationActivationTest {
+    private class QueuedWorker:java.util.concurrent.AbstractExecutorService() {
+        val tasks=mutableListOf<Runnable>();private var closed=false
+        override fun execute(task:Runnable) { tasks+=task }
+        override fun shutdown() { closed=true }
+        override fun shutdownNow():MutableList<Runnable> { closed=true;return tasks.toMutableList().also { tasks.clear() } }
+        override fun isShutdown()=closed
+        override fun isTerminated()=closed
+        override fun awaitTermination(timeout:Long,unit:java.util.concurrent.TimeUnit)=closed
+    }
     @org.junit.Before fun attach() { TestPluginContext.attach();RubyPronunciationRows.close() }
     @org.junit.After fun close() { RubyPronunciationRows.close();TestPluginContext.current.close() }
     private fun drain() {
@@ -25,6 +34,26 @@ class RubyPronunciationActivationTest {
             .get(null) as? java.util.concurrent.ExecutorService
         worker?.submit {}?.get(10,java.util.concurrent.TimeUnit.SECONDS)
         shadowOf(Looper.getMainLooper()).idle()
+    }
+    @Test fun refreshedNativeRowsShareOnePendingAlignmentCalculation() {
+        val activity=Robolectric.buildActivity(android.app.Activity::class.java).setup().get()
+        activity.pluginPreferences("tcrrry_lyrics_policy",0).edit().putBoolean("ruby_pronunciation",true).commit()
+        val root=ConstraintLayout(activity);activity.setContentView(root)
+        val worker=QueuedWorker()
+        RubyPronunciationRows::class.java.getDeclaredField("worker").apply { isAccessible=true }.set(null,worker)
+        val original="환한 빛 조명이";val reading="hwanhan bich jomyeong-i"
+        val views=(1..2).map {
+            val header=TextView(activity).apply { id=View.generateViewId();text=reading;textSize=18f }
+            val word=TextView(activity).apply { id=View.generateViewId();text=original;textSize=32f }
+            root.addView(header,ConstraintLayout.LayoutParams(0,-2).apply { topToTop=0;startToStart=0;endToEnd=0 })
+            root.addView(word,ConstraintLayout.LayoutParams(0,-2).apply { topToBottom=header.id;startToStart=0;endToEnd=0 })
+            RubyPronunciationRows.bindLine(word,header,original,reading,false)
+            word
+        }
+        assertEquals(1,worker.tasks.size)
+        worker.tasks.single().run();shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(2,(0 until root.childCount).map(root::getChildAt).filterIsInstance<RubyPronunciationRows.RubyView>().size)
+        views.forEach(RubyPronunciationRows::clear)
     }
     @Test fun failedCantoneseMatchIsReactivatedWhenPlatformReadingEvidenceArrives() {
         val activity=Robolectric.buildActivity(android.app.Activity::class.java).setup().get()

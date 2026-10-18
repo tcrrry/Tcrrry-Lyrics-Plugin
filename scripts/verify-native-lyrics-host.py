@@ -112,6 +112,22 @@ def main():
     method('com/apple/android/music/player/fragment/L', 'b(II)V')
     method('com/apple/android/music/player/n1', 'N()V')
     method('com/apple/android/music/player/n1', 'P(Z)V')
+    # Seek re-entry uses Apple's own O notifications and native ItemAnimator completion.
+    method('com/apple/android/music/player/n1', 'O(Ljava/util/List;I[Landroid/util/Pair;)V')
+    method('com/apple/android/music/player/A', 'O(Ljava/util/List;I[Landroid/util/Pair;)V')
+    method('com/apple/android/music/player/A', 'v()V')
+    method('lc/A', 'f()V')
+    field(lyrics, 't0', 'Lcom/apple/android/music/player/fragment/PlayerLyricsViewFragment$u;')
+    method('androidx/recyclerview/widget/RecyclerView$k', 'h(Landroidx/recyclerview/widget/RecyclerView$k$a;)Z')
+    method('androidx/recyclerview/widget/RecyclerView$k$a', 'a()V')
+    seek_key = owner_name('com/apple/android/music/player/n1')+'$a'
+    for name in ('WORD_HIGHLIGHT_IDS', 'BG_WORD_HIGHLIGHT_IDS', 'PLAYBACK_POSITION'):
+        field(seek_key, name, 'L'+seek_key+';', static=True)
+    method('com/apple/android/music/ttml/javanative/model/LyricsLine$LyricsLineNative',
+           'getBackgroundWords()Lcom/apple/android/music/ttml/javanative/model/LyricsWordVector;')
+    method('com/apple/android/music/ttml/javanative/model/LyricsWord$LyricsWordNative', 'getWordId()I')
+    method('com/apple/android/music/ttml/javanative/model/LyricsWord$LyricsWordNative', 'isWhitespace()Z')
+    method('com/apple/android/music/ttml/javanative/model/LyricsTiming', 'getEnd()I')
     # Independent replay recovery must include inherited public interface methods,
     # not just declarations on the fragment and its superclass chain.
     def inherited_public(owner, descriptor):
@@ -131,6 +147,10 @@ def main():
             pending.append(contract['super'])
         raise RuntimeError(f'Missing inherited public method: {owner}.{descriptor}')
     inherited_public('J4/w', 'i0()Lz3/w;')
+    for descriptor in ('seekTo(J)V', 'seekTo(IJ)V'):
+        inherited_public('J4/w', descriptor)
+    inherited_public(lyrics+'$u', 'h(Landroidx/recyclerview/widget/RecyclerView$k$a;)Z')
+    inherited_public(lyrics+'$u', 'f()V')
     getter = 'getMediaBrowser()LJ4/w;'
     if inherited_public(lyrics, getter) != 'Lia/a$c;':
         raise RuntimeError('Inspect changed native playback interface getter')

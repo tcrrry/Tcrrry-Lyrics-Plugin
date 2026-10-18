@@ -1,8 +1,6 @@
 package com.tcrrry.lyrics.engine.hook
 
 import java.lang.reflect.Modifier
-import android.animation.ValueAnimator
-import java.lang.ref.WeakReference
 import java.util.WeakHashMap
 
 /** The last glyph needs the trailing (fully lit) edge of the feather to pass it. */
@@ -14,20 +12,6 @@ internal fun terminalGradientNeedsCompensation(text: CharSequence): Boolean = co
 
 internal object NativeTerminalGradientFix {
     private val terminal = ThreadLocal<Boolean>()
-    private data class Frame(val adapter: WeakReference<Any>, val row: Int, val word: Int,
-        var fraction: Float = 0f, var stage: Int = -1)
-    private val frames = WeakHashMap<ValueAnimator, Frame>()
-    fun releasing(adapter: Any, row: Int) {
-        val iterator = frames.entries.iterator()
-        while (iterator.hasNext()) {
-            val (animation, frame) = iterator.next()
-            if (frame.adapter.get() === adapter && frame.row == row) {
-                LyricsPlaybackDiagnostics.record("tail-mask-final", "row=$row word=${frame.word} fraction=${frame.fraction} duration=${animation.duration}")
-                iterator.remove()
-            }
-        }
-    }
-
     fun install(adapter: Class<*>): Boolean = runCatching {
         val build = adapter.declaredMethods.single { it.name == "d0" && it.parameterCount == 9 }
         val margin = adapter.declaredMethods.single { it.name == "c0" && Modifier.isStatic(it.modifiers) && it.parameterCount == 6 }
@@ -68,20 +52,6 @@ internal object NativeTerminalGradientFix {
             lastByTable.getOrPut(table) { mutableMapOf() }[row] = ids
             return expected in ids
         }
-        val listener = lyricsClassForName("com.apple.android.music.player.u", false, adapter.classLoader)
-            .getMethod("onAnimationUpdate", ValueAnimator::class.java)
-        ModernXposedRuntime.hookMethod(listener, object : ModernMethodHook() {
-            override fun beforeHookedMethod(param: MethodHookParam) {
-                val animation = param.args[0] as? ValueAnimator ?: return
-                val frame = frames[animation] ?: return
-                frame.fraction = animation.animatedFraction
-                val stage = if (frame.fraction >= 0.98f) 2 else if (frame.fraction >= 0.5f) 1 else 0
-                if (stage > frame.stage) {
-                    frame.stage = stage
-                    LyricsPlaybackDiagnostics.record("tail-mask-frame", "row=${frame.row} word=${frame.word} fraction=${frame.fraction} duration=${animation.duration}")
-                }
-            }
-        })
         val marginInstalled = ModernXposedRuntime.hookMethod(margin, object : ModernMethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
                 if (terminal.get() != true || param.throwable != null) return
@@ -115,12 +85,7 @@ internal object NativeTerminalGradientFix {
                                 value.javaClass.getMethod("getTag").invoke(value) == "KARAOKE_SPLIT_ON_CHARS_LANGUAGES_RUSH_GRADIENT_TAG"
                             }.getOrDefault(false)
                         }
-                        val word = param.args[2]!!
-                        val scale = if (android.os.Build.VERSION.SDK_INT >= 33) ValueAnimator.getDurationScale() else null
-                        (param.result as? List<*>)?.filterIsInstance<ValueAnimator>()?.forEach { animation ->
-                            frames[animation] = Frame(WeakReference(param.thisObject!!), rowId.getInt(word), wordId.getInt(word))
-                            LyricsPlaybackDiagnostics.record("tail-sweep", "row=${rowId.getInt(word)} word=${wordId.getInt(word)} duration=${animation.duration} delay=${animation.startDelay} scale=$scale")
-                        }
+
                     }
                 } finally {
                     val previous = param.extras.remove("terminal-gradient-previous") as? Boolean

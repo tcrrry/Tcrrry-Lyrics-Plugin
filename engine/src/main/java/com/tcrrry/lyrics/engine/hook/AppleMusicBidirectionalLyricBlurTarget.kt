@@ -60,13 +60,26 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
             )
         }
 
-        val targetAccess = AppleMusicLyricBlurTargetAccess(recyclerClass)
+        val followRecovery = if ((fragmentResolution as? TargetResolution.Found)?.profileId ==
+            "apple-music-7.0.0-beta-1609") NativeLyricsPresentationRecovery.resolve(fragmentClass) else null
+        val targetAccess = AppleMusicLyricBlurTargetAccess(recyclerClass, followRecovery)
         val probe = LyricHighlightProbe()
         val runtime = OpenSourceLyricBlurPort(
             targetAccess = targetAccess,
             blurRadiusOffsetPx = TargetConfigClient.currentSettings().lyricBlurRadiusOffsetPx,
             probe = probe,
         )
+        // Observe only RecyclerView entry points, without replacing touch listeners or consuming events.
+        for (name in listOf("onInterceptTouchEvent", "onTouchEvent")) ModernXposedRuntime.hookMethod(
+            recyclerClass.getDeclaredMethod(name, android.view.MotionEvent::class.java),
+            object : XC_MethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    val view = param.thisObject as? View ?: return
+                    val event = param.args.firstOrNull() as? android.view.MotionEvent ?: return
+                    runCatching { runtime.onLyricsTouch(view, event) }
+                        .onFailure { Log.w(TAG, "Lyrics touch observation failed open", it) }
+                }
+            })
         val highlights = LyricHighlightEventRouter(runtime, probe)
         val wordTails = LyricWordTailState()
         val releaseTails = installWordTailProtection(fragmentClass, wordTails)
@@ -235,7 +248,6 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
                         val token = pointer.invoke(target) ?: return@runCatching
                         val bound = (lineForPosition.invoke(target, position.invoke(item), true) as? Number)?.toInt()
                         if (tails.owns(token) && !tails.protects(token, row) && bound == row) {
-                            NativeTerminalGradientFix.releasing(target, row)
                             fullBind.invoke(target, item, position.invoke(item))
                             LyricsPlaybackDiagnostics.record("tail-release", "row=$row")
                         }
@@ -553,6 +565,7 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
 
 internal class AppleMusicLyricBlurTargetAccess(
     private val recyclerViewClass: Class<*>,
+    private val recovery: NativeLyricsPresentationRecovery? = null,
 ) : LyricBlurTargetAccess {
     private var adapterPositionAccessor: Method? = null
 
@@ -569,8 +582,12 @@ internal class AppleMusicLyricBlurTargetAccess(
         }
     }
 
-    override fun recoverFollow(owner: Any?, recycler: android.view.ViewGroup, target: Int): Boolean =
-        NativeLyricsImmediateAnchor.recoverFollow(owner)
+    override fun nativeFollowSuspended(owner: Any?, recycler: android.view.ViewGroup, document: Any?, active: Set<Int>): Boolean =
+        recovery?.suspended(owner, recycler, document, active) == true
+
+    override fun recoverFollow(owner: Any?, recycler: android.view.ViewGroup, document: Any?, active: Set<Int>): Boolean =
+        if (recovery != null) recovery.recover(owner, recycler, document, active)
+        else NativeLyricsImmediateAnchor.recoverFollow(owner)
 
     override fun isRecyclerView(view: View): Boolean = view.javaClass == recyclerViewClass
 

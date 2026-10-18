@@ -4,8 +4,8 @@
   "id": "com.tcrrry.lyrics",
   "name": "Tcrrry 歌词增强",
   "author": "Tcrrry",
-  "versionName": "1.0.9",
-  "versionCode": 53,
+  "versionName": "1.0.10",
+  "versionCode": 61,
   "entryClass": "com.tcrrry.lyrics.plugin.LyricsPlugin",
   "minAndroidApi": 31,
   "description": "修复搜索输入法，重做语言包管理；离线机翻由可选的 Tcrrry 离线翻译插件提供。保留 1017 适配、繁简转换及原有歌词功能。"

@@ -3,7 +3,6 @@ import com.tcrrry.lyrics.plugin.PluginStorage.pluginPreferences
 
 import android.content.Context
 import com.tcrrry.lyrics.sources.SupplementTranslation
-import com.tcrrry.lyrics.engine.lyrics.TtmlInputPolicy
 import com.tcrrry.lyrics.engine.lyrics.ChineseSubtitlePolicy
 import java.security.MessageDigest
 import java.util.concurrent.ArrayBlockingQueue
@@ -19,6 +18,9 @@ internal class FallbackLyricsTranslation(private val context: Context,
     private val platformLookup: ((DesktopLyricsTrack) -> List<com.tcrrry.lyrics.sources.DirectLyricsRepository.Result>)? = null,
     private val worker: java.util.concurrent.Executor? = null,
     private val now: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val networkWorker: java.util.concurrent.Executor? = null,
+    private val translateRows: ((String, (JSONObject) -> Unit) -> Unit)? = null,
+    private val isCurrent: (Long) -> Boolean = { true },
 ) {
     private data class Cached(val candidate: AutoLyricsCandidate, val retryAt: Long)
     private val completed = ConcurrentHashMap<String, Cached>()
@@ -38,6 +40,9 @@ internal class FallbackLyricsTranslation(private val context: Context,
     }
     private val executor = com.tcrrry.lyrics.plugin.PluginExecutors.pool(2, 2, 0L, TimeUnit.MILLISECONDS,
         ArrayBlockingQueue(2), { task -> Thread(task, "ampp-fallback-translation").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy())
+    private val platformExecutor = com.tcrrry.lyrics.plugin.PluginExecutors.pool(2, 2, 0L, TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(2), { task -> Thread(task, "ampp-platform-auxiliary").apply { isDaemon = true } },
         ThreadPoolExecutor.AbortPolicy())
 
     fun enrich(id: Long, rawCandidate: AutoLyricsCandidate): AutoLyricsCandidate = enrichWithTrack(id, rawCandidate, null)
@@ -93,79 +98,99 @@ internal class FallbackLyricsTranslation(private val context: Context,
         val cached = completed[key]
         if (cached != null && now() < cached.retryAt) return present(cached.candidate)
         if (working.add(key)) {
-            runCatching { (worker ?: executor).execute {
-                try {
-                    val translations = mutableMapOf<Int, String>()
-                    var platformAugmented = candidate.ttml
-                    var origins = TtmlAuxiliaryOrigins.read(candidate.ttml) ?: TtmlAuxiliaryOrigins.original(candidate.source, candidate.ttml)
-                    if (quality) {
-                        if (track != null) {
-                            runCatching {
-                                val results = platformLookup?.invoke(track) ?: platformRepository.resolveLyrics(
-                                    track.title, track.artist, track.album, track.durationMs).let { listOf(it) + it.alternatives }
-                                results.filter { it.source in setOf("QQ音乐", "网易云音乐") && it.score >= 50 }.forEach { source ->
-                                    val supplemented = CrossSourceAuxiliary.enrich(platformAugmented, source)
-                                    origins = origins.copy(
-                                        translation = origins.translation + if (TtmlSubtitleTrack.subtitleValues(supplemented).keys !=
-                                            TtmlSubtitleTrack.subtitleValues(platformAugmented).keys) setOf(source.source) else emptySet(),
-                                        pronunciation = origins.pronunciation + if (TtmlSubtitleTrack.subtitleValues(supplemented, true).keys !=
-                                            TtmlSubtitleTrack.subtitleValues(platformAugmented, true).keys) setOf(source.source) else emptySet())
-                                    platformAugmented = supplemented
-                                }
-                            }
-                        }
+            val progress = AuxiliaryEnrichmentProgress(candidate, mode)
+            val state = Any()
+            var platformDone = !quality
+            var machineDone = mode !in setOf("api", "offline")
+            var machineFailed = false
+            var lastDocument = candidate.ttml
+            var lastEmission = Long.MIN_VALUE
+            fun active() = com.tcrrry.lyrics.plugin.PluginLifetime.alive && isCurrent(id) &&
+                revision == com.tcrrry.lyrics.engine.lyrics.LyricsPreference.revision(context)
+            fun publish(force: Boolean) {
+                if (!active()) return
+                val changed = synchronized(state) {
+                    val finished = platformDone && machineDone
+                    val time = now()
+                    if (!force && lastEmission != Long.MIN_VALUE && time - lastEmission < 350L) return
+                    val result = progress.candidate()
+                    val retry = when {
+                        !finished -> Long.MAX_VALUE
+                        machineFailed -> time + 5_000L
+                        quality && progress.missingPlatform() -> time + 30_000L
+                        else -> Long.MAX_VALUE
                     }
-                    runCatching {
-                        if (mode !in setOf("api", "offline")) return@runCatching
-                        val existing = TtmlSubtitleTrack.subtitleValues(platformAugmented)
-                        val payload = JSONArray().apply {
-                            lines.forEachIndexed { index, line ->
-                                if (existing[index].isNullOrBlank() && ChineseSubtitlePolicy.needsChineseTranslation(line))
-                                    put(JSONObject().put("id", index).put("text", line))
-                            }
-                        }
-                        if (payload.length() == 0) return@runCatching
-                        if (mode == "offline") EmbeddedMlKit.initialize(context)
-                        runBlocking {
-                            SupplementTranslation(context).translate(payload.toString()) { row ->
-                                row.optString("text").takeIf(String::isNotBlank)?.let {
-                                    translations[row.optInt("id", -1)] = it
-                                }
-                            }
-                        }
-                    }
-                    var augmented = TtmlSubtitleTrack.attach(platformAugmented, translations) ?: platformAugmented
-                    if (translations.isNotEmpty() && TtmlSubtitleTrack.subtitleValues(augmented).keys != TtmlSubtitleTrack.subtitleValues(platformAugmented).keys)
-                        origins = origins.copy(translation = origins.translation + if (mode == "api") "api" else "offline")
-                    if (augmented != candidate.ttml && "<transliterations" in augmented &&
-                        com.tcrrry.lyrics.engine.lyrics.DesktopLyricsPresentation.fromTtml(augmented) == null) {
-                        val marker = com.tcrrry.lyrics.engine.lyrics.DesktopLyricsPresentation(
-                            source = "未知", wordTimed = TtmlTimingPolicy.isWord(augmented),
-                            platformTranslation = TtmlTimingPolicy.metadataOf(platformAugmented).hasTranslation,
-                            apiTranslation = translations.isNotEmpty() && mode == "api",
-                            offlineTranslation = translations.isNotEmpty() && mode == "offline", pronunciation = true,
-                        ).marker()
-                        augmented = if (augmented.startsWith("<?xml")) augmented.replaceFirst("?>", "?>$marker") else marker + augmented
-                    }
-                    val result = if (augmented != candidate.ttml && TtmlInputPolicy.isAcceptable(augmented)) {
-                        candidate.copy(ttml = origins.attach(augmented))
-                    } else candidate
-                    if (revision != com.tcrrry.lyrics.engine.lyrics.LyricsPreference.revision(context)) return@execute
                     if (completed.size >= 64) completed.keys.firstOrNull()?.let(completed::remove)
-                    val platformTranslations = TtmlSubtitleTrack.subtitleValues(platformAugmented)
-                    val missingPlatform = quality && lines.indices.any { index ->
-                        ChineseSubtitlePolicy.needsChineseTranslation(lines[index]) &&
-                            platformTranslations[index].isNullOrBlank()
+                    completed[key] = Cached(result, retry)
+                    val different = result.ttml != lastDocument
+                    lastDocument = result.ttml
+                    lastEmission = time
+                    different
+                }
+                val selected = CurrentLyricsSourceStatus.selectedSource(context, id)
+                // Refresh re-runs current-source arbitration; it does not force this
+                // candidate into the host. A previous source's status may still be
+                // recorded while this first result is being prepared.
+                if (changed && (selected == null || selected == LyricsSourceMenuPolicy.provider(candidate.source)))
+                    CurrentLyricsSourceStatus.refreshSilently(id)
+            }
+            fun finish(machine: Boolean, failed: Boolean = false) {
+                val done = synchronized(state) {
+                    if (machine) { machineDone = true; machineFailed = failed } else platformDone = true
+                    platformDone && machineDone
+                }
+                try { publish(true) } finally { if (done) working.remove(key) }
+            }
+            fun machine() {
+                if (mode !in setOf("api", "offline")) return
+                runCatching { (worker ?: executor).execute {
+                    var failed = false
+                    try {
+                        if (!active()) return@execute
+                        val payload = progress.missingPayload()
+                        if (JSONArray(payload).length() > 0) {
+                            val accept: (JSONObject) -> Unit = { row ->
+                                if (!active()) throw kotlinx.coroutines.CancellationException("歌曲或翻译设置已变更")
+                                progress.machineRow(row); publish(false)
+                            }
+                            if (translateRows != null) translateRows.invoke(payload, accept)
+                            else {
+                                if (mode == "offline") EmbeddedMlKit.initialize(context)
+                                runBlocking { SupplementTranslation(context).translate(payload, accept) }
+                            }
+                        }
+                    } catch (error: Exception) {
+                        failed = true
+                        if (error !is kotlinx.coroutines.CancellationException)
+                            ModernXposedRuntime.log("auxiliary translation incomplete; retained completed rows", error)
+                    } finally { finish(true, failed) }
+                } }.onFailure { finish(true, true) }
+            }
+            // Local work and platform IO have independent bounded queues. A slow
+            // provider, including a previous song's search, cannot hold up local readings/translation.
+            if (mode == "offline" || !quality) machine()
+            if (quality) {
+                runCatching { (networkWorker ?: worker ?: platformExecutor).execute {
+                    try {
+                        if (!active()) return@execute
+                        if (track != null) {
+                            val results = platformLookup?.invoke(track) ?: platformRepository.resolveLyrics(
+                                track.title, track.artist, track.album, track.durationMs).let { listOf(it) + it.alternatives }
+                            results.forEach(progress::platformResult)
+                        }
+                    } catch (error: Exception) {
+                        ModernXposedRuntime.log("platform auxiliary lookup unavailable; retained local results", error)
+                    } finally {
+                        finish(false)
+                        // Paid API translation keeps its provider-first policy.
+                        if (mode == "api") machine()
                     }
-                    completed[key] = Cached(result, if (missingPlatform) now() + 30_000L else Long.MAX_VALUE)
-                    val selected = CurrentLyricsSourceStatus.selectedSource(context, id)
-                    if (result !== candidate && (selected == null || selected == LyricsSourceMenuPolicy.provider(candidate.source)) &&
-                        CurrentLyricsSourceStatus.candidateSource(context, id) == candidate.source)
-                        CurrentLyricsSourceStatus.refreshSilently(id)
-                } finally { working.remove(key) }
-            } }.onFailure { working.remove(key) }
+                } }.onFailure { finish(false); if (mode == "api") machine() }
+            } else if (mode !in setOf("api", "offline")) finish(false)
         }
-        return present(cached?.candidate ?: candidate)
+        // An inline/fast completion may happen before the first candidate is published.
+        // Re-read the cache instead of returning the snapshot taken before enqueueing.
+        return present(completed[key]?.candidate ?: cached?.candidate ?: candidate)
     }
 }
 

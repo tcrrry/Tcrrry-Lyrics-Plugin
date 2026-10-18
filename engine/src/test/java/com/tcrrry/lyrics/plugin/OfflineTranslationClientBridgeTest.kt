@@ -34,6 +34,32 @@ class OfflineTranslationClientBridgeTest {
     }
     @org.junit.Before fun attach() { TestPluginContext.attach() }
     @org.junit.After fun close() { TestPluginContext.current.close() }
+    @Test fun playbackConnectsWithoutOpeningSettingsAndSharesTheColdProbe() {
+        val app=RuntimeEnvironment.getApplication()
+        OfflineTranslationClient::class.java.getDeclaredField("connected").apply { isAccessible=true }.setBoolean(null,false)
+        var queries=0;var translations=0
+        val receiver=object:BroadcastReceiver() {
+            @Suppress("DEPRECATION") override fun onReceive(context:Context,intent:Intent) {
+                val callback=intent.getParcelableExtra<ResultReceiver>("reply")!!
+                when(intent.getStringExtra("operation")) {
+                    "query" -> { queries++;callback.send(0,Bundle().apply { putStringArrayList("models",arrayListOf("ja","zh")) }) }
+                    "translate" -> { translations++;callback.send(0,Bundle().apply { putString("translation","本地译文") }) }
+                }
+            }
+        }
+        app.registerReceiver(receiver,IntentFilter(OfflineTranslationClient.ACTION),Context.RECEIVER_NOT_EXPORTED)
+        val pool=java.util.concurrent.Executors.newFixedThreadPool(2)
+        try {
+            val futures=(1..2).map { pool.submit<String> { OfflineTranslationClient.translate(app,"ja","君の声") } }
+            val end=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(10)
+            while(futures.any { !it.isDone } && System.nanoTime()<end) {
+                shadowOf(Looper.getMainLooper()).idle();Thread.sleep(1)
+            }
+            assertEquals(listOf("本地译文","本地译文"),futures.map { it.get(1,java.util.concurrent.TimeUnit.SECONDS) })
+            assertEquals(1,queries);assertEquals(2,translations)
+            assertTrue(OfflineTranslationClient.installed(app))
+        } finally { pool.shutdownNow();app.unregisterReceiver(receiver) }
+    }
     @Test fun optionalPluginAnswersWithoutAnyInstalledCompanion() {
         val app=RuntimeEnvironment.getApplication()
         val receiver=object:BroadcastReceiver() {

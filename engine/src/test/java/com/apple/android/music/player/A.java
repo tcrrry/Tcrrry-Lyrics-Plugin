@@ -17,6 +17,7 @@ public class A extends n1 {
  public Object pointer=new Object();
  public Processor p=new Processor();
  public boolean nativeTranslation, nativePronunciation;
+ public boolean A=true; // Verified native word-animation gate, independent of blur.
  public int glyphRebuilds;
  public boolean failBind;
  public Object y() { return pointer; }

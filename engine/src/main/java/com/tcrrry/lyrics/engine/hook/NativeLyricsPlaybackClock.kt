@@ -14,6 +14,30 @@ internal class NativeLyricsPlaybackClock private constructor(
         val media = browser.invoke(fragment) ?: return null
         return Snapshot((position.invoke(media) as Number).toLong().coerceAtLeast(0), playing.invoke(media) == true)
     }
+    fun owns(fragment: Any, receiver: Any?) = receiver != null && browser.invoke(fragment) === receiver
+    fun observeSeeks(scope: HookRegistrationScope, before: (Any?, Long) -> Unit, after: (Any?, Boolean) -> Unit) {
+        // These are public player APIs, including inherited implementations. Observe both:
+        // controls may seek within an item or pass the current item index explicitly.
+        browser.returnType.methods.filter { it.name == "seekTo" &&
+            (it.parameterTypes.contentEquals(arrayOf(Long::class.javaPrimitiveType)) ||
+                it.parameterTypes.contentEquals(arrayOf(Int::class.javaPrimitiveType, Long::class.javaPrimitiveType)))
+        }.distinct().forEach { method ->
+            ModernXposedRuntime.hookMethod(method, object : ModernMethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    runCatching {
+                        (param.args.lastOrNull() as? Number)?.toLong()?.takeIf { it >= 0 }?.let { before(param.thisObject, it) }
+                    }.onFailure { ModernXposedRuntime.log("Native lyric seek observation failed open", it) }
+                }
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    runCatching { after(param.thisObject, param.throwable == null) }
+                        .onFailure { ModernXposedRuntime.log("Native lyric seek observation failed open", it) }
+                }
+            }, scope)
+        }
+    }
+    fun suspendEvents(fragment: Any, lyricMessageId: Int) {
+        if (lyricMessageId != 0) (messages?.get(fragment) as? Handler)?.removeMessages(lyricMessageId)
+    }
     fun restart(fragment: Any, lyricMessageId: Int, nextEventDelay: Long = 100L) {
         val media = browser.invoke(fragment) ?: return
         val handler = messages?.get(fragment) as? Handler

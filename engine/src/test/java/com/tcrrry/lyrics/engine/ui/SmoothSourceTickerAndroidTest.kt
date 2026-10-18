@@ -105,6 +105,38 @@ class SmoothSourceTickerAndroidTest {
         activity.finish()
     }
 
+    @Test @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    fun changingSourceCannotDrawTwoCopiesWithThePreviousSourcesWidth() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
+        val ticker = SmoothSourceTicker(activity, android.graphics.Color.BLACK)
+        fun layout() {
+            ticker.measure(View.MeasureSpec.makeMeasureSpec(180, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(48, View.MeasureSpec.EXACTLY))
+            ticker.layout(0, 0, 180, 48)
+        }
+        ticker.display("QQ音乐 · 逐字 · 自带译文 · 自带发音")
+        layout()
+        val oldPeriod = ticker.motion.periodPx
+        ticker.motion.frame(0)
+        ticker.motion.frame(50_000_000)
+        ticker.display("Apple Music 原生 · 逐字 · 网易云音乐译文 · 机翻译文 · 离线注音".repeat(3))
+        assertEquals(0f, ticker.motion.positionPx)
+        // Rebuild the child layout without relying on a parent onLayout callback.
+        ticker.label.measure(View.MeasureSpec.makeMeasureSpec(180, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(48, View.MeasureSpec.EXACTLY))
+        ticker.label.layout(0, 0, 180, 48)
+        val bitmap = android.graphics.Bitmap.createBitmap(180, 48, android.graphics.Bitmap.Config.ARGB_8888)
+        ticker.draw(android.graphics.Canvas(bitmap))
+        assertTrue(ticker.motion.periodPx > oldPeriod)
+        assertTrue(ticker.motion.periodPx >= ticker.label.layout.getLineWidth(0) + 48f)
+        ticker.display("原生")
+        layout()
+        ticker.draw(android.graphics.Canvas(bitmap))
+        assertFalse(ticker.motion.overflow)
+        bitmap.recycle()
+        activity.finish()
+    }
+
     @Test fun closingThePageReleasesTheCachedTextLayer() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         val root = android.widget.FrameLayout(activity)

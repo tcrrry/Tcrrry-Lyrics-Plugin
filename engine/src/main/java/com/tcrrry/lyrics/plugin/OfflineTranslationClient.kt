@@ -25,16 +25,39 @@ object OfflineTranslationClient {
     private var owner: dev.amenhancer.plugin.api.PluginContext? = null
     @Volatile private var connected = false
     @Volatile private var closing = false
+    private val probeLock = Any()
+    private var connectionProbe: java.util.concurrent.CompletableFuture<Unit>? = null
+    private val translationSlots = java.util.concurrent.Semaphore(2, true)
     fun installed(context: Context) = connected
     fun statusText(context: Context) = if (connected) "离线翻译扩展已连接 · 中文已内置" else "离线机翻需要启用可选的「Tcrrry 离线翻译」插件"
-    fun requireInstalled(context: Context) { check(connected) { "请导入并启用 Tcrrry 离线翻译插件，再重新打开宿主" } }
+    fun requireInstalled(context: Context) {
+        check(PluginLifetime.alive) { "歌词插件已停止" }
+        ownRequests()
+        if (connected) return
+        check(Looper.myLooper() != Looper.getMainLooper()) { "正在连接离线翻译，请稍后重试" }
+        var start = false
+        val probe = synchronized(probeLock) {
+            connectionProbe ?: java.util.concurrent.CompletableFuture<Unit>().also { connectionProbe = it; start = true }
+        }
+        if (start) request(context, "query") { value, error ->
+            if (value != null && error == null) probe.complete(Unit)
+            else probe.completeExceptionally(IllegalStateException(error ?: "无法连接离线翻译扩展"))
+            synchronized(probeLock) { if (connectionProbe === probe) connectionProbe = null }
+        }
+        try { probe.get(65, TimeUnit.SECONDS) }
+        catch (error: java.util.concurrent.ExecutionException) { throw IllegalStateException(error.cause?.message, error.cause) }
+    }
     @Synchronized private fun ownRequests() {
         val current=PluginLifetime.context
         if(owner===current) return
-        owner=current;closing=false
+        owner=current;closing=false;connected=false
+        synchronized(probeLock) { connectionProbe = null }
         current.onClose {
             closing=true
             pending.values.toList().forEach { it("歌词插件已停止") }; pending.clear(); connected=false
+            synchronized(probeLock) {
+                connectionProbe?.completeExceptionally(IllegalStateException("歌词插件已停止")); connectionProbe = null
+            }
         }
     }
     internal fun request(context: Context, operation: String, language: String? = null, text: String? = null,
@@ -80,11 +103,15 @@ object OfflineTranslationClient {
     fun translate(context: Context, language: String, text: String): String {
         check(Looper.myLooper()!=Looper.getMainLooper()) { "离线翻译必须在后台执行" }
         require(language in languages && text.isNotBlank() && text.length<=4000)
-        val latch=CountDownLatch(1);var translated:String?=null;var failure:String?=null
-        request(context,"translate",language,text) { value,error -> translated=value?.getString("translation");failure=error;latch.countDown() }
-        check(latch.await(65,TimeUnit.SECONDS)) { "离线翻译超时" }
-        check(failure==null) { failure.orEmpty() }
-        return translated?.takeIf(String::isNotBlank) ?: error("离线翻译未返回译文")
+        requireInstalled(context)
+        check(translationSlots.tryAcquire(65, TimeUnit.SECONDS)) { "离线翻译队列繁忙" }
+        try {
+            val latch=CountDownLatch(1);var translated:String?=null;var failure:String?=null
+            request(context,"translate",language,text) { value,error -> translated=value?.getString("translation");failure=error;latch.countDown() }
+            check(latch.await(65,TimeUnit.SECONDS)) { "离线翻译超时" }
+            check(failure==null) { failure.orEmpty() }
+            return translated?.takeIf(String::isNotBlank) ?: error("离线翻译未返回译文")
+        } finally { translationSlots.release() }
     }
     fun queryModels(context: Context, complete: BiConsumer<Set<String>?, String?>) {
         request(context,"query") { value,error -> if(PluginLifetime.alive && !closing)

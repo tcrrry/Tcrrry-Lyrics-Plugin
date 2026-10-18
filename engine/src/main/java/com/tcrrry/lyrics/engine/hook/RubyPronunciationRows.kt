@@ -30,6 +30,8 @@ internal object RubyPronunciationRows {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, CachedAlignment>?) = size > 128
     }
     private var worker: java.util.concurrent.ExecutorService? = null
+    private val calculating = mutableMapOf<Key, MutableList<Pair<WeakReference<View>, Request>>>()
+    @Volatile private var workerEpoch = 0L
     private val main = Handler(Looper.getMainLooper())
     private fun plain(text: String) = Html.fromHtml(text, 0).toString()
     private fun compact(text: String) = text.filterNot { it.isWhitespace() || it == '\u00a0' }
@@ -96,16 +98,26 @@ internal object RubyPronunciationRows {
         }
         // Never initialize or search Kuromoji on the UI thread. Do not capture
         // the row or its factory in the worker: recycled/detached rows can die.
-        val reference = WeakReference(target)
         // Keep the callback only as long as this target's pending request.
         callbacks[target] = ::install
+        val waiter = WeakReference(target) to request
+        calculating[key]?.let { it.add(waiter); return }
+        calculating[key] = mutableListOf(waiter)
+        val epoch = workerEpoch
         val executor = worker ?: Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "Tcrrry-ruby").apply { isDaemon = true } }.also { worker = it }
         executor.execute {
+            if (epoch != workerEpoch) return@execute
             val result = runCatching { JapaneseRubyAlignment.align(key.original, key.reading) }.getOrNull()
-            synchronized(cache) { cache[key] = CachedAlignment(result,if(result==null) android.os.SystemClock.uptimeMillis()+2_000L else Long.MAX_VALUE) }
+            synchronized(cache) {
+                if (epoch != workerEpoch) return@execute
+                cache[key] = CachedAlignment(result,if(result==null) android.os.SystemClock.uptimeMillis()+2_000L else Long.MAX_VALUE)
+            }
             main.post {
-                val current = reference.get() ?: return@post
-                if (pending[current] === request) callbacks.remove(current)?.invoke(result)
+                if (epoch != workerEpoch) return@post
+                calculating.remove(key)?.forEach { (reference, requested) ->
+                    val current = reference.get() ?: return@forEach
+                    if (pending[current] === requested) callbacks.remove(current)?.invoke(result)
+                }
             }
         }
     }
@@ -113,12 +125,14 @@ internal object RubyPronunciationRows {
 
     fun clear(target: View) {
         pending.remove(target); callbacks.remove(target)
+        calculating.values.forEach { waiters -> waiters.removeAll { it.first.get() == null || it.first.get() === target } }
         rows.remove(target)?.let { ruby -> ruby.restore(); (ruby.parent as? ViewGroup)?.removeView(ruby) }
     }
     fun refreshMode(enabled: Boolean) { if (!enabled) (rows.keys.toList() + pending.keys.toList()).distinct().forEach(::clear) }
     fun close() {
+        workerEpoch++
         rows.keys.toList().forEach(::clear)
-        pending.clear(); callbacks.clear(); worker?.shutdownNow(); worker = null
+        pending.clear(); callbacks.clear(); calculating.clear(); worker?.shutdownNow(); worker = null
         synchronized(cache) { cache.clear() }
     }
 

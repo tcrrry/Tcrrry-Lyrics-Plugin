@@ -93,7 +93,8 @@ internal class AppleMusicCustomLyricsTarget(
         }
         val nativeText = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Any, String>())
         val preparedSource = java.util.concurrent.ConcurrentHashMap<Long, String>()
-        val nativeEnrichment = FallbackLyricsTranslation(application)
+        val nativeEnrichment = FallbackLyricsTranslation(application,
+            isCurrent = { id -> registration.isActive && currentSong.current()?.details?.appleMusicId == id })
         val nativePointers = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Any, Boolean>())
         val nativeById = java.util.Collections.synchronizedMap(object : java.util.LinkedHashMap<Long, Any>() {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Any>?) = size > 8
@@ -332,6 +333,13 @@ internal class AppleMusicCustomLyricsTarget(
                 ModernXposedRuntime::log)
                 ?: return TargetCapabilityInstall.Degraded("Native lyric result contract unavailable; original lyrics retained")
             registration.onClose(resultBridge::close)
+            // Result submission owns installation; seek/repeat recovery only restarts native playback events.
+            NativeLyricsPlaybackRecovery.resolve(installMethod.declaringClass) { fragment ->
+                currentSong.current()?.details?.appleMusicId?.takeIf { it > 0L && it == seam.currentItemAdamIdOf(fragment) }
+            }?.let { recovery ->
+                resultBridge.pageObserver = recovery::watch
+                registration.onClose(recovery::close)
+            }
             pageHasReplacement = { id ->
                 val fragment = activeFragment?.get()
                 fragment != null && installedPointer != null && shouldReportAppliedLyrics(id,

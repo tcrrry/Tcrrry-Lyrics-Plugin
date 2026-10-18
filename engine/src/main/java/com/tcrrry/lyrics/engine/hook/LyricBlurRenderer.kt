@@ -86,7 +86,6 @@ internal class LyricBlurRenderer {
         }
         transitions.keys.toList().forEach { view ->
             view.setRenderEffect(null)
-            view.alpha = 1f
         }
         transitions.clear()
     }

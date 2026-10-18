@@ -38,7 +38,9 @@ class TcrrrySettingsLayoutAndroidTest {
             {}, ModuleSettings(), {})
     }
     private fun openMenu(page: View, heading: String) {
-        val row = views(page).single { it.contentDescription?.toString()?.startsWith("$heading，") == true }
+        val row = views(page).single { it.isClickable &&
+            (it.contentDescription?.toString()?.startsWith("$heading，") == true ||
+                it is TextView && it.text.toString() == heading) }
         assertTrue(row.performClick())
     }
 
@@ -183,8 +185,17 @@ class TcrrrySettingsLayoutAndroidTest {
         assertTrue(source.performClick())
         val dialog = ShadowAlertDialog.getLatestAlertDialog()
         val menu = texts(dialog.window!!.decorView).map { it.text.toString() }
-        for (heading in listOf("选择歌词源", "恢复自动选源", "匹配历史与预览", "歌词偏移"))
+        for (heading in listOf("选择歌词源", "下一个来源", "同源下一版", "当前源最佳", "自动选择源", "匹配记录与预览", "歌词偏移"))
             assertTrue(menu.contains(heading))
+        val buttons = texts(dialog.window!!.decorView)
+        for ((left, right) in listOf("下一个来源" to "同源下一版", "当前源最佳" to "自动选择源")) {
+            val first = buttons.single { it.text == left }
+            val second = buttons.single { it.text == right }
+            assertSame(first.parent, second.parent)
+            assertTrue(first.isClickable && second.isClickable)
+            assertEquals(1f, (first.layoutParams as LinearLayout.LayoutParams).weight)
+            assertEquals(1f, (second.layoutParams as LinearLayout.LayoutParams).weight)
+        }
         dialog.dismiss()
         val width = (300 * activity.resources.displayMetrics.density).toInt()
         parent.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
@@ -192,6 +203,28 @@ class TcrrrySettingsLayoutAndroidTest {
         parent.layout(0, 0, width, parent.measuredHeight)
         for (i in 1 until parent.childCount)
             assertTrue(parent.getChildAt(i - 1).bottom <= parent.getChildAt(i).top)
+    }
+
+    @Test fun sourceActionsRefreshTheSameDialogInsteadOfReturningToHome() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val home = page(activity)
+        val provider = com.tcrrry.lyrics.engine.hook.LyricsSourceMenuPolicy.thirdPartySources.first()
+        CurrentLyricsSourceStatus.selectSource(activity, 321, provider)
+        val status = texts(home).single { it.text == CurrentLyricsSourceStatus.description(activity, 321) }
+        (status.parent.parent as View).performClick()
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        for (caption in listOf("同源下一版", "当前源最佳", "下一个来源", "自动选择源")) {
+            val button = texts(dialog.window!!.decorView).single { it.text == caption }
+            assertTrue("Enabled: $caption", button.isEnabled)
+            assertTrue(button.performClick())
+            assertTrue("Must stay in source dialog: $caption", dialog.isShowing)
+            assertSame(dialog, ShadowAlertDialog.getLatestAlertDialog())
+            assertTrue(texts(dialog.window!!.decorView).any { it.text == "当前歌曲歌词源" })
+        }
+        assertNull(CurrentLyricsSourceStatus.selectedSource(activity, 321))
+        assertFalse(texts(dialog.window!!.decorView).any { it.text.toString().contains("来源切换平台") })
+        dialog.dismiss()
+        activity.finish()
     }
 
     @Test @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)

@@ -90,34 +90,36 @@ internal object TcrrryLyricsSettingsUi {
             body.addView(menuRow(activity, "选择歌词源", selected ?: "自动匹配") {
                 showSourcePicker(activity, id, selected, changed)
             }, fullMargin(activity, 16))
-            body.addView(action(activity, "切换到下一个来源") {
+            val nextSource = action(activity, "下一个来源") {
                 val next = CurrentLyricsSourceStatus.beginSourceCycle(activity, id)
                 if (next != null) {
                     val started = CurrentLyricsSourceStatus.refresh(id)
                     if (!started) CurrentLyricsSourceStatus.cancelSourceCycle(id)
                     toast(activity, if (started) "正在尝试$next" else "请重新打开歌词页后生效")
                 }
-                dialog.dismiss(); refreshPage()
-            }, fullMargin(activity, 10))
-            if (selected != null || provider != null) body.addView(action(activity, "当前源选择最佳结果") {
-                CurrentLyricsSourceStatus.retryCurrentSource(activity, id)
-                toast(activity, if (CurrentLyricsSourceStatus.refresh(id)) "正在选用当前来源最佳记录" else "请重新打开歌词页后生效")
-                dialog.dismiss(); refreshPage()
-            }, fullMargin(activity, 8))
-            body.addView(action(activity, "换一个匹配版本") {
+                changed()
+            }
+            val nextVersion = action(activity, "同源下一版") {
                 if (CurrentLyricsSourceStatus.excludeCurrentRecord(activity, id)) {
                     toast(activity, if (CurrentLyricsSourceStatus.refresh(id)) "正在寻找下一个匹配版本" else "请重新打开歌词页后生效")
                 } else toast(activity, "请先装入选中的第三方歌词，再换匹配版本")
-                dialog.dismiss(); refreshPage()
-            }, fullMargin(activity, 8))
-            body.addView(action(activity, "恢复自动选源") {
+                changed()
+            }
+            body.addView(pairedActions(activity, nextSource, nextVersion), fullMargin(activity, 10))
+            val best = action(activity, "当前源最佳") {
+                CurrentLyricsSourceStatus.retryCurrentSource(activity, id)
+                toast(activity, if (CurrentLyricsSourceStatus.refresh(id)) "正在选用当前来源最佳记录" else "请重新打开歌词页后生效")
+                changed()
+            }.apply { isEnabled = selected != null || provider != null; alpha = if (isEnabled) 1f else .45f }
+            val automatic = action(activity, "自动选择源") {
                 CurrentLyricsSourceStatus.resetMatching(activity, id)
                 CurrentLyricsSourceStatus.refresh(id)
-                dialog.dismiss(); refreshPage()
-            }, fullMargin(activity, 8))
-            body.addView(action(activity, "匹配历史与预览") {
+                changed()
+            }
+            body.addView(pairedActions(activity, best, automatic), fullMargin(activity, 10))
+            body.addView(menuRow(activity, "匹配记录与预览", "查看历史结果，或手动选用歌词") {
                 showHistory(activity, id, song, changed)
-            }, fullMargin(activity, 8))
+            }, fullMargin(activity, 12))
             val offsetValue = label(activity, formatOffset(provider?.let { CurrentLyricsSourceStatus.offsetMs(activity, id, it) } ?: 0),
                 14f, SettingsUiTheme.colors(activity).text)
             body.addView(LinearLayout(activity).apply {
@@ -1290,6 +1292,19 @@ internal object TcrrryLyricsSettingsUi {
         background = shape(activity, if (selected) SettingsUiTheme.colors(activity).selected else SettingsUiTheme.colors(activity).raised, 12, if (selected) SettingsUiTheme.colors(activity).primary else SettingsUiTheme.colors(activity).outline)
         SettingsGlassMaterial.mark(this, SettingsGlassKind.Button, accent = selected)
     }
+
+    /** Equal-width controls keep their full labels and independent touch targets. */
+    private fun pairedActions(activity: Activity, first: View, second: View): LinearLayout =
+        LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            isBaselineAligned = false
+            addView(first, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(activity, 5)
+            })
+            addView(second, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(activity, 5)
+            })
+        }
 
     private fun action(activity: Activity, value: String, emphasized: Boolean = false, click: () -> Unit) =
         chip(activity, value, emphasized).apply {

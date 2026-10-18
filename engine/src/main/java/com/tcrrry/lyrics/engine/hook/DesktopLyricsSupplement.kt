@@ -44,7 +44,6 @@ internal class DesktopLyricsSupplement(private val context: Context) {
         val missingIds = missing.map { it.index }.toSet()
         val attempt = runCatching {
             if (mode == "offline") EmbeddedMlKit.initialize(context)
-            else runCatching { EmbeddedMlKit.initialize(context) }
             runBlocking {
                 SupplementTranslation(context).translate(payload.toString()) { row ->
                     val id = row.optInt("id", -1)

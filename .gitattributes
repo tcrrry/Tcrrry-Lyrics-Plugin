@@ -1,0 +1,2 @@
+# Exact SHA-pinned profile bytes must survive Windows/Linux checkouts unchanged.
+assets/host-profiles/7.0.0-beta-1609.json -text

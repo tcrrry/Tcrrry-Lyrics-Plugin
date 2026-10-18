@@ -15,6 +15,33 @@ import org.junit.Test
 class AutoLyricsReplacementSessionTest {
     @org.junit.Before fun attachPlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.attach() }
     @org.junit.After fun closePlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.current.close() }
+    @Test fun scriptDisplayToggleReparsesTheSameSourceAndKeepsOriginalCacheReversible() {
+        var simplified = false
+        val seen = mutableListOf<String>()
+        val raw = WORD_TTML.replace("<tt ", "<tt xml:lang=\"zh-Hant\" ").replace("hello", "與愛")
+        val cache = MemoryCache()
+        val queue = QueuedExecutor()
+        val session = AutoLyricsReplacementSession(
+            fetchCandidate = { AutoLyricsCandidate(CustomLyricsSources.DESKTOP_LYRICS, raw) }, cache = cache,
+            parseTtml = { seen += ChineseLyricsDisplay.render(it, simplified); Pointer() },
+            isAlive = { it is Pointer && it.live }, verifyPtr = { it is Pointer && it.live },
+            readAdamId = { (it as Pointer).adamId },
+            bindAdamId = { pointer, id -> (pointer as Pointer).adamId = id; true },
+            executor = queue, logger = {}, presentationKey = { "simplified=$simplified" },
+        )
+        session.onSongChanged(42L); session.ensureRequested(42L); queue.runAll()
+        assertEquals(1, seen.size); assertTrue(seen.last().contains("與愛"))
+        simplified = true
+        session.refreshCurrent(42L); queue.runAll()
+        assertEquals(2, seen.size); assertTrue(seen.last().contains("与爱"))
+        assertTrue(cache.values.getValue(42L).contains("與愛"))
+        session.refreshCurrent(42L); queue.runAll()
+        assertEquals(2, seen.size)
+        simplified = false
+        session.refreshCurrent(42L); queue.runAll()
+        assertEquals(3, seen.size); assertTrue(seen.last().contains("與愛"))
+        assertTrue(cache.values.getValue(42L).contains("與愛"))
+    }
     @Test fun runningLookupIsInterruptedOnRefreshSoReadyResultDoesNotWaitBehindFallback() {
         val worker = java.util.concurrent.Executors.newSingleThreadExecutor()
         val started = java.util.concurrent.CountDownLatch(1)

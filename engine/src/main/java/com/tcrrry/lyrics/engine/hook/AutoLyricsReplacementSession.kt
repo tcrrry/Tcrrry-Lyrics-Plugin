@@ -83,6 +83,7 @@ internal fun createAutoLyricsRuntime(
         options.put(com.tcrrry.lyrics.engine.lyrics.LyricsPreference.hideOpeningCredits(application))
             options.put("opening-credits-raw-text-2")
         options.put("qq-completeness-1")
+        options.put("han-auxiliary-comparison-3")
         return AutoLyricsCachePolicy(
             com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
             com.tcrrry.lyrics.engine.lyrics.LyricsPreference.smoothShortUnits(application), options.toString())
@@ -333,6 +334,7 @@ class AutoLyricsReplacementSession(
     private val nowMs: () -> Long = { System.currentTimeMillis() },
     private val retryCooldownMs: Long = DEFAULT_RETRY_COOLDOWN_MS,
     private val onTaggedRefreshFinished: ((Long, Boolean, Long?) -> Unit)? = null,
+    private val presentationKey: () -> String = { "" },
 ) {
     private val pointers = object : LinkedHashMap<Long, Any>(CACHE_CAPACITY, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Any>?): Boolean =
@@ -629,7 +631,8 @@ class AutoLyricsReplacementSession(
             logger("automatic lyrics candidate rejected as invalid TTML source=$source id=$appleMusicId")
             return null
         }
-        val document = AutoLyricsCachePolicy.strip(ttml)
+        val key = presentationKey()
+        val document = AutoLyricsCachePolicy.strip(ttml).let { if (key.isEmpty()) it else "$it\u0000$key" }
         synchronized(lock) {
             if (isCurrentRequestLocked(appleMusicId, requestGeneration)) {
                 val previous = synchronized(pointers) { pointers[appleMusicId] }

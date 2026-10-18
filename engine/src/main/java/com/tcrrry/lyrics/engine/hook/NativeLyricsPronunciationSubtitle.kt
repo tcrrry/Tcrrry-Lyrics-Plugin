@@ -130,6 +130,22 @@ internal object NativeLyricsPronunciationSubtitle {
     fun remember(pointer: Any, ttml: String) {
         val presentation = DesktopLyricsPresentation.fromTtml(ttml)
         val subtitles = NativeSubtitleLookup(ttml)
+        // Imported/cached platform TTML can bypass the cross-source enrichment pass.
+        // Register that exact provider text too; mixed Latin words remain literal units.
+        val platformPronunciation=TtmlAuxiliaryOrigins.read(ttml)?.pronunciation.orEmpty()
+        val japaneseRoot=TtmlOriginalLanguage.read(ttml)?.startsWith("ja",true)==true ||
+            presentation?.offlinePronunciationLanguages?.contains("ja")==true
+        if(!japaneseRoot && (presentation?.source in setOf("QQ音乐","网易云音乐") ||
+            platformPronunciation.any { it in setOf("QQ音乐","网易云音乐") })) {
+            val body=Regex("(?is)<body\\b[^>]*>(.*?)</body\\s*>").find(ttml)?.groupValues?.get(1).orEmpty()
+            val lines=Regex("(?is)<p\\b[^>]*>(.*?)</p\\s*>").findAll(body)
+                .map { LyricsAuxiliaryText.plain(it.groupValues[1]) }.toList()
+            if(lines.none { Regex("[ぁ-ゖァ-ヺ가-힣]").containsMatchIn(it) }) lines.forEach { original ->
+                subtitles.forOriginal(original)?.pronunciation?.let { reading ->
+                    com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.rememberChineseProviderRow(original,reading)
+                }
+            }
+        }
         if (presentation != null || subtitles.hasPronunciation || subtitles.hasTranslation) {
             managed[pointer] = Managed(TtmlTimingPolicy.isWord(ttml), subtitles.hasPronunciation,
                 presentation?.primaryPronunciation == true, subtitles)
@@ -162,6 +178,13 @@ internal object NativeLyricsPronunciationSubtitle {
             val flexbox = loader.lyricsClass("com.apple.android.music.common.views.FullWidthAlphaGradientFlexboxLayout")
             val subtitle = adapter.getDeclaredMethod(if (modern) "U" else "Z", String::class.java, flexbox,
                 Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+            // Native AM documents can bypass managed-pointer enrichment. Sanitize
+            // only serialized timing markup at the final subtitle inflation entry.
+            ModernXposedRuntime.hookMethod(subtitle, object : ModernMethodHook() {
+                override fun beforeHookedMethod(param: MethodHookParam) {
+                    (param.args[0] as? String)?.let { param.args[0] = LyricsAuxiliaryText.forNative(it) }
+                }
+            })
             val rebuild = adapter.declaredMethods.single { it.name == (if (modern) "b0" else "g0") && it.parameterTypes.size == 7 }
             val rowView = holder.lyricsDeclaredField("a").apply { isAccessible = true }
             val pointer = adapter.getMethod(if (modern) "y" else "D")

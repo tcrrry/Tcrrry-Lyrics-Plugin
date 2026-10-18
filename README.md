@@ -1,74 +1,40 @@
-# Tcrrry Lyrics Plugin
+# Tcrrry 歌词增强
 
-适用于 [AM++](https://github.com/Zennmn/AM-plus-plus) SDK v1 的第三方独立歌词插件，由 Tcrrry 维护。当前正式版本 **1.0.8**，针对 Apple Music **7.0.0-beta / 1606、1609**。
+当前正式版 **1.0.9**，适用于 AM++ SDK v1 / Apple Music 7.0.0-beta 1606、1609，已适配 AM++ 1017。
 
-[![下载插件 ZIP｜1.0.8](docs/images/downloads/plugin-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.8/Tcrrry-Lyrics-Plugin-1.0.8.zip)
-[![下载离线翻译 APK](docs/images/downloads/offline-apk.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.8/Tcrrry-Lyrics-Offline-1.0.3.apk)
+[![下载歌词插件 ZIP](docs/images/downloads/plugin-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.9/Tcrrry-Lyrics-Plugin-1.0.9.zip)
+[![下载翻译插件 ZIP](docs/images/downloads/translation-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.9/Tcrrry-Translation-Plugin-1.0.0.zip)
 
-[1.0.8 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.0.8) · [安装说明](docs/INSTALL.md) · [更新说明](docs/RELEASE-1.0.8.md) · [完整安装包主页](https://github.com/tcrrry/AMPP-Lyrics)
+[1.0.9 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.0.9) · [安装说明](docs/INSTALL.md) · [翻译扩展](docs/TRANSLATION-EXTENSION.md) · [完整安装包](https://github.com/tcrrry/AMPP-Lyrics)
 
-**离线机器翻译需要 ZIP 和伴随 APK 两个文件。** ZIP 导入 AM++ 插件管理器；APK 单独安装并下载语言模型。伴随应用仍为 **1.0.3**，已有安装可继续使用。平台译文、API 翻译与词典注音不依赖伴随 APK。
+只需要歌词功能，导入歌词 ZIP 即可。需要离线机器翻译，再导入并启用翻译 ZIP；两个文件都在 AM++ 插件管理器导入，**无需安装翻译 APK**。中文模型内置，其他语言按需下载；下载语言包需要开启代理，下载完成后可离线使用。
 
-## 1.0.8 更新
+## 1.0.9 更新
 
-- 新增可关闭的开头署名隐藏：按连续署名区块判定，保留原始标点，修复 QQ 零时长冒号被丢弃后漏过滤的问题；预览和播放采用同一策略，不移动正文时间。
-- 修复 QQ 部分歌曲逐字轨只有前半段：核对同一首记录的完整逐行歌词，证据充分时回退完整逐行，不伪造逐字时间。见[异常样本](docs/QQ-INCOMPLETE-1669861760.md)。
-- 修复中文歌冷启动方形来源菜单入口缺失；1609 原生歌词刷新后重新校正，保留沉浸隐藏。
-- 融合播放模式修复，默认开启；设置名称为“强制覆盖循环方式”，仅改名称、不改变已测试逻辑。请停用独立播放模式插件，避免重复接管。
-- 简化开关、改善翻译界面及语言搜索；操作说明增加来源菜单局部示意，圈出可操作的歌词源。主项目内置语言包管理支持搜索及同风格小窗。
-- 字词对应发音自然填行，不再为上下行等长提前换行。
-- 修复生成歌词缓存反复失效；新增 0–1024 MB 缓存设置、最近使用淘汰和清理，默认 64 MB，不动导入歌词、配置或语言模型。
-- 同曲更新保留旧歌词至新内容准备好，相同正文复用，真正替换采用短暂淡化/模糊过渡。
-- 修复共存设置入口玻璃及子菜单操作重置来源滚动。
-- 少数无正文歌曲持续转圈仍未修复，已保存[异常证据](docs/NO-LYRICS-SPINNER-1807802486.md)。
+- 1609 歌词改由原生 ViewModel 结果通道提交，先建立时间索引再通知原生界面，减少重复刷新，保留来源切换与过期请求检查。
+- 修复韩语、粤语逐字注音触发率低、平台拼音写法识别和失败缓存不重试；参考日语的成对排版，保持注音字号，按需增加原文字间空间。
+- 保留日语字词注音、发音／原文／译文顺序和仅原文逐字高亮；沿用宿主原有分行，不人为拼接歌词行。
+- 修复混合英文中文歌词的繁体转简体、设置切换后缓存展示及原始语言标记；日语原文不进行繁简转换。
+- 离线翻译拆为独立可选插件，歌词 ZIP 不含翻译引擎和模型。翻译面板提供搜索、已下载语言包管理、检测离线翻译及真实下载进度或状态。
+- 修复语言搜索不能唤起软键盘和离线翻译入口闪退；设置顺序、玻璃控件兼容 AM++ 1017。
 
-以下设置功能继续保留：
+原有多来源匹配、平台译文、API 翻译、离线词典注音、辉光、短单元平滑、缓存管理、播放控制与更新检查保留。辉光和短单元平滑不是新注入通道的必要条件，按个人偏好设置。
 
-- 重设计设置页：按类别进入二级菜单，简单选项直接选择，操作说明和匹配信息使用小窗。播放页入口保留专辑色玻璃，主页设置入口沿用宿主底色与轻磨砂材质。
-- 完善进入、关闭和翻页动画，窗口按入口实际边界收回，内容软化淡出；隐藏滚动条和页脚分隔线，滚动边缘渐隐。外层来源单向滚动，详情完整换行。
-- 更多工具新增检查更新与自动提醒。新正式版本首次主动提醒，可忽略此版本、稍后一天提醒或关闭自动提醒；手动检查不受影响，不自动下载或安装。
-- 保留 AM++ **1012 嵌入版 / Apple Music 1609** 和 **1606** 精确适配；未知版本继续拒绝加载。本轮设置页 v14 已由用户在 vivo / 1609 验收，新增更新提醒采用自动测试验证。
+## 安装与升级
 
-以下为沿用的 1.0.4 功能：
+1. 在 AM++ 插件管理器导入 `Tcrrry-Lyrics-Plugin-1.0.9.zip`。
+2. 需要离线机翻时，再导入 `Tcrrry-Translation-Plugin-1.0.0.zip` 并启用。
+3. 自行完全退出并重新打开宿主，在「翻译与注音」下载所需原语言模型。
 
-- 新增可选的**字词对应发音**：日语发音放在对应原文上方，处理自带发音、词典补注和多行排版。无法可靠对齐的句子保留整行发音。
-- 修复多行歌词提前大面积亮起、后半句不亮而在句末突然补齐，以及字母、英文尾词提前亮完的问题；保留原生真实逐字时间。
-- 优化换行、发音重叠、孤立字与行距不统一的情况；字词对应模式默认关闭，可在 Tcrrry 歌词设置中开启。
-- 单曲循环恢复第一句，使用短距离过渡动画，避免遍历整首歌词产生数秒卡顿；自动匹配和循环复位保持开启。
-- 修复自传歌曲资料库 ID 覆盖播放身份后出现的长时间加载、已匹配但不显示、歌词停在某句的问题。核对实时播放队列身份后恢复页面绑定，保留资料库状态。
-- 保存用户主动选择的发音显示状态；修复部分原生辅助文字与转义 TTML 被当作正文显示的问题。
+覆盖同一插件 ID 保留歌词设置。旧伴随 APK 和旧试验包的数据不会被删除；新翻译扩展独立存储语言包，其他语言可能需要重新下载。平台译文、API 翻译与词典注音不依赖翻译扩展。启用内置播放控制时，请停用独立播放控制插件。
 
-原有 QQ／网易云及 AM++ 适配歌词库、多源匹配、手动切源、匹配历史、查看当前匹配信息、翻译、离线注音、辉光与短单元平滑功能继续保留。新增设置位于独立 **Tcrrry 歌词设置**。
+## 验证与边界
 
-## 下载与安装
+preview.15 的韩语、粤语逐字注音已经用户反馈可用。自动检查覆盖韩语两首歌96句、粤语40句及不同原生分组的原字号排版；样本通过不代表所有歌曲都能可靠对应。无法可靠对齐时保留整行发音，不伪造逐字时间。日语回归、翻译协议、包结构和作者 PluginStore 导入纳入检查。
 
-| 文件 | 用途 |
-| --- | --- |
-| `Tcrrry-Lyrics-Plugin-1.0.8.zip` | 在支持 SDK v1 的 AM++ 插件管理器导入并启用，随后重启 AM++ |
-| `Tcrrry-Lyrics-Offline-1.0.3.apk` | 离线机翻伴随应用，单独安装，首次打开授权并下载模型 |
-| `Tcrrry-Lyrics-Plugin-1.0.8-source.zip` | 对应源码、SDK、词典资源、许可证与测试 |
-| `validation.json` / `SHA256SUMS.txt` | 验证范围与附件校验 |
-
-更新时导入新 ZIP 覆盖同一插件 ID，可保留插件配置；删除插件会删除其配置。不要把伴随 APK 导入插件管理器。建议仅启用一套歌词增强，避免重复挂载独立插件与整合包内置功能。
-
-想直接安装完整 Apple Music 增强版，请下载 [AMPP-Lyrics v1.9 / 1609](https://github.com/tcrrry/AMPP-Lyrics/releases/tag/v1.9) 的普通 APK、共存 APK、APKS 或模块，要求 Android 12+。v1.9 已内置同一套 1.0.8 歌词插件、插件管理器和离线机翻，无需手动导入 ZIP 或安装伴随 APK；整合包的检查更新指向主项目版本。Android 11 用户可继续使用 [v1.6 / 1606](https://github.com/tcrrry/AMPP-Lyrics/releases/tag/v1.6)，旧版整合包不能仅通过 ZIP 获得新的插件系统。
-
-## 兼容性与验证
-
-插件要求 Android 12+、SDK v1 插件管理器，精确适配 Apple Music `7.0.0-beta / 1606、1609`。声明的包名为 `com.apple.android.music` 和 `com.tcrrry.ampplyrics.coexist`。
-
-最新排版、缓存和过渡通过自动测试，未新增所有歌曲/设备的实机验收。1.0.4 功能基于已在 vivo V2359A / AM++ 105 嵌入版验收的 r15 代码。本轮设置页 v14 已在 vivo V2359A / AM++ 1012 嵌入版 / 1609 由用户验收；更新检查与提醒策略经过自动测试，未单独手机验收。正式版另执行编译、单元测试和最终 ZIP 导入检查。共存模式、其他设备及整合包不等于已经全面实测。详细范围见 [VALIDATION.md](docs/VALIDATION.md)。
+最终正式包的验证结果及 SHA-256 见发布附件。少数无正文歌曲持续加载仍未解决，保留[异常记录](docs/NO-LYRICS-SPINNER-1807802486.md)。历史正式版和翻译 APK 保留在[旧发布](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases)。
 
 ## 构建
 
-需要 JDK 17、Android SDK Platform 37、Python 3。优先使用项目 Gradle Wrapper；Windows 通过 `local.properties` 指向现有 SDK。
-
-```sh
-./gradlew :engine:testDebugUnitTest :offline:testDebugUnitTest :engine:assembleRelease
-python scripts/package.py --plugin-only
-python scripts/verify-package.py dist/Tcrrry-Lyrics-Plugin-1.0.8.zip
-```
-
-`engine` APK 是 DEX 编译中间产物，不用于安装或分发。SDK v1 无法装载 ML Kit 原生库，离线机翻因此由独立伴随 APK 提供。所有插件 Hook 通过宿主 SDK 注册，配置和缓存使用插件独立目录。
-
-项目按 [GPL-3.0](LICENSE) 分发。感谢 AM++、Tcrrry AMPP Lyrics v1.5、AMLyricBlur 与词典项目作者。完整来源、许可证与固定资源校验见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)、[MIGRATION.md](docs/MIGRATION.md) 和 [provenance.json](docs/provenance.json)。旧发布、标签和附件继续保留。
+使用项目 Gradle Wrapper：`./gradlew :engine:testDebugUnitTest :translation-plugin:testDebugUnitTest :offline-runtime:testDebugUnitTest packagePlugin packageTranslation`。
+主 ZIP 不携带 SDK、宿主或翻译运行时；所有 Hook 均通过 SDK，配置和缓存位于插件自己的目录。翻译 ZIP 的内部 APK 只是动态加载的引擎资源，不需要安装。

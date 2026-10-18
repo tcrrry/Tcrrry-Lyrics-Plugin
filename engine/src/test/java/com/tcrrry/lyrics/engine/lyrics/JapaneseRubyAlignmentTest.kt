@@ -42,6 +42,7 @@ class JapaneseRubyAlignmentTest {
             "優しさを" to "yasa xi sa wo"
         )) {
             val aligned = requireNotNull(JapaneseRubyAlignment.align(original, reading)) { original }
+            assertFalse("Japanese must retain its word/kana fitting",aligned.perCharacter)
             assertEquals(reading.filter(Char::isLetterOrDigit), aligned.units.joinToString("") { it.reading }.filter(Char::isLetterOrDigit))
             assertTrue(aligned.units.zipWithNext().all { (a, b) -> a.end <= b.start })
             assertEquals(original.filter(Char::isLetterOrDigit), aligned.units.joinToString("") { original.substring(it.start, it.end) })
@@ -122,6 +123,7 @@ class JapaneseRubyAlignmentTest {
     @Test fun geminatedKanaRemainOnePhoneticPairAndDictionaryReadingIsPreserved() {
         val original="ずっとずっと"
         val aligned=requireNotNull(JapaneseRubyAlignment.align(original,"zu 't to zu 't to"))
+        assertFalse(aligned.perCharacter)
         assertEquals(listOf("ず","っと","ず","っと"),aligned.units.map { original.substring(it.start,it.end) })
         assertEquals("zuttozutto",aligned.units.joinToString("") { it.reading }.filter(Char::isLetterOrDigit))
     }
@@ -132,6 +134,7 @@ class JapaneseRubyAlignmentTest {
             "身に纏う全てものさしにして" to "mi ni mato u sube te mo no sa shi ni shi te"
         )) {
             val aligned = requireNotNull(JapaneseRubyAlignment.align(original, reading)) { original }
+            assertFalse("Japanese must retain its word/kana fitting",aligned.perCharacter)
             assertEquals(reading.filter(Char::isLetterOrDigit), aligned.units.joinToString("") { it.reading }.filter(Char::isLetterOrDigit))
             println("Screenshot ruby $original: ${aligned.units}")
         }

@@ -67,6 +67,20 @@ class NativeAuxiliaryBindingIntegrationTest {
         assertEquals(1, adapter.glyphRebuilds)
         assertNotNull(PronunciationHeaderLayout.auxiliary((row.u as q8.p9).a0, true))
     }
+    @Test fun unmanagedNativeSubtitlesAlsoPassTheFinalTimedMarkupGuard() {
+        val adapter = adapter()
+        adapter.pointer = Any()
+        val method = A::class.java.getDeclaredMethod("U", String::class.java,
+            FullWidthAlphaGradientFlexboxLayout::class.java, Int::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
+        val container = (row().u as q8.p9).a0
+        val raw = "span begin=28.972 end=29.183 xmlns=http://www.w3.org/ns/ttmlI'm/span"
+        val call = dev.amenhancer.plugin.api.PluginCall(method, adapter, arrayOf(raw, container, 1, false, 1), null, null)
+        requireNotNull(TestPluginContext.current.callbacks[method]).before(call)
+        adapter.U(call.arguments[0] as String, container, 1, false, 1)
+        assertEquals("I'm", (container.getChildAt(0) as android.widget.TextView).text.toString())
+        assertFalse(NativeLyricsPronunciationSubtitle.isManaged(adapter.pointer))
+    }
     @Test fun failedNativeBindRestoresBothHostFlagsAndNextBindingRecovers() {
         val adapter = adapter(); val row = row()
         adapter.failBind = true

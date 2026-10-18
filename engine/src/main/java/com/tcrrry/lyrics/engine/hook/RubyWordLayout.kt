@@ -12,14 +12,14 @@ import kotlin.math.ceil
  * Extra vertical space belongs to the BOTTOM of glyph boxes, so the first
  * native line starts at its original top (unlike the rejected r1 top margins).
  */
-internal class RubyWordLayout private constructor(private val saved: List<Saved>, private val plans: List<Plan>) {
+internal class RubyWordLayout private constructor(private val saved: List<Saved>, private val plans: List<Plan>, private val spacing: List<RubyCharacterColumns> = emptyList(), private val preserveFlow:Boolean = false) {
     private data class Saved(val view: WeakReference<View>, val left: Int, val top: Int, val right: Int, val bottom: Int,
-        val wrap: Boolean, val shrink: Float, val flex: RubyFlexItem)
+        val wrap: Boolean, val shrink: Float, val flex: RubyFlexItem?)
     private data class Plan(val left: Int, val right: Int, var bottom: Int, val wrap: Boolean)
-    fun isIntact(): Boolean = saved.zip(plans).all { (old, plan) -> old.view.get()?.let { word ->
+    fun isIntact(): Boolean = spacing.all { it.intact() } && saved.zip(plans).all { (old, plan) -> old.view.get()?.let { word ->
         word.paddingLeft==old.left+plan.left && word.paddingRight==old.right+plan.right &&
             word.paddingTop==old.top && word.paddingBottom==old.bottom+plan.bottom &&
-            old.flex.wrap(word.layoutParams)==plan.wrap && old.flex.shrink(word.layoutParams)==0f
+            (preserveFlow || (old.flex?.wrap(word.layoutParams)==plan.wrap && old.flex?.shrink(word.layoutParams)==0f))
     } == true }
     fun reserveActualLines(header: TextView): Boolean {
         val words=saved.mapNotNull { it.view.get() }
@@ -38,17 +38,23 @@ internal class RubyWordLayout private constructor(private val saved: List<Saved>
         return changed
     }
     fun apply() {
+        spacing.forEach { it.apply() }
         saved.zip(plans).forEach { (old, plan) -> old.view.get()?.let { word ->
-            old.flex.setWrap(word.layoutParams, plan.wrap)
-            old.flex.setShrink(word.layoutParams, 0f)
+            if(!preserveFlow) {
+                old.flex?.setWrap(word.layoutParams, plan.wrap)
+                old.flex?.setShrink(word.layoutParams, 0f)
+            }
             word.layoutParams = word.layoutParams
             word.setPadding(old.left + plan.left, old.top, old.right + plan.right, old.bottom + plan.bottom)
         } }
     }
     fun restore() {
+        spacing.forEach { it.restore() }
         saved.forEach { old -> old.view.get()?.let { word ->
-            old.flex.setWrap(word.layoutParams, old.wrap)
-            old.flex.setShrink(word.layoutParams, old.shrink)
+            if(!preserveFlow) {
+                old.flex?.setWrap(word.layoutParams, old.wrap)
+                old.flex?.setShrink(word.layoutParams, old.shrink)
+            }
             word.layoutParams = word.layoutParams
             word.setPadding(old.left,old.top,old.right,old.bottom)
         } }
@@ -62,6 +68,30 @@ internal class RubyWordLayout private constructor(private val saved: List<Saved>
             return fitNativeUnits(words.map { RubyNativeWord(it,listOf(it)) },original,alignment)
         }
         fun fitNativeUnits(words: List<RubyNativeWord>, original: String, alignment: JapaneseRubyAlignment.Result): JapaneseRubyAlignment.Result {
+            if(alignment.perCharacter) {
+                // A mixed-language provider keeps Latin words literal. If a
+                // native timed source fragments such a word, fit those literal
+                // pieces to its real leaf boundaries, rather than rejecting the
+                // whole Korean/Cantonese row after a native line break.
+                val positions=original.indices.filter { !original[it].isWhitespace() && original[it]!='\u00a0' }
+                var cursor=0
+                val boundaries=mutableSetOf(0)
+                words.flatMap { it.glyphs }.forEach { leaf ->
+                    cursor+=leaf.text.count { !it.isWhitespace() && it!='\u00a0' };boundaries+=cursor
+                }
+                if(cursor!=positions.size) return alignment
+                val fitted=alignment.units.flatMap { unit ->
+                    val literal=original.substring(unit.start,unit.end)
+                    val reading=JapaneseRubyAlignment.displayReading(unit.reading)
+                    if(literal.length<2 || literal.any { it.code>=128 } || !literal.equals(reading,true)) listOf(unit)
+                    else {
+                        val cuts=listOf(unit.start)+boundaries.mapNotNull { b -> positions.getOrNull(b) }
+                            .filter { it>unit.start && it<unit.end }.sorted()+unit.end
+                        cuts.zipWithNext { a,b -> JapaneseRubyAlignment.Unit(a,b,reading.substring(a-unit.start,b-unit.start)) }
+                    }
+                }
+                return alignment.copy(units=fitted)
+            }
             fun compact(s: String)=s.filterNot { it.isWhitespace() || it=='\u00a0' }
             val boundaries=mutableListOf(0);var offset=0
             words.forEach { offset+=compact(it.text).length;if(boundaries.last()!=offset)boundaries+=offset }
@@ -82,12 +112,53 @@ internal class RubyWordLayout private constructor(private val saved: List<Saved>
             return JapaneseRubyAlignment.Result(units,alignment.dictionaryMatch)
         }
 
+        /** Allocate one measured column per character without splitting timed native views.
+         * Japanese retains its existing paired-column path below. Han/Hangul use
+         * equivalent columns inside each timed view, so even a joined native word
+         * may wrap at its own character boundaries at the original reading font.
+         */
+        private fun createCharacters(items:List<RubyNativeWord>,header:TextView,original:String,
+            alignment:JapaneseRubyAlignment.Result,available:Int):RubyWordLayout? {
+            fun compact(text:String)=text.filterNot { it.isWhitespace() || it=='\u00a0' }
+            if(available<=0 || items.isEmpty() || compact(items.joinToString("") { it.text })!=compact(original)) return null
+            // Reuse Japanese's proven paired-column packing whenever source
+            // timing boundaries expose the units. This also keeps literal Latin
+            // words together when the native source stores them character-wise.
+            createNative(items,header,original,alignment.copy(perCharacter=false),available)?.let { return it }
+            val saved=items.map { item -> item.view.let { word ->
+                val flex=runCatching { RubyFlexItem.resolve(word.layoutParams.javaClass) }.getOrNull()
+                Saved(WeakReference(word),word.paddingLeft,word.paddingTop,word.paddingRight,word.paddingBottom,
+                    flex?.wrap(word.layoutParams) ?: false,flex?.shrink(word.layoutParams) ?: 1f,flex)
+            } }
+            val fm=header.paint.fontMetrics
+            val band=ceil(fm.descent-fm.ascent+8f*header.resources.displayMetrics.density)
+            val gap=4f*header.resources.displayMetrics.density
+            var cursor=0
+            val columns=items.flatMap { it.glyphs }.map { leaf ->
+                val text=leaf.text.toString()
+                val positions=text.indices.filter { !text[it].isWhitespace() && text[it]!='\u00a0' }
+                val start=cursor;cursor+=positions.size
+                val widths=alignment.units.mapNotNull { unit ->
+                    val a=compact(original.take(unit.start)).length
+                    val b=compact(original.take(unit.end)).length
+                    if(a<start || b>cursor || original.codePointCount(unit.start,unit.end)!=1) return@mapNotNull null
+                    val code=original.codePointAt(unit.start)
+                    if(Character.UnicodeScript.of(code) !in setOf(Character.UnicodeScript.HAN,Character.UnicodeScript.HANGUL)) return@mapNotNull null
+                    Triple(positions[a-start],positions[b-start-1]+1,
+                        header.paint.measureText(JapaneseRubyAlignment.displayReading(unit.reading))+gap)
+                }
+                RubyCharacterColumns(leaf,text,widths,band)
+            }
+            return RubyWordLayout(saved,saved.map { Plan(0,0,0,it.wrap) },columns,preserveFlow=true)
+        }
+
         fun create(words: List<TextView>, header: TextView, original: String,
             alignment: JapaneseRubyAlignment.Result, available: Int): RubyWordLayout? =
             createNative(words.map { RubyNativeWord(it,listOf(it)) },header,original,alignment,available)
 
         fun createNative(items: List<RubyNativeWord>, header: TextView, original: String,
             alignment: JapaneseRubyAlignment.Result, available: Int): RubyWordLayout? = runCatching {
+            if(alignment.perCharacter) return createCharacters(items,header,original,alignment,available)
             val words=items.map { it.view }
             if (available <= 0 || words.isEmpty()) return null
             fun compact(s: String) = s.filterNot { it.isWhitespace() || it == '\u00a0' }

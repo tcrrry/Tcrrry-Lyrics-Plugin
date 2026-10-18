@@ -10,7 +10,7 @@ internal object CrossSourceAuxiliary {
     private data class Row(val start: Long, val text: String, val key: String, val raw: String)
     private val paragraphs = Regex("(?is)<p\\b([^>]*)>(.*?)</p\\s*>")
     private val tags = Regex("<[^>]+>")
-    private fun normalized(text: String) = Normalizer.normalize(text, Normalizer.Form.NFKC).filterNot(Char::isWhitespace)
+    private fun normalized(text: String) = com.tcrrry.lyrics.engine.lyrics.ChineseTextKey.of(Normalizer.normalize(text, Normalizer.Form.NFKC).filterNot(Char::isWhitespace))
     private fun time(text: String): Long? = runCatching {
         if (text.endsWith("ms")) return@runCatching text.dropLast(2).toDouble().toLong()
         if (text.endsWith("s")) return@runCatching (text.dropLast(1).toDouble() * 1000).toLong()
@@ -35,7 +35,11 @@ internal object CrossSourceAuxiliary {
             val time = java.lang.String.format(java.util.Locale.US, "[%02d:%02d.%03d]", it.start / 60000, it.start / 1000 % 60, it.start % 1000)
             time + it.raw
         }
-        var source = DirectLyricsRepository.Result(lyrics = lyrics)
+        val existing=track(primary,"transliteration")
+        val nativeReadings=original.mapNotNull { row -> existing[row.key]?.takeIf(String::isNotBlank)?.let { reading ->
+            java.lang.String.format(java.util.Locale.US,"[%02d:%02d.%03d]%s",row.start/60000,row.start/1000%60,row.start%1000,reading)
+        } }.joinToString("\n")
+        var source = DirectLyricsRepository.Result(lyrics = lyrics,romanizedLyrics=nativeReadings)
         source = com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.fill(context, id, source)
         if (context.pluginPreferences("japanese_pronunciation", android.content.Context.MODE_PRIVATE).getBoolean("enabled", true))
             source = com.tcrrry.lyrics.engine.lyrics.JapanesePronunciationSupplement.fill(source)
@@ -64,6 +68,18 @@ internal object CrossSourceAuxiliary {
         val matched = pairs.filter { (index, other) -> pairs.none { (i, o) ->
             (i < index && o > other) || (i > index && o < other)
         } }.associate { (index, other) -> index to otherRows[other].key }
+        // A Chinese platform pronunciation track already identifies one syllable per Han glyph.
+        // Do not require enabling the offline dictionary to annotate that existing provider track.
+        val japaneseRoot=TtmlOriginalLanguage.read(primary)?.startsWith("ja",true)==true
+        if(!japaneseRoot && source.source in setOf("QQ音乐","网易云音乐") &&
+            otherRows.any { Regex("[\\p{IsHan}]").containsMatchIn(it.raw) } &&
+            otherRows.none { Regex("[ぁ-ゖァ-ヺ가-힣]").containsMatchIn(it.raw) }) {
+            com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.rememberChineseProviderRows(
+                targetRows.map { it.start to it.raw },
+                matched.mapNotNull { (index,key) -> pronunciation[key]?.takeIf(String::isNotBlank)?.let {
+                    targetRows[index].start to LyricsAuxiliaryText.plain(it)
+                } })
+        }
         var result = TtmlSubtitleTrack.attach(primary, matched.mapNotNull { (index, key) -> translations[key]?.let { index to it } }.toMap()) ?: primary
         result = TtmlSubtitleTrack.attachPronunciation(result, matched.mapNotNull { (index, key) -> pronunciation[key]?.let { index to it } }.toMap()) ?: result
         return result

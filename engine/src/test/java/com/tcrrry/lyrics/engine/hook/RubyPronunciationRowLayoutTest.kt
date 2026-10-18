@@ -316,4 +316,260 @@ class RubyPronunciationRowLayoutTest {
         ruby.restore()
         assertEquals(hints,words.map { (it.layoutParams as FlexboxLayout.LayoutParams).isWrapBefore })
     }
+    @Test fun cantoneseKeepsEverySyllableSeparateInsideMultiCharacterTimedWords() {
+        val original="不说一句的爱有多好"
+        val readings=listOf("ba","syut","yat","geui","dik","oi","yau","do","hou")
+        header.text=readings.joinToString(" ");header.textSize=18f
+        val words=listOf("不说一句的爱","有","多","好").map { value -> TextView(activity).apply {
+            text=value;textSize=32f
+        }.also { container.addView(it,FlexboxLayout.LayoutParams(-2,-2)) } }
+        val originalSpacing=words.map { it.letterSpacing }
+        val aligned=JapaneseRubyAlignment.Result(original.indices.map { JapaneseRubyAlignment.Unit(it,it+1,readings[it]) },true,perCharacter=true)
+        val fitted=RubyWordLayout.fitUnits(words,original,aligned)
+        assertEquals(readings,fitted.units.map { it.reading })
+        val ruby=RubyPronunciationRows.RubyView(container,words,header,fitted,original,false)
+        root.addView(ruby,ConstraintLayout.LayoutParams(0,0).apply {
+            topToTop=header.id;bottomToBottom=container.id;startToStart=container.id;endToEnd=container.id
+        })
+        repeat(8) { layout(330);ruby.onPreDraw() }
+        val runs=requireNotNull(ruby.placements())
+        assertEquals(readings,runs.map { it.text })
+        assertEquals(4,container.childCount)
+        assertEquals(original,words.joinToString("") { it.text })
+        assertTrue(runs.all { it.left>=0 && it.right<=330 })
+        val bitmap=android.graphics.Bitmap.createBitmap(330,root.height,android.graphics.Bitmap.Config.ARGB_8888)
+        root.draw(android.graphics.Canvas(bitmap))
+        val file=java.io.File("../../release-audit/cantonese-20261018/per-character-layout.png")
+        file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };bitmap.recycle()
+        ruby.restore();assertEquals(originalSpacing,words.map { it.letterSpacing })
+    }
+
+    @Test fun cantoneseNestedTimedGroupsKeepCharacterColumnsOnResizeAndRestore() {
+        val original="只有一次记得实在";val readings=listOf("zi","yau","ya","ci","gei","da","sa","zoi")
+        header.text=readings.joinToString(" ");header.textSize=20f
+        for(part in listOf("只有一次记得","实","在")) {
+            val group=LinearLayout(activity).apply { orientation=LinearLayout.HORIZONTAL }
+            part.forEach { c -> group.addView(TextView(activity).apply { text=c.toString();textSize=32f },LinearLayout.LayoutParams(-2,-2)) }
+            container.addView(group,FlexboxLayout.LayoutParams(-2,-2))
+        }
+        val children=(0 until container.childCount).map(container::getChildAt)
+        val items=RubyNativeWord.collect(container);val leaves=items.flatMap { it.glyphs }
+        val before=leaves.map { listOf(it.paddingLeft,it.paddingTop,it.paddingRight,it.paddingBottom) }
+        val aligned=JapaneseRubyAlignment.Result(original.indices.map { JapaneseRubyAlignment.Unit(it,it+1,readings[it]) },true,perCharacter=true)
+        val fitted=RubyWordLayout.fitNativeUnits(items,original,aligned)
+        val ruby=RubyPronunciationRows.RubyView(container,leaves,header,fitted,original,false,items)
+        root.addView(ruby,ConstraintLayout.LayoutParams(0,0).apply {
+            topToTop=header.id;bottomToBottom=container.id;startToStart=container.id;endToEnd=container.id
+        })
+        for(width in listOf(280,320,360,300)) {
+            repeat(8) { layout(width);ruby.onPreDraw() }
+            val runs=requireNotNull(ruby.placements()) { "width=$width" }
+            assertEquals(readings,runs.map { it.text });assertTrue(runs.all { it.left>=0 && it.right<=width })
+            assertEquals(children,(0 until container.childCount).map(container::getChildAt))
+        }
+        val beforeMove=ruby.placements()!!.first().left
+        children.first().translationX=3f
+        assertEquals(3f,ruby.placements()!!.first().left-beforeMove,.01f)
+        ruby.restore();assertEquals(before,leaves.map { listOf(it.paddingLeft,it.paddingTop,it.paddingRight,it.paddingBottom) })
+        assertEquals(listOf(32f),leaves.map { it.textSize }.distinct())
+    }
+
+    @Test fun koreanScreenshotJoinedRomanizationHasOneRunPerHangulBlock() {
+        for((original,reading,parts,expected) in listOf(
+            listOf("환한 빛 조명이","hwanhan bich jomyeong-i","환한|빛|조명이","hwan|han|bich|jo|myeong|i"),
+            listOf("어딜 비추는지","eodil bichuneunji","어딜|비추는지","eo|dil|bi|chu|neun|ji"),
+            listOf("너 Heaven","neo Hea ven","너|Heaven","neo|Heaven")
+        )) {
+            header.text=reading;header.textSize=18f
+            val words=parts.split('|').map { part -> TextView(activity).apply { text=part;textSize=32f }.also {
+                container.addView(it,FlexboxLayout.LayoutParams(-2,-2))
+            } }
+            val aligned=requireNotNull(JapaneseRubyAlignment.align(original,reading));assertTrue(aligned.perCharacter)
+            val fitted=RubyWordLayout.fitUnits(words,original,aligned)
+            val ruby=RubyPronunciationRows.RubyView(container,words,header,fitted,original,false)
+            root.addView(ruby,ConstraintLayout.LayoutParams(0,0).apply {
+                topToTop=header.id;bottomToBottom=container.id;startToStart=container.id;endToEnd=container.id
+            })
+            for(width in listOf(320,360)) {
+                repeat(8) { layout(width);ruby.onPreDraw() }
+                val runs=requireNotNull(ruby.placements()) { "$original width=$width ruby=${ruby.width}x${ruby.height} header=${header.height} words="+words.joinToString { "${it.text}:${it.left},${it.top},${it.width}x${it.height} pad=${it.paddingLeft}/${it.paddingRight} spacing=${it.letterSpacing} x="+(0..it.text.length).map { p->it.layout?.getPrimaryHorizontal(p) } } }
+                assertEquals(expected.split('|'),runs.map { it.text })
+                assertTrue(runs.all { it.left>=0 && it.right<=width })
+            }
+            if(original.startsWith("환")) {
+                val bitmap=android.graphics.Bitmap.createBitmap(360,root.height,android.graphics.Bitmap.Config.ARGB_8888)
+                root.draw(android.graphics.Canvas(bitmap))
+                val file=java.io.File("../../release-audit/cantonese-20261018/korean-character-layout.png")
+                file.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) };bitmap.recycle()
+            }
+            ruby.restore();assertTrue(words.all { it.letterSpacing==0f })
+            assertEquals(parts.split('|'),words.map { it.text.toString() })
+            root.removeView(ruby);container.removeAllViews()
+        }
+    }
+
+    @Test fun koreanAndCantoneseScreenshotLinesUseFullSizeMeasuredCharacterColumns() {
+        val samples=listOf(
+            Triple("보이니 그 유일함이 얼마나","boini geu yuilham-i eolmana","보이니|그|유일함이|얼마나"),
+            Triple("아름다운지 말야","aleumdaunji mal-ya","아름다운지|말야"),
+            Triple("왼손으로 그린 별 하나","oen son eu lo geu lin byeol ha na","왼손으로|그린|별|하나"),
+            Triple("왜 전화 안받아 왜 답장이 없어","wae jeon hwa an ba da wae dap jang i eob seo","왜|전화|안받아|왜|답장이|없어"),
+            Triple("왜 나를 힘들게만 하는데","wae na reul him deul ge man ha neun de","왜|나를|힘들게만|하는데"),
+            Triple("나 지금 이러는게 아닌데","na ji geum i reo neun ge a nin de","나|지금|이러는게|아닌데"),
+            Triple("一千種戀愛 一些需要情淚灌溉","jat cin zung lyun oi jat se seoi jiu cing leoi gun koi","一|千|種|戀|愛|一|些|需|要|情|淚|灌|溉"),
+            Triple("Where did you go 數數多久不碰到","Where did you go sou sou do gau ba pung dou","Where |did |you |go |數|數|多|久|不|碰|到")
+        )
+        for((original,reading,parts) in samples) for(singleView in listOf(false,true)) for(width in listOf(240,320,360)) {
+            header.text=reading;header.textSize=18f
+            if(original.any { it in '\u3400'..'\u9fff' })
+                com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.rememberChineseProviderRow(original,reading)
+            val alignment=requireNotNull(JapaneseRubyAlignment.align(original,reading)) { original }
+            assertTrue(alignment.perCharacter)
+            val words=(if(singleView) listOf(original) else parts.split('|')).map { part -> TextView(activity).apply {
+                text=part;textSize=32f
+            }.also { container.addView(it,FlexboxLayout.LayoutParams(-2,-2)) } }
+            layout(width)
+            val originalRows=words.map { it.top }.distinct().sorted()
+            val rowsBefore=words.map { originalRows.indexOf(it.top) }
+            val widthsBefore=words.map { it.width }
+            val internalLines=words.map { it.layout.lineCount }
+            val oldLineSpace=words.map { it.lineSpacingExtra }
+            val ruby=RubyPronunciationRows.RubyView(container,words,header,alignment,original,false)
+            root.addView(ruby,ConstraintLayout.LayoutParams(0,0).apply {
+                topToTop=header.id;bottomToBottom=container.id;startToStart=container.id;endToEnd=container.id
+            })
+            repeat(12) { layout(width);ruby.onPreDraw() }
+            val runs=requireNotNull(ruby.placements()) { "$original width=$width single=$singleView header=${header.height} ruby=${ruby.height}" }
+            val rowsAfter=words.map { it.top }.distinct().sorted()
+            assertEquals(if(singleView) listOf(original) else parts.split('|'),words.map { it.text.toString() })
+            assertTrue(words.all { it.letterSpacing==0f })
+            assertEquals(alignment.units.map { JapaneseRubyAlignment.displayReading(it.reading) },runs.map { it.text })
+            assertTrue(runs.all { it.left>=0 && it.right<=width })
+            assertEquals(1,runs.map { it.size }.distinct().size)
+            assertEquals(header.textSize,runs.first().size,0f)
+            if(original.startsWith("왜 전화") && singleView && width==360) {
+                val bitmap=android.graphics.Bitmap.createBitmap(width,root.height,android.graphics.Bitmap.Config.ARGB_8888)
+                root.draw(android.graphics.Canvas(bitmap))
+                java.io.File("../../release-audit/fixed-size-preview15/korean-full-size.png").outputStream().use {
+                    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it)
+                };bitmap.recycle()
+            }
+            ruby.restore();assertEquals(oldLineSpace,words.map { it.lineSpacingExtra })
+            root.removeView(ruby);container.removeAllViews()
+        }
+    }
+    @Test fun characterFallbackRestoresAllOwnedGeometryWhenHeaderNoLongerMatches() {
+        val original="환한 빛 조명이";val reading="hwanhan bich jomyeong-i"
+        header.text="stale reading";header.textSize=18f
+        val word=TextView(activity).apply { text=original;textSize=32f }
+        container.addView(word,FlexboxLayout.LayoutParams(-2,-2))
+        layout(240)
+        val old=listOf(word.paddingLeft,word.paddingTop,word.paddingRight,word.paddingBottom)
+        val oldLineSpace=word.lineSpacingExtra
+        val ruby=RubyPronunciationRows.RubyView(container,listOf(word),header,
+            requireNotNull(JapaneseRubyAlignment.align(original,reading)),original,false)
+        root.addView(ruby,ConstraintLayout.LayoutParams(0,0).apply {
+            topToTop=header.id;bottomToBottom=container.id;startToStart=container.id;endToEnd=container.id
+        })
+        repeat(10) { layout(240);ruby.onPreDraw() }
+        assertNull(ruby.placements());assertEquals(View.VISIBLE,header.visibility)
+        assertEquals(old,listOf(word.paddingLeft,word.paddingTop,word.paddingRight,word.paddingBottom))
+        assertEquals(oldLineSpace,word.lineSpacingExtra,0f);assertEquals(0f,word.letterSpacing,0f)
+        ruby.restore()
+    }
+
+    @Test fun koreanStaticLineViewAlsoKeepsNaturalInternalWrapping() {
+        val original="왜 전화 안받아 왜 답장이 없어"
+        val reading="wae jeon hwa an ba da wae dap jang i eob seo"
+        header.text=reading;header.textSize=18f
+        val originalView=TextView(activity).apply { id=View.generateViewId();text=original;textSize=32f }
+        root.addView(originalView,ConstraintLayout.LayoutParams(0,-2).apply {
+            topToBottom=header.id;startToStart=0;endToEnd=0
+        })
+        layout(240);val count=originalView.layout.lineCount
+        val ruby=RubyPronunciationRows.RubyView(originalView,listOf(originalView),header,
+            requireNotNull(JapaneseRubyAlignment.align(original,reading)),original,true)
+        root.addView(ruby,ConstraintLayout.LayoutParams(0,0).apply {
+            topToTop=header.id;bottomToBottom=originalView.id;startToStart=originalView.id;endToEnd=originalView.id
+        })
+        repeat(12) { layout(240);ruby.onPreDraw() }
+        val runs=requireNotNull(ruby.placements())
+        assertEquals(12,runs.size);assertEquals(count,originalView.layout.lineCount)
+        assertEquals(0f,originalView.letterSpacing,0f)
+        assertTrue(runs.all { it.left>=0 && it.right<=240 })
+        ruby.restore();assertEquals(0f,originalView.lineSpacingExtra,0f)
+    }
+
+    @Test fun entireQqCantoneseTrackHasFullSizeCharacterPlacements() {
+        val fixture=System.getProperty("cantoneseFixture")
+        org.junit.Assume.assumeNotNull(fixture)
+        val entries=org.json.JSONArray(java.io.File(fixture!!).readText())
+        var checked=0
+        for(i in 0 until entries.length()) {
+            val entry=entries.getJSONObject(i)
+            val reading=entry.optString("reading")
+            if(!reading.matches(Regex("[A-Za-z ]+"))) continue
+            val original=entry.getString("text")
+            com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.rememberChineseProviderRow(original,reading)
+            val aligned=requireNotNull(JapaneseRubyAlignment.align(original,reading)) { "row $i" }
+            for(width in listOf(280,360)) for(grouped in listOf(false,true)) {
+                header.text=reading;header.textSize=18f
+                val parts=if(grouped) listOf(original) else original.map { it.toString() }
+                val words=parts.map { value -> TextView(activity).apply { text=value;textSize=32f }.also {
+                    container.addView(it,FlexboxLayout.LayoutParams(-2,-2))
+                } }
+                val ruby=RubyPronunciationRows.RubyView(container,words,header,aligned,original,false)
+                root.addView(ruby,ConstraintLayout.LayoutParams(0,0).apply {
+                    topToTop=header.id;bottomToBottom=container.id;startToStart=container.id;endToEnd=container.id
+                })
+                repeat(12) { layout(width);ruby.onPreDraw() }
+                val runs=requireNotNull(ruby.placements()) { "row $i width=$width grouped=$grouped" }
+                assertEquals(aligned.units.size,runs.size)
+                assertTrue(runs.all { it.size==header.textSize && it.left>=0 && it.right<=width })
+                assertEquals(original,words.joinToString("") { it.text })
+                ruby.restore();root.removeView(ruby);container.removeAllViews()
+            }
+            checked++
+        }
+        assertEquals(40,checked)
+    }
+
+    @Test fun entireKoreanProviderTracksHaveFullSizeCharacterPlacements() {
+        val directory=System.getProperty("koreanFixtureDir")
+        org.junit.Assume.assumeTrue(!directory.isNullOrBlank())
+        var checked=0
+        for(name in listOf("celebrity-netease.json","badboy-netease.json")) {
+            val json=org.json.JSONObject(java.io.File(directory!!,name).readText())
+            val source=com.tcrrry.lyrics.sources.DirectLyricsRepository.Result(lyrics=json.getJSONObject("lrc").getString("lyric"),
+                romanizedLyrics=json.getJSONObject("romalrc").getString("lyric"),source="网易云音乐")
+            val readings=com.tcrrry.lyrics.engine.lyrics.DesktopLyricsTtmlConverter.pronunciationEntries(source)
+            for((time,original) in com.tcrrry.lyrics.engine.lyrics.DesktopLyricsTtmlConverter.pronunciationLines(source)) {
+                if(!Regex("[가-힣]").containsMatchIn(original)) continue
+                val reading=readings.minByOrNull { kotlin.math.abs(it.first-time) }
+                    ?.takeIf { kotlin.math.abs(it.first-time)<300 && it.second.isNotBlank() }?.second ?: continue
+                val aligned=requireNotNull(JapaneseRubyAlignment.align(original,reading)) { name }
+                for(width in listOf(280,360)) for(shape in 0..3) {
+                    header.text=reading;header.textSize=18f
+                    val parts=when(shape) { 0->listOf(original);1->Regex("\\S+\\s*").findAll(original).map { it.value }.toList();2->original.map { it.toString() };else->original.chunked(2) }
+                    val words=parts.map { value -> TextView(activity).apply { text=value;textSize=32f }.also {
+                        container.addView(it,FlexboxLayout.LayoutParams(-2,-2))
+                    } }
+                    val fitted=RubyWordLayout.fitUnits(words,original,aligned)
+                    val ruby=RubyPronunciationRows.RubyView(container,words,header,fitted,original,false)
+                    root.addView(ruby,ConstraintLayout.LayoutParams(0,0).apply {
+                        topToTop=header.id;bottomToBottom=container.id;startToStart=container.id;endToEnd=container.id
+                    })
+                    repeat(12) { layout(width);ruby.onPreDraw() }
+                    val runs=requireNotNull(ruby.placements()) { "$name t=$time width=$width shape=$shape text=$original reading=$reading" }
+                    assertEquals(fitted.units.size,runs.size)
+                    assertTrue(runs.all { it.size==header.textSize && it.left>=0 && it.right<=width })
+                    assertEquals(original,words.joinToString("") { it.text })
+                    ruby.restore();root.removeView(ruby);container.removeAllViews()
+                }
+                checked++
+            }
+        }
+        assertEquals(96,checked)
+    }
+
 }

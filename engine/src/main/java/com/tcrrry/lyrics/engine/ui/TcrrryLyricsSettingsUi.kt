@@ -179,6 +179,12 @@ internal object TcrrryLyricsSettingsUi {
             body.removeAllViews()
             body.addView(title(activity, "翻译与注音", 20f))
             renderTranslationSettings(activity, body, id, refreshPage)
+            val policy = com.tcrrry.lyrics.engine.lyrics.LyricsPreference
+            body.addView(binaryChoice(activity, "繁体转简体", policy.simplifiedChinese(activity)) { enabled ->
+                policy.updateSimplifiedChinese(activity, enabled)
+                CurrentLyricsSourceStatus.refreshSilently(id)
+                refreshPage()
+            }, fullMargin(activity, 14))
             val prefs = activity.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
             body.addView(title(activity, "离线注音", 17f), fullMargin(activity, 20))
             body.addView(binaryChoice(activity, "日语注音", prefs.getBoolean("enabled", true)) { enabled ->
@@ -582,7 +588,7 @@ internal object TcrrryLyricsSettingsUi {
             prefs.edit().putString("mode", modes[index]).apply()
             CurrentLyricsSourceStatus.refresh(id)
             refreshPage(); refreshDetails()
-        }, fullMargin(activity, 12))
+        }.apply { inlineGlass = true }, fullMargin(activity, 12))
         parent.addView(details, fullMargin(activity, 4))
         refreshDetails()
     }
@@ -691,35 +697,14 @@ internal object TcrrryLyricsSettingsUi {
     }
 
     private fun renderOfflineControls(activity: Activity, card: LinearLayout, id: Long) {
-        val prefs=activity.pluginPreferences("supplement_translation",Context.MODE_PRIVATE)
-        val codes=listOf("auto") + com.tcrrry.lyrics.plugin.OfflineTranslationClient.languages
-        fun languageName(code: String) = if (code == "auto") "自动判断"
-            else Locale.forLanguageTag(code).getDisplayLanguage(Locale.SIMPLIFIED_CHINESE)
-        val language = action(activity, "原语言：" + languageName(prefs.getString("offline_source_language", "auto") ?: "auto")) {}
-        language.setOnClickListener { clicked -> SettingsDialogMotion.from(clicked) {
-            showLanguageSearch(activity, codes, prefs.getString("offline_source_language","auto") ?: "auto") { code ->
-                prefs.edit().putString("offline_source_language",code).apply()
-                language.text = "原语言：" + languageName(code)
-                CurrentLyricsSourceStatus.refresh(id)
-            }
-        } }
-        card.addView(language, fullMargin(activity, 8))
-        card.addView(action(activity,"打开离线翻译／语言包管理") {
-            val backend = com.tcrrry.lyrics.plugin.EmbeddedOfflineModels.find(activity)
-            if (backend == null) com.tcrrry.lyrics.plugin.OfflineTranslationClient.openManager(activity)
-            else showOfflineModelManager(activity, backend)
-        },fullMargin(activity,8))
-        val state=label(activity,com.tcrrry.lyrics.plugin.OfflineTranslationClient.statusText(activity),12f,SettingsUiTheme.colors(activity).secondary)
-        card.addView(state,fullMargin(activity,8))
-        card.addView(action(activity,"验证离线翻译") {
-            state.text="正在验证…"
-            Thread {
-                val result=runCatching { com.tcrrry.lyrics.plugin.OfflineTranslationClient.translate(activity,"en","Hello, world") }
-                com.tcrrry.lyrics.plugin.PluginHandler().post {
-                    if(!activity.isFinishing) state.text=result.fold({"离线翻译可用：$it"},{"离线翻译失败：${it.message}"})
-                }
-            }.start()
-        },fullMargin(activity,8))
+        val backend = com.tcrrry.lyrics.plugin.EmbeddedOfflineModels.find(activity)
+        if(backend==null) {
+            card.addView(label(activity,"请导入并启用「Tcrrry 离线翻译」插件",12f,SettingsUiTheme.colors(activity).secondary),fullMargin(activity,8))
+            return
+        }
+        val panel=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL }
+        card.addView(panel,fullMargin(activity,4))
+        renderOfflinePanel(activity,panel,panel,backend)
     }
 
     private fun field(activity: Activity, hint: String, value: String = "") = EditText(activity).apply {
@@ -729,6 +714,13 @@ internal object TcrrryLyricsSettingsUi {
         setHintTextColor(SettingsUiTheme.colors(activity).muted)
         textSize = 14f
         setSingleLine(true)
+        isFocusableInTouchMode = true
+        showSoftInputOnFocus = true
+        setOnClickListener {
+            requestFocus()
+            post { (context.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+                ?.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT) }
+        }
         setPadding(dp(activity, 14), dp(activity, 9), dp(activity, 14), dp(activity, 9))
         background = shape(activity, SettingsUiTheme.colors(activity).raised, 12, SettingsUiTheme.colors(activity).outline)
         SettingsGlassMaterial.mark(this, SettingsGlassKind.Field)
@@ -763,106 +755,148 @@ internal object TcrrryLyricsSettingsUi {
     }
 
     internal fun showOfflineModelManager(activity: Activity, backend: com.tcrrry.lyrics.plugin.OfflineModelBackend) {
-        val body = card(activity).apply { addView(title(activity, "离线翻译语言包", 20f)) }
-        val input = field(activity, "搜索语言、English 或代码")
-        input.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+        showOfflineDownloads(activity, backend)
+    }
+
+    private fun languageName(code: String) = Locale.forLanguageTag(code).getDisplayLanguage(Locale.SIMPLIFIED_CHINESE)
+    private fun orderedModels(models: Set<String>) = models.sortedWith(compareBy<String> {
+        when(it) { "zh" -> 0;"en" -> 1;else -> 2 }
+    }.thenBy { languageName(it) })
+
+    internal fun showOfflineDownloads(activity: Activity, backend: com.tcrrry.lyrics.plugin.OfflineModelBackend, changed: () -> Unit = {}) {
+        val body = card(activity).apply { addView(title(activity, "离线翻译", 20f)) }
+        val footer=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL;setPadding(dp(activity,18),dp(activity,6),dp(activity,18),dp(activity,12)) }
+        val dialog=bubbleDialog(activity,body,footer,compact=true)
+        renderOfflinePanel(activity,body,footer,backend,changed)
+        footer.addView(action(activity,"关闭") { dialog.dismiss() },fullMargin(activity,8))
+        dialog.show()
+    }
+
+    internal fun renderOfflinePanel(activity: Activity, body: LinearLayout, footer: LinearLayout,
+        backend: com.tcrrry.lyrics.plugin.OfflineModelBackend, changed: () -> Unit = {}) {
+        val input = field(activity, "搜索语言、English 或代码").apply {
+            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEARCH
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
         body.addView(input, fullMargin(activity, 12))
-        val results = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
-        val list = android.widget.ScrollView(activity).apply {
-            isVerticalScrollBarEnabled = false
-            isVerticalFadingEdgeEnabled = true
-            setFadingEdgeLength(dp(activity, 12))
-            addView(results)
+        body.addView(label(activity, "下载语言包需要开启代理；下载完成后可离线使用。", 12f,
+            SettingsUiTheme.colors(activity).secondary), fullMargin(activity, 8))
+        val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val languagesList=android.widget.ScrollView(activity).apply { addView(rows);isVerticalScrollBarEnabled=false }
+        val bar = android.widget.ProgressBar(activity, null, android.R.attr.progressBarStyleHorizontal).apply {
+            max=100;visibility=View.GONE;progressTintList=ColorStateList.valueOf(SettingsUiTheme.colors(activity).primary)
         }
-        body.addView(list, LinearLayout.LayoutParams(-1, dp(activity, 176)).apply { topMargin = dp(activity, 8) })
-        val status = label(activity, "正在读取语言包…", 13f, SettingsUiTheme.colors(activity).secondary)
-        body.addView(status, fullMargin(activity, 10))
-        var selected = activity.pluginPreferences("supplement_translation", Context.MODE_PRIVATE)
-            .getString("offline_source_language", "ja")?.takeIf { it in backend.languages }
-            ?: backend.languages.firstOrNull { it == "ja" } ?: backend.languages.firstOrNull().orEmpty()
-        var installed = emptySet<String>()
-        var busy = true
-        var alive = true
-        val download = action(activity, "下载语言包", emphasized = true) {}
-        val delete = action(activity, "删除语言包") {}
-        body.addView(download, fullMargin(activity, 10))
-        body.addView(delete, fullMargin(activity, 8))
-        val close = action(activity, "关闭") {}
-        val footer = LinearLayout(activity).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(activity, 18), dp(activity, 8), dp(activity, 18), dp(activity, 16))
-            addView(close, fullMargin(activity, 0))
-        }
-        val dialog = bubbleDialog(activity, body, footer, compact = true, fixedHeight = true)
-        dialog.setOnDismissListener { alive = false }
-        close.setOnClickListener { dialog.dismiss() }
-        fun name(code: String) = Locale.forLanguageTag(code).getDisplayLanguage(Locale.SIMPLIFIED_CHINESE)
-        fun updateActions() {
-            download.text = "下载${name(selected)}与中文模型"
-            delete.text = "删除${name(selected)}模型"
-            download.isEnabled = !busy && selected.isNotBlank()
-            delete.isEnabled = !busy && selected != "en" && selected in installed
-            download.alpha = if (download.isEnabled) 1f else .45f
-            delete.alpha = if (delete.isEnabled) 1f else .45f
-        }
-        fun render() {
-            results.removeAllViews()
-            val codes = LanguageSearchPolicy.filter(backend.languages, input.text.toString())
-            if (codes.isEmpty()) results.addView(label(activity, "未找到匹配语言", 14f, SettingsUiTheme.colors(activity).secondary))
-            codes.forEach { code ->
-                val ready = code == "en" || code in installed
-                val row = label(activity, "${name(code)} · $code\n${if (code == "en") "无需下载" else if (ready) "已下载" else "未下载"}", 14f,
-                    if (code == selected) SettingsUiTheme.colors(activity).primary else SettingsUiTheme.colors(activity).text).apply {
-                    minimumHeight = dp(activity, 52)
-                    setPadding(dp(activity, 10), dp(activity, 8), dp(activity, 10), dp(activity, 8))
-                    isClickable = true; isFocusable = true; isSelected = code == selected
-                    contentDescription = "选择${name(code)}语言包"
-                    background = android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(0x24FFFFFF), null,
-                        shape(activity, android.graphics.Color.WHITE, 8, android.graphics.Color.WHITE))
-                    setOnClickListener { if (!busy) { selected = code; render(); updateActions() } }
-                }
-                results.addView(row, fullMargin(activity, 2))
-            }
-        }
-        fun active() = alive && dialog.isShowing && !activity.isDestroyed && !activity.isFinishing &&
-            com.tcrrry.lyrics.plugin.PluginLifetime.alive
-        fun refresh(message: String? = null) {
-            backend.query { models, error -> com.tcrrry.lyrics.plugin.PluginHandler().post {
-                if (!active()) return@post
-                busy = false
-                if (models != null) installed = models
-                status.text = error ?: message ?: "已下载 ${installed.size} 个语言包"
-                render(); updateActions()
+        body.addView(bar,fullMargin(activity,10))
+        val status=label(activity,"正在读取语言状态…",13f,SettingsUiTheme.colors(activity).secondary)
+        body.addView(status,fullMargin(activity,8))
+        body.addView(languagesList,LinearLayout.LayoutParams(-1,dp(activity,176)).apply { topMargin=dp(activity,8) })
+        var busy=true;var connected=false;var installed=emptySet<String>()
+        fun active()=body.isAttachedToWindow && !activity.isDestroyed && !activity.isFinishing && com.tcrrry.lyrics.plugin.PluginLifetime.alive
+        lateinit var render: () -> Unit
+        fun refresh(message: String?=null) {
+            backend.query { models,error -> com.tcrrry.lyrics.plugin.PluginHandler().post {
+                if(!active()) return@post
+                busy=false;connected=models!=null
+                if(models!=null) installed=models
+                status.text=if(models==null) "请导入并启用「Tcrrry 离线翻译」插件后重开宿主" else error ?: message ?: "搜索需要下载的语言"
+                bar.visibility=View.GONE;render()
             } }
         }
-        fun finish(error: String?, success: String) {
-            com.tcrrry.lyrics.plugin.PluginHandler().post {
-                if (!active()) return@post
-                if (error != null) { busy = false; status.text = error; updateActions() }
-                else refresh(success)
+        render = {
+            rows.removeAllViews()
+            val matches=if(input.text.isBlank()) emptyList() else LanguageSearchPolicy.filter(backend.languages.filterNot { it in setOf("en","zh") },input.text.toString())
+            languagesList.visibility=if(input.text.isBlank()) View.GONE else View.VISIBLE
+            languagesList.layoutParams.height=dp(activity,(matches.size*56).coerceIn(52,176))
+            languagesList.requestLayout()
+            if(input.text.isNotBlank() && matches.isEmpty()) rows.addView(label(activity,"未找到匹配语言",14f,SettingsUiTheme.colors(activity).secondary))
+            matches.forEach { code ->
+                val ready=code in installed
+                val description=if(ready) "已下载" else "下载"
+                val row=action(activity,"${languageName(code)} · $description") {
+                    if(busy || !connected || code in setOf("en","zh") || code in installed) return@action
+                    busy=true;status.text="正在准备下载${languageName(code)}…";bar.visibility=View.VISIBLE;bar.isIndeterminate=true;render()
+                    backend.download(code, { progress -> com.tcrrry.lyrics.plugin.PluginHandler().post {
+                        if(!active()) return@post
+                        val percent=progress.getInt("percent",-1)
+                        bar.isIndeterminate=percent<0
+                        if(percent>=0) bar.progress=percent
+                        status.text=progress.getString("message") ?: "正在下载${languageName(code)}…"
+                    } }) { error -> com.tcrrry.lyrics.plugin.PluginHandler().post {
+                        if(!active()) return@post
+                        if(error!=null) { busy=false;bar.visibility=View.GONE;status.text=error;render() }
+                        else { refresh("${languageName(code)}语言包已就绪");changed() }
+                    } }
+                }.apply {
+                    contentDescription="${languageName(code)}语言包：$description"
+                    isEnabled=connected && !busy && !ready && code !in setOf("en","zh")
+                    alpha=if(isEnabled) 1f else .55f
+                }
+                rows.addView(row,fullMargin(activity,5))
             }
         }
-        download.setOnClickListener {
-            if (busy) return@setOnClickListener
-            val code = selected
-            busy = true; status.text = "正在下载${name(code)}与中文模型…"; updateActions()
-            backend.download(code) { finish(it, "${name(code)}与中文模型已就绪") }
-        }
-        delete.setOnClickListener {
-            if (busy || selected == "en" || selected !in installed) return@setOnClickListener
-            val code = selected
-            showConfirmation(activity, "删除${name(code)}模型", "其他语言包将保留") {
-                if (!active()) return@showConfirmation
-                busy = true; status.text = "正在删除${name(code)}模型…"; updateActions()
-                backend.delete(code) { finish(it, "${name(code)}模型已删除") }
-            }
-        }
-        input.addTextChangedListener(object : android.text.TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) { render() }
-            override fun afterTextChanged(s: android.text.Editable?) = Unit
+        input.addTextChangedListener(object:android.text.TextWatcher {
+            override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int)=Unit
+            override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int) { render() }
+            override fun afterTextChanged(s:android.text.Editable?)=Unit
         })
-        render(); updateActions(); dialog.show(); refresh()
+        footer.addView(action(activity,"已下载语言包") { showDownloadedModels(activity, backend) { refresh();changed() } },fullMargin(activity,4))
+        var verifying=false
+        footer.addView(action(activity,"检测离线翻译") {
+            if(!verifying) {
+                verifying=true;status.text="正在检测离线翻译…"
+                Thread {
+                    val result=runCatching { com.tcrrry.lyrics.plugin.OfflineTranslationClient.translate(activity,"en","Hello, world") }
+                    com.tcrrry.lyrics.plugin.PluginHandler().post {
+                        if(!active()) return@post
+                        verifying=false
+                        status.text=result.fold({ "翻译可用：$it" },{ "检测失败：${it.message}" })
+                    }
+                }.start()
+            }
+        },fullMargin(activity,8))
+        body.addOnAttachStateChangeListener(object:View.OnAttachStateChangeListener {
+            override fun onViewAttachedToWindow(view:View) { refresh() }
+            override fun onViewDetachedFromWindow(view:View) = Unit
+        })
+        render()
+        if(body.isAttachedToWindow) refresh()
+    }
+
+    internal fun showDownloadedModels(activity: Activity, backend: com.tcrrry.lyrics.plugin.OfflineModelBackend, changed: () -> Unit = {}) {
+        val body=card(activity).apply { addView(title(activity,"已下载语言包",20f)) }
+        val rows=LinearLayout(activity).apply { orientation=LinearLayout.VERTICAL }
+        body.addView(rows,fullMargin(activity,12))
+        val status=label(activity,"正在读取…",13f,SettingsUiTheme.colors(activity).secondary)
+        body.addView(status,fullMargin(activity,10))
+        val dialog=bubbleDialog(activity,body,compact=true)
+        var alive=true;var busy=false
+        dialog.setOnDismissListener { alive=false }
+        fun active()=alive && dialog.isShowing && !activity.isDestroyed && !activity.isFinishing && com.tcrrry.lyrics.plugin.PluginLifetime.alive
+        lateinit var refresh: () -> Unit
+        refresh = {
+            busy=true
+            backend.query { models,error -> com.tcrrry.lyrics.plugin.PluginHandler().post {
+                if(!active()) return@post
+                rows.removeAllViews();busy=false
+                status.text=error ?: if(models.orEmpty().none { it !in setOf("zh","en") }) "尚未下载其他语言包" else "点按语言包可删除，以后可重新下载。"
+                models?.filterNot { it in setOf("zh","en") }?.toSet()?.let(::orderedModels)?.forEach { code ->
+                    rows.addView(action(activity,"删除${languageName(code)}") {
+                        if(busy) return@action
+                        showConfirmation(activity,"删除${languageName(code)}语言包","以后需要时可以重新下载，其他语言包将保留。") {
+                            if(!active()) return@showConfirmation
+                            busy=true;status.text="正在删除${languageName(code)}…"
+                            backend.delete(code) { failure -> com.tcrrry.lyrics.plugin.PluginHandler().post {
+                                if(!active()) return@post
+                                if(failure!=null) { busy=false;status.text=failure }
+                                else { refresh();changed() }
+                            } }
+                        }
+                    },fullMargin(activity,6))
+                }
+            } }
+        }
+        body.addView(action(activity,"关闭") { dialog.dismiss() },fullMargin(activity,12))
+        dialog.show();refresh()
     }
 
     internal fun updateReminderBody(activity: Activity, heading: String, current: String,
@@ -1049,8 +1083,8 @@ internal object TcrrryLyricsSettingsUi {
             setOnShowListener {
                 if (outsideCancelable) scrim.setOnClickListener { cancel() }
                 if (glass != null) {
-                    fun hasSelection(view: View): Boolean = view is SettingsSegmentedControl ||
-                        (view is ViewGroup && (0 until view.childCount).any { hasSelection(view.getChildAt(it)) })
+                    fun hasSelection(view: View): Boolean = if (view is SettingsSegmentedControl) !view.inlineGlass
+                        else view is ViewGroup && (0 until view.childCount).any { hasSelection(view.getChildAt(it)) }
                     val host = if (hasSelection(body)) runCatching {
                         Class.forName("com.kyant.backdrop.catalog.components.LiquidBottomTabsKt", false,
                             SettingsGlassHostView::class.java.classLoader)

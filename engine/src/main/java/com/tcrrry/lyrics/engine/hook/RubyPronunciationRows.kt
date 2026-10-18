@@ -21,12 +21,13 @@ import java.util.concurrent.Executors
  * reserve columns and bottom space; top margins never shift their mask origin.
  */
 internal object RubyPronunciationRows {
-    private data class Key(val original: String, val reading: String)
+    private data class Key(val original: String, val reading: String, val evidence:Long)
     private data class Request(val key: Key)
     private val pending = WeakHashMap<View, Request>()
     private val rows = WeakHashMap<View, RubyView>()
-    private val cache = object : LinkedHashMap<Key, JapaneseRubyAlignment.Result?>(128, .75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, JapaneseRubyAlignment.Result?>?) = size > 128
+    private data class CachedAlignment(val result:JapaneseRubyAlignment.Result?,val retryAt:Long)
+    private val cache = object : LinkedHashMap<Key, CachedAlignment>(128, .75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Key, CachedAlignment>?) = size > 128
     }
     private var worker: java.util.concurrent.ExecutorService? = null
     private val main = Handler(Looper.getMainLooper())
@@ -53,7 +54,9 @@ internal object RubyPronunciationRows {
         if (!PluginLifetime.alive || primary || reading.isNullOrBlank() || !LyricsPreference.rubyPronunciation(target.context)) {
             clear(target); return
         }
-        val key = Key(plain(original), plain(reading))
+        val evidence=if(Regex("[\\p{IsHan}]").containsMatchIn(original) && !Regex("[ぁ-ゖァ-ヺ가-힣]").containsMatchIn(original))
+            com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.alignmentRevision else 0L
+        val key = Key(plain(original), plain(reading),evidence)
         if (pending[target]?.key != key) clear(target)
         rows[target]?.let { if (it.hasCurrentHeader()) return else clear(target) }
         if (pending.containsKey(target)) return
@@ -61,7 +64,7 @@ internal object RubyPronunciationRows {
         pending[target] = request
         fun install(result: JapaneseRubyAlignment.Result?) {
             if (pending[target] !== request || !PluginLifetime.alive || !LyricsPreference.rubyPronunciation(target.context)) return
-            if (result == null) return
+            if (result == null) { pending.remove(target);return }
             val ruby = create(result) ?: run { pending.remove(target);return }
             val parent = target.parent as? ViewGroup ?: run { pending.remove(target);return }
             val header = ruby.currentHeader()?.takeIf { it.parent === parent && it.id != View.NO_ID }
@@ -84,7 +87,12 @@ internal object RubyPronunciationRows {
             }
         }
         synchronized(cache) {
-            if (cache.containsKey(key)) { install(cache[key]); return }
+            cache[key]?.let { cached ->
+                if(cached.result!=null || android.os.SystemClock.uptimeMillis()<cached.retryAt) {
+                    install(cached.result);return
+                }
+                cache.remove(key)
+            }
         }
         // Never initialize or search Kuromoji on the UI thread. Do not capture
         // the row or its factory in the worker: recycled/detached rows can die.
@@ -94,7 +102,7 @@ internal object RubyPronunciationRows {
         val executor = worker ?: Executors.newSingleThreadExecutor { runnable -> Thread(runnable, "Tcrrry-ruby").apply { isDaemon = true } }.also { worker = it }
         executor.execute {
             val result = runCatching { JapaneseRubyAlignment.align(key.original, key.reading) }.getOrNull()
-            synchronized(cache) { cache[key] = result }
+            synchronized(cache) { cache[key] = CachedAlignment(result,if(result==null) android.os.SystemClock.uptimeMillis()+2_000L else Long.MAX_VALUE) }
             main.post {
                 val current = reference.get() ?: return@post
                 if (pending[current] === request) callbacks.remove(current)?.invoke(result)
@@ -131,6 +139,8 @@ internal object RubyPronunciationRows {
         private var rendered: List<Run>? = null
         private var wordLayout: RubyWordLayout? = null
         private var preparedWidth = -1
+        private var preparedHeaderSize = -1f
+        private var invalidPasses=0
         private var headerHeight: Int? = null
         init { isClickable = false; importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO }
 
@@ -144,7 +154,7 @@ internal object RubyPronunciationRows {
                 (lineMode || RubyNativeWord.collect(target as ViewGroup).flatMap { it.glyphs } == words.mapNotNull { it.get() })
         }
         fun restore() {
-            wordLayout?.restore(); wordLayout=null; preparedWidth=-1
+            wordLayout?.restore(); wordLayout=null; preparedWidth=-1;preparedHeaderSize=-1f;invalidPasses=0
             (target.get() as? ViewGroup)?.let(RubyGradientBounds::release)
             header.get()?.takeIf { it.visibility == INVISIBLE }?.visibility = VISIBLE
             restoreHeaderHeight()
@@ -179,8 +189,8 @@ internal object RubyPronunciationRows {
             if(compact(words.mapNotNull { it.get() }.joinToString("") { it.text.toString() })!=compact(original)) {
                 restore();rendered=null;invalidate();return true
             }
-            if (!lineMode && current != null && current.width>0 && preparedWidth != current.width) {
-                wordLayout?.restore(); wordLayout=null; preparedWidth=current.width
+            if ((!lineMode || alignment.perCharacter) && current != null && current.width>0 && (preparedWidth != current.width || alignment.perCharacter && preparedHeaderSize!=header.get()?.textSize)) {
+                wordLayout?.restore(); wordLayout=null; preparedWidth=current.width;preparedHeaderSize=header.get()?.textSize ?: -1f;invalidPasses=0
                 val header=header.get()
                 if (header != null) {
                     val nativeItems=items.mapNotNull { (root,leaves) -> root.get()?.let { RubyNativeWord(it,leaves.mapNotNull { leaf -> leaf.get() }) } }
@@ -198,6 +208,18 @@ internal object RubyPronunciationRows {
             }
             if (wordLayout != null && current is ViewGroup) RubyGradientBounds.syncOwned(current)
             val next = placements()
+            if(next!=null) invalidPasses=0
+            if(next==null && alignment.perCharacter && wordLayout!=null) {
+                // Native binding and the overlay can settle on different layout passes.
+                // Do not make a first-frame miss a permanent whole-line fallback.
+                if(++invalidPasses<3) { current?.requestLayout();return false }
+                // A safe whole-line fallback must not retain any ruby-only geometry.
+                wordLayout?.restore();wordLayout=null
+                (current as? ViewGroup)?.let(RubyGradientBounds::release)
+                restoreHeaderHeight()
+                header.get()?.takeIf { it.visibility!=GONE }?.visibility=VISIBLE
+                rendered=null;invalidate();return false
+            }
             val headerChanged=if(next==null) restoreHeaderHeight() else compactHeader()
             header.get()?.let { header ->
                 if (header.visibility != GONE) header.visibility = if (next == null) VISIBLE else INVISIBLE
@@ -221,12 +243,14 @@ internal object RubyPronunciationRows {
                 while(ancestor!==target && ancestor!==parent) ancestor=ancestor?.parent as? View ?: return null
                 if (word.visibility == GONE) return null
                 val layout = word.layout ?: return null
-                if (layout.lineCount != 1) return null
+                if (layout.lineCount != 1 && !alignment.perCharacter) return null
                 for (offset in word.text.indices) {
                     if (word.text[offset].isWhitespace() || word.text[offset] == '\u00a0') continue
                     val x1 = layout.getPrimaryHorizontal(offset)
-                    val x2 = layout.getPrimaryHorizontal(offset + 1)
-                    val baseline = word.compoundPaddingTop + layout.getLineBaseline(0)
+                    val line=layout.getLineForOffset(offset)
+                    val x2 = if(layout.getLineForOffset(offset+1)==line) layout.getPrimaryHorizontal(offset+1)
+                        else if(layout.getParagraphDirection(line)>0) layout.getLineRight(line) else layout.getLineLeft(line)
+                    val baseline = word.compoundPaddingTop + layout.getLineBaseline(line)
                     val bounds = RectF(word.compoundPaddingLeft + minOf(x1, x2), baseline + word.paint.fontMetrics.ascent,
                         word.compoundPaddingLeft + maxOf(x1, x2), baseline.toFloat())
                     fun mapToRow(rect: RectF, animated: Boolean): Boolean {

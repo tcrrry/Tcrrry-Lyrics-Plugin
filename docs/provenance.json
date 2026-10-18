@@ -26,7 +26,7 @@
     "assets/pronunciation-modules.json": "af2b466aca4f6084be7f1500ef044df97f0d2785e6f2b1851aa09f23889303ca",
     "assets/licenses/kuromoji-LICENSE.md": "76b21bab0528f2bb16cd6ce93388d2cc50e5b30ace75d18562f3f0d79270a5bb",
     "assets/licenses/kuromoji-NOTICE.md": "c408a3e8e875434560dbb9ab8d4a78b6e3abc90bd3a57d12d0b41cac99d287bf",
-    "assets/host-profiles/7.0.0-beta-1609.json": "d6cf20b3d38b8c4383200656ac1afeb55e1a5c040573d3bcfeb82b3e985c2396"
+    "assets/host-profiles/7.0.0-beta-1609.json": "e47e7d37270cc75cde45f31280106e27e28cef42404a7f391dcfa7e5bf328ddb"
   },
   "authorAcceptanceSource": {
     "PluginPackages.kt": "9463264fad248e5ca77b9bcde74436a81c0fd9d8974dc69df2a55ac776a0e52d",
@@ -38,5 +38,16 @@
     "profilePath": "host-applemusic/src/main/resources/host-profiles/7.0.0-beta-1609.json",
     "sourceSha256": "d9e8e55551b67a0a76582d89edc2f0fc10322773776356a57e51c680af36d368",
     "commit": "3547a833dac819a23b8515784601873d1d27ed47"
+  },
+  "resultChannelSource": {
+    "repository": "https://github.com/Zennmn/AM-plus-plus",
+    "commit": "d781fc260198f26a61f3d8631a19527c6bf17594",
+    "importedSection": "lyricResultSubmission, 1609 only",
+    "files": [
+      "LyricsResultSubmissionBridge.kt",
+      "LyricsResultSubmissionContract.kt",
+      "FragmentProfileMembers.kt (member resolver only)",
+      "OpaqueTtmlParser.kt"
+    ]
   }
 }

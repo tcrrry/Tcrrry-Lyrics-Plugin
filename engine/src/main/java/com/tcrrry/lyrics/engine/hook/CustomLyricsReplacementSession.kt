@@ -42,11 +42,13 @@ class CustomLyricsReplacementSession(
     private val onReplacementPublished: ((Long) -> Unit)? = null,
     private val executor: Executor,
     private val logger: (String) -> Unit,
+    private val presentationKey: () -> String = { "" },
 ) {
     private data class CacheKey(
         val appleMusicId: Long,
         val fileId: String,
         val sha256: String,
+        val presentation: String,
     )
 
     /**
@@ -100,7 +102,7 @@ class CustomLyricsReplacementSession(
         if (appleMusicId <= 0L) return null
         val entry = entriesById[appleMusicId]
             ?: return null
-        val key = CacheKey(entry.appleMusicId, entry.fileId, entry.sha256)
+        val key = CacheKey(entry.appleMusicId, entry.fileId, entry.sha256, presentationKey())
         synchronized(cache) {
             cache[key]?.let { cached ->
                 if (runCatching { isAlive(cached) }.getOrDefault(false)) return cached
@@ -183,7 +185,7 @@ class CustomLyricsReplacementSession(
             refreshQueued = false
             entriesById = refreshed
             val activeKeys = refreshed.values.mapTo(mutableSetOf()) { entry ->
-                CacheKey(entry.appleMusicId, entry.fileId, entry.sha256)
+                CacheKey(entry.appleMusicId, entry.fileId, entry.sha256, presentationKey())
             }
             synchronized(cache) {
                 cache.keys.retainAll(activeKeys)
@@ -195,9 +197,11 @@ class CustomLyricsReplacementSession(
     }
 
     private fun prepare(appleMusicId: Long) {
+        var preparingPresentation:String?=null
         try {
             val entry = synchronized(lock) { entriesById[appleMusicId] } ?: return
-            val key = CacheKey(entry.appleMusicId, entry.fileId, entry.sha256)
+            val key = CacheKey(entry.appleMusicId, entry.fileId, entry.sha256, presentationKey())
+            preparingPresentation=key.presentation
             synchronized(cache) {
                 cache[key]?.let { cached ->
                     if (isPrepared(cached, appleMusicId)) return
@@ -222,6 +226,7 @@ class CustomLyricsReplacementSession(
             synchronized(lock) {
                 pendingPrepares.remove(appleMusicId)
             }
+            if(preparingPresentation!=null && preparingPresentation!=presentationKey()) request(appleMusicId,false)
         }
     }
 

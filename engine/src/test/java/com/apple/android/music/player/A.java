@@ -2,7 +2,6 @@ package com.apple.android.music.player;
 import java.lang.reflect.Method;
 import java.util.List;
 import android.widget.TextView;
-import android.text.Html;
 import androidx.recyclerview.widget.RecyclerView$D;
 import com.apple.android.music.common.views.FullWidthAlphaGradientFlexboxLayout;
 import com.apple.android.music.ttml.javanative.model.LyricsLine;
@@ -26,7 +25,8 @@ public class A extends n1 {
  public static class LinePtr { public LyricsLine.LyricsLineNative line=new LyricsLine.LyricsLineNative(); public LyricsLine.LyricsLineNative get() { return line; } }
  public static class Processor { public LinePtr value=new LinePtr(); public LinePtr a(int index) { return value; } }
  public void U(String text, FullWidthAlphaGradientFlexboxLayout words,int layout,boolean rtl,int align) {
-  TextView view=new TextView(words.getContext());view.setText(Html.fromHtml(text,0));words.addView(view);
+  // Verified 1609 A.U passes the supplied CharSequence straight to PrecomputedText.
+  TextView view=new TextView(words.getContext());view.setText(text);words.addView(view);
  }
  public void b0(String text, int unused, FullWidthAlphaGradientFlexboxLayout words,int layout,int extra,boolean rtl,int align) {
   // Intentionally no nested hook dispatch: the outer bind must suffice.

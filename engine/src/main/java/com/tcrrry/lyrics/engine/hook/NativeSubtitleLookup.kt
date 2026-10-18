@@ -5,6 +5,7 @@ internal class NativeSubtitleLookup(ttml: String) {
     data class Tracks(val pronunciation: String?, val translation: String?)
     private fun normalize(value: String): String = LyricsAuxiliaryText.plain(value)
         .replace(Regex("[\\s\\u00a0]+"), "")
+        .let(com.tcrrry.lyrics.engine.lyrics.ChineseTextKey::of)
     private val byOriginal: Map<String, Tracks>
     val hasPronunciation: Boolean
     val hasTranslation: Boolean

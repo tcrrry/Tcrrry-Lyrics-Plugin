@@ -42,6 +42,44 @@ class TcrrrySettingsLayoutAndroidTest {
         assertTrue(row.performClick())
     }
 
+    @Test fun translationUsesInlineLiquidSegmentsAndNoManualSourceLanguage() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        activity.pluginPreferences("supplement_translation", Context.MODE_PRIVATE).edit()
+            .putString("mode", "offline").putString("offline_source_language", "ko").commit()
+        openMenu(page(activity), "翻译与注音")
+        val root = ShadowAlertDialog.getLatestAlertDialog().window!!.decorView
+        val group = views(root).filterIsInstance<SettingsSegmentedControl>().single { it.heading == "补充翻译" }
+        assertTrue(group.inlineGlass)
+        assertEquals(listOf("关闭", "离线机翻", "自定义 API"), group.choices)
+        assertFalse(texts(root).any { it.text.toString().startsWith("原语言：") })
+        assertFalse(texts(root).any { it.text.toString().startsWith("打开离线翻译") })
+        assertEquals(1,views(root).filterIsInstance<android.widget.EditText>().size)
+        assertTrue(texts(root).any { it.text=="已下载语言包" })
+        assertTrue(texts(root).any { it.text=="检测离线翻译" })
+    }
+    @Test fun simplifiedChineseUsesTheSharedLightweightToggleAndPersistsBothDirections() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val policy = com.tcrrry.lyrics.engine.lyrics.LyricsPreference
+        var refreshes = 0
+        CurrentLyricsSourceStatus.installRefreshHandler { _, _ -> refreshes++; true }
+        try {
+            assertFalse(policy.simplifiedChinese(activity))
+            openMenu(page(activity), "翻译与注音")
+            val root = ShadowAlertDialog.getLatestAlertDialog().window!!.decorView
+            val toggle = texts(root).single { it.contentDescription == "繁体转简体" }
+            assertNull(SettingsGlassMaterial.style(toggle))
+            assertFalse(toggle.isSelected)
+            val revision = policy.revision(activity)
+            toggle.performClick()
+            assertTrue(toggle.isSelected)
+            assertTrue(policy.simplifiedChinese(activity))
+            assertEquals(revision + 1, policy.revision(activity))
+            toggle.performClick()
+            assertFalse(policy.simplifiedChinese(activity))
+            assertEquals(2, refreshes)
+        } finally { CurrentLyricsSourceStatus.installRefreshHandler { _, _ -> false } }
+    }
+
     @Test fun languageSearchFiltersAndSelectsWithoutResizingItsPopup() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         var selected = ""
@@ -459,7 +497,7 @@ class TcrrrySettingsLayoutAndroidTest {
             assertTrue(commands.isNotEmpty())
             commands.forEach { view ->
                 val style = SettingsGlassMaterial.style(view)
-                if (view.contentDescription in setOf("隐藏开头署名", "日语注音", "韩语注音", "当前歌曲粤语注音", "新版本自动提醒", "强制覆盖循环方式", "短单元平滑")) {
+                if (view.contentDescription in setOf("繁体转简体", "隐藏开头署名", "日语注音", "韩语注音", "当前歌曲粤语注音", "新版本自动提醒", "强制覆盖循环方式", "短单元平滑")) {
                     assertNull(style)
                     return@forEach
                 }

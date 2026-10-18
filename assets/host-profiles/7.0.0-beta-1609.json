@@ -3801,5 +3801,109 @@
         "W": "U"
       }
     }
+  },
+  "lyricResultSubmission": {
+    "contractVersion": 1,
+    "methods": {
+      "resultSet": {
+        "owner": "androidx.lifecycle.H",
+        "name": "setValue",
+        "parameters": [
+          "java.lang.Object"
+        ],
+        "returns": "void",
+        "static": false
+      },
+      "resultPost": {
+        "owner": "androidx.lifecycle.H",
+        "name": "postValue",
+        "parameters": [
+          "java.lang.Object"
+        ],
+        "returns": "void",
+        "static": false
+      },
+      "buildIndex": {
+        "owner": "com.apple.android.music.player.viewmodel.PlayerLyricsViewModel",
+        "name": "buildTimeRangeToLyricsMap",
+        "parameters": [
+          "com.apple.android.music.ttml.javanative.model.SongInfo$SongInfoPtr"
+        ],
+        "returns": "void",
+        "static": false
+      },
+      "loadLyrics": {
+        "owner": "com.apple.android.music.player.viewmodel.PlayerLyricsViewModel",
+        "name": "loadLyrics",
+        "parameters": [
+          "com.apple.android.music.model.PlaybackItem"
+        ],
+        "returns": "void",
+        "static": false
+      },
+      "systemLyricsLanguage": {
+        "owner": "com.apple.android.music.player.viewmodel.PlayerLyricsViewModel",
+        "name": "getCurrentSystemLyricsLanguage",
+        "parameters": [],
+        "returns": "java.lang.String",
+        "static": false
+      },
+      "pointerGet": {
+        "owner": "com.apple.android.music.ttml.javanative.model.SongInfo$SongInfoPtr",
+        "name": "get",
+        "parameters": [],
+        "returns": "com.apple.android.music.ttml.javanative.model.SongInfo$SongInfoNative",
+        "static": false
+      },
+      "pointerAdamId": {
+        "owner": "com.apple.android.music.ttml.javanative.model.SongInfo$SongInfoNative",
+        "name": "getAdamId",
+        "parameters": [],
+        "returns": "long",
+        "static": false
+      },
+      "pointerScript": {
+        "owner": "com.apple.android.music.ttml.javanative.model.SongInfo$SongInfoNative",
+        "name": "setScript",
+        "parameters": [
+          "java.lang.String"
+        ],
+        "returns": "boolean",
+        "static": false
+      },
+      "clear": {
+        "owner": "com.apple.android.music.player.viewmodel.PlayerLyricsViewModel",
+        "name": "onCleared",
+        "parameters": [],
+        "returns": "void",
+        "static": false
+      },
+      "resultValue": {
+        "owner": "androidx.lifecycle.H",
+        "name": "getValue",
+        "parameters": [],
+        "returns": "java.lang.Object",
+        "static": false
+      },
+      "fragmentResume": {
+        "owner": "com.apple.android.music.player.fragment.PlayerLyricsViewFragment",
+        "name": "onResume",
+        "parameters": [],
+        "returns": "void",
+        "static": false
+      }
+    },
+    "fields": {
+      "fragmentViewModel": {
+        "owner": "com.apple.android.music.player.fragment.PlayerLyricsViewFragment",
+        "name": "m1",
+        "type": "com.apple.android.music.player.viewmodel.PlayerLyricsViewModel"
+      },
+      "lyricsResult": {
+        "owner": "com.apple.android.music.player.viewmodel.PlayerLyricsViewModel",
+        "name": "mLyricsResult",
+        "type": "androidx.lifecycle.MutableLiveData"
+      }
+    }
   }
 }

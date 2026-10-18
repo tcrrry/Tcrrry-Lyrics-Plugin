@@ -19,6 +19,23 @@ class TtmlSubtitleTrackTest {
         assertTrue(!cleaned.contains("<translations>"))
         assertTrue(cleaned.contains("xml:lang=\"zh\""))
     }
+    @Test fun mixedLanguageChineseSubtitleRebuildDoesNotSerializeTimedSpansAsText() {
+        val body = "<body><div>" +
+            "<p itunes:key=\"L1\" begin=\"20s\" end=\"22s\"><span begin=\"20s\" end=\"22s\">寂寞寂寞不好</span></p>" +
+            "<p itunes:key=\"L2\" begin=\"22s\" end=\"24s\"><span begin=\"22s\" end=\"24s\">with you</span></p>" +
+            "<p itunes:key=\"L3\" begin=\"28.972\" end=\"30s\"><span begin=\"28.972\" end=\"30s\">I'm sorry 我不是壞男孩</span></p>" +
+            "</div></body>"
+        val raw = "<tt itunes:timing=\"Word\"><head><metadata><translations>" +
+            "<translation type=\"subtitle\" xml:lang=\"zh-Hans\">" +
+            "<text for=\"L1\">寂寞寂寞不好</text><text for=\"L2\">与你一起</text>" +
+            "<text for=\"L3\"><span begin=\"28.972\" end=\"29.183\" xmlns=\"http://www.w3.org/ns/ttml\">I'm </span>" +
+            "<span begin=\"29.183\" end=\"29.791\" xmlns=\"http://www.w3.org/ns/ttml\">sorry 我不是坏男孩</span></text>" +
+            "</translation></translations></metadata></head>$body</tt>"
+        val cleaned = TtmlSubtitleTrack.cleanChineseSubtitles(raw)
+        assertTrue(cleaned.contains(body))
+        assertTrue("timed structure must never become literal subtitle text", !cleaned.contains("&lt;span"))
+        assertEquals("I'm sorry 我不是坏男孩", TtmlSubtitleTrack.subtitleValues(cleaned)[2])
+    }
     @Test fun `fallback supplement preserves duet agents and alignment`() {
         val body = "<body><div><p ttm:agent=\"v1\" tts:textAlign=\"start\" itunes:key=\"L1\">hello</p>" +
             "<p ttm:agent=\"v2\" tts:textAlign=\"end\" itunes:key=\"L2\">goodbye</p></div></body>"

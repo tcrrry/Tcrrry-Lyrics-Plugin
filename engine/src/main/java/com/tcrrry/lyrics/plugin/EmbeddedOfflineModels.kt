@@ -9,6 +9,7 @@ internal interface OfflineModelBackend {
     val languages: List<String>
     fun query(complete: (Set<String>?, String?) -> Unit)
     fun download(language: String, complete: (String?) -> Unit)
+    fun download(language: String, progress: (android.os.Bundle) -> Unit, complete: (String?) -> Unit) = download(language,complete)
     fun delete(language: String, complete: (String?) -> Unit)
 }
 
@@ -27,6 +28,11 @@ internal object EmbeddedOfflineModels {
             }
             override fun download(language: String, complete: (String?) -> Unit) {
                 download.invoke(receiver, activity, language, Consumer<String?> { complete(it) })
+            }
+            override fun download(language: String, progress: (android.os.Bundle) -> Unit, complete: (String?) -> Unit) {
+                val richer=runCatching { type.getMethod("downloadModelsWithProgress",Context::class.java,String::class.java,Consumer::class.java,Consumer::class.java) }.getOrNull()
+                if(richer==null) download(language,complete)
+                else richer.invoke(receiver,activity,language,Consumer<android.os.Bundle> { progress(it) },Consumer<String?> { complete(it) })
             }
             override fun delete(language: String, complete: (String?) -> Unit) {
                 delete.invoke(receiver, activity, language, Consumer<String?> { complete(it) })

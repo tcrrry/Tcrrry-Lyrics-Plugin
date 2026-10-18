@@ -58,7 +58,7 @@ class LanguagePronunciationSupplementTest {
     @Test fun bundledCantoneseWordsOverrideCharacterReadingsAndSupportSimplified() {
         val simplify = Transliterator.getInstance("Traditional-Simplified")
         val dictionary = LanguagePronunciationSupplement.Cantonese(listOf(asset("yue/jyut6ping3.chars.dict.yaml"), asset("yue/jyut6ping3.words.dict.yaml")), simplify::transliterate)
-        assertEquals("nei5 hou2", dictionary.units("你好")!!.joinToString(" ") { it.text })
+        assertEquals("nei hou", dictionary.units("你好")!!.joinToString(" ") { it.text })
         assertEquals(dictionary.units("愛情")!!.map { it.text }, dictionary.units("爱情")!!.map { it.text })
         assertEquals(2, dictionary.units("你好")!!.size)
         assertNull(dictionary.units("안녕")); assertNull(dictionary.units("unknown"))
@@ -101,8 +101,94 @@ class LanguagePronunciationSupplementTest {
     }
     @Test fun cantoneseUsesWeightedReadingsAndLongestPhrasesWithoutMakingUpUnknownCharacters() {
         val dictionary = LanguagePronunciationSupplement.Cantonese(listOf("行\thong4\t1%\n行\thang4\t9%\n動\tdung6\n行動\thang4 dung6\n你\tnei5")) { it }
-        assertEquals(listOf("hang4", "dung6"), dictionary.units("行動")!!.map { it.text })
-        assertEquals(listOf("hang4"), dictionary.units("行")!!.map { it.text })
+        assertEquals(listOf("hang", "dung"), dictionary.units("行動")!!.map { it.text })
+        assertEquals(listOf("hang"), dictionary.units("行")!!.map { it.text })
         assertNull(dictionary.units("你𰻞"))
     }
+    @Test fun cantoneseKeepsUtf16OffsetsForSupplementaryHanAndMixedLatinWords() {
+        val dictionary=LanguagePronunciationSupplement.Cantonese(listOf("你\tnei5\n好\thou2\n𠀀\tjat1")) { it }
+        val units=requireNotNull(dictionary.units("你，𠀀好 Hello!"))
+        assertEquals(listOf("nei","ya","hou","Hello"),units.map { it.text })
+        assertEquals(listOf("你","𠀀","好","Hello"),units.map { "你，𠀀好 Hello!".substring(it.start,it.end) })
+        assertEquals(listOf(0 to 1,2 to 4,4 to 5,6 to 11),units.map { it.start to it.end })
+        assertEquals(listOf("nei5","jat1","hou2"),dictionary.alignedUnits("你，𠀀好","nei5 jat1 hou2")!!.map { it.text })
+        assertNull(dictionary.alignedUnits("你好","hou2 nei5"))
+        assertNull(dictionary.alignedUnits("你好","nei5"))
+    }
+    @Test fun singleCycleFixtureHasOneTonelessReadingPerHanAndNativeReadingsSurviveToggles() {
+        val simplify=Transliterator.getInstance("Traditional-Simplified")
+        val dictionary=LanguagePronunciationSupplement.Cantonese(listOf(asset("yue/jyut6ping3.chars.dict.yaml"),asset("yue/jyut6ping3.words.dict.yaml")),simplify::transliterate)
+        val text="不要不要假设我知道"
+        val units=requireNotNull(dictionary.units(text))
+        assertEquals(text.codePointCount(0,text.length),units.size)
+        assertEquals(text,units.joinToString("") { text.substring(it.start,it.end) })
+        assertTrue(units.all { it.text.none(Char::isDigit) })
+        val platform="bat1 jiu3 bat1 jiu3 gaa2 cit3 ngo5 zi1 dou6"
+        assertEquals(platform.split(' '),dictionary.alignedUnits(text,platform)!!.map { it.text })
+        assertEquals(platform.split(' ').map { it.dropLast(1) },dictionary.alignedUnits(text,platform.replace(Regex("[1-6]"),""))!!.map { it.text })
+        val source=Result(lyrics="[00:01]$text",romanizedLyrics="[00:01]$platform",source="QQ音乐")
+        assertSame(source,LanguagePronunciationSupplement.fill(source,false,true,null,dictionary))
+        assertSame(source,LanguagePronunciationSupplement.fill(source,false,false,null,dictionary))
+        val generated=LanguagePronunciationSupplement.fill(source.copy(romanizedLyrics=""),false,true,null,dictionary)
+        assertTrue(generated.romanizedLyrics.endsWith(units.joinToString(" ") { it.text }))
+    }
+    @Test fun cantoneseProviderRubyAndEmphasisUseActualWordIntervals() {
+        val text="不要不要假设我知道"
+        val reading="bat1 jiu3 bat1 jiu3 gaa2 cit3 ngo5 zi1 dou6"
+        val ruby=requireNotNull(JapaneseRubyAlignment.align(text,reading))
+        assertEquals(text.length,ruby.units.size)
+        assertEquals(text,ruby.units.joinToString("") { text.substring(it.start,it.end) })
+        val words=text.mapIndexed { i,c -> Triple(1000L+i*200,1200L+i*200,c.toString()) }
+        val aligned=requireNotNull(DesktopLyricsTtmlConverter.alignNativePronunciation(words,reading))
+        assertEquals(words.map { it.first to it.second },aligned.map { it.first to it.second })
+        assertEquals(reading,aligned.joinToString("") { it.third })
+    }
+
+    @Test fun explicitCantoneseSongKeepsQqSpellingAndMapsEveryProviderSyllable() {
+        val text="不要不要假设我知道"
+        val qqReading="ba yiu ba yiu ga ci o zi dou"
+        val source=Result(lyrics="[00:01]$text",romanizedLyrics="[00:01]$qqReading",source="QQ音乐")
+        assertSame(source,LanguagePronunciationSupplement.fill(source,false,true,null,null))
+        val ruby=requireNotNull(JapaneseRubyAlignment.align(text,qqReading))
+        assertEquals(qqReading.split(' '),ruby.units.map { it.reading })
+        assertEquals(text,ruby.units.joinToString("") { text.substring(it.start,it.end) })
+        assertSame(source,LanguagePronunciationSupplement.fill(source,false,false,null,null))
+        assertNotNull(JapaneseRubyAlignment.align(text,qqReading))
+        val words=text.mapIndexed { i,c -> Triple(1000L+i*200,1200L+i*200,c.toString()) }
+        assertEquals(words.map { it.first to it.second },DesktopLyricsTtmlConverter.alignNativePronunciation(words,qqReading)!!.map { it.first to it.second })
+    }
+
+    @Test fun offlineCantoneseUsesStableQqStyleDisplayAndStillAlignsEveryCharacter() {
+        assertEquals("ba yiu ga ci o",listOf("bat1","jiu3","gaa2","cit3","ngo5").joinToString(" ") { CantoneseReadingDisplay.convert(it) })
+        assertEquals("ng",CantoneseReadingDisplay.convert("ng5"))
+        val text="不要不要假设我知道"
+        val dictionary=LanguagePronunciationSupplement.Cantonese(listOf("不\tbat1\n要\tjiu3\n假\tgaa2\n设\tcit3\n我\tngo5\n知\tzi1\n道\tdou6")) { it }
+        val filled=LanguagePronunciationSupplement.fill(Result(lyrics="[00:01]$text"),false,true,null,dictionary)
+        val reading=filled.romanizedLyrics.substringAfter(']')
+        assertEquals("ba yiu ba yiu ga ci o zi dou",reading)
+        assertEquals(text.length,JapaneseRubyAlignment.align(text,reading)!!.units.size)
+        assertEquals("bat1",dictionary.alignedUnits("不","bat1")!!.single().text)
+        assertFalse(filled.supplementalPronunciationUnits.getValue(1000L).any { it.text.any(Char::isDigit) })
+    }
+
+    @Test fun traditionalProviderRowRetainsCharacterAlignmentAfterSimplifiedDisplay() {
+        val source=Result(lyrics="[00:01]難離難捨想抱緊些",romanizedLyrics="[00:01]naan lei naan se soeng pou gan se")
+        LanguagePronunciationSupplement.fill(source,false,true,null,null)
+        val aligned=requireNotNull(JapaneseRubyAlignment.align("难离难舍想抱紧些","naan lei naan se soeng pou gan se"))
+        assertEquals(8,aligned.units.size)
+        assertEquals((0..7).toList(),aligned.units.map { it.start })
+    }
+
+    @Test fun cantoneseMixedLatinProviderUnitsPreserveLiteralWordsAndRejectMissingSounds() {
+        val engine=LanguagePronunciationSupplement.Cantonese(emptyList()) { it }
+        val original="Where did you go 數數多久不碰到"
+        val reading="Where did you go sou sou do gau ba pung dou"
+        val units=requireNotNull(engine.providerUnits(original,reading))
+        assertEquals(listOf("Where","did","you","go","sou","sou","do","gau","ba","pung","dou"),units.map { it.text })
+        assertEquals(listOf("Where","did","you","go","數","數","多","久","不","碰","到"),units.map { original.substring(it.start,it.end) })
+        assertNull(engine.providerUnits(original,reading.replace("sou sou","sou")))
+        assertNull(engine.providerUnits(original,reading.replace("Where","When")))
+        assertNull(engine.providerUnits("僕の聲","boku no koe"))
+    }
+
 }

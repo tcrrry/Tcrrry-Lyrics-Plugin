@@ -4,9 +4,9 @@
   "id": "com.tcrrry.lyrics",
   "name": "Tcrrry 歌词增强",
   "author": "Tcrrry",
-  "versionName": "1.0.8",
-  "versionCode": 36,
+  "versionName": "1.0.9",
+  "versionCode": 53,
   "entryClass": "com.tcrrry.lyrics.plugin.LyricsPlugin",
   "minAndroidApi": 31,
-  "description": "开头署名过滤、玻璃语言选项和语言搜索；融合 1609 播放模式修复与原生电台循环按钮。歌词支持 1606、1609。"
+  "description": "修复搜索输入法，重做语言包管理；离线机翻由可选的 Tcrrry 离线翻译插件提供。保留 1017 适配、繁简转换及原有歌词功能。"
 }

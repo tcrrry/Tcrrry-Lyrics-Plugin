@@ -89,7 +89,7 @@ internal class FallbackLyricsTranslation(private val context: Context,
             .put("album", it.album).put("duration", it.durationMs).toString() }.orEmpty()
         val key = "$id|${candidate.source}|$digest|$mode|$revision|" +
             "${pronunciationPrefs.getBoolean("enabled", true)}|${pronunciationPrefs.getBoolean("korean_enabled", true)}|${pronunciationPrefs.getBoolean("cantonese_$id", false)}|" +
-            "${prefs.getString("active_api_profile", "")}|${prefs.getString("offline_source_language", "auto")}|$identity"
+            "${prefs.getString("active_api_profile", "")}|auto-v2|$identity"
         val cached = completed[key]
         if (cached != null && now() < cached.retryAt) return present(cached.candidate)
         if (working.add(key)) {
@@ -188,8 +188,7 @@ internal object TtmlSubtitleTrack {
             key.find(match.groupValues[1])?.groupValues?.get(2) ?: "TcrrryL${index + 1}"
         }
         val entries = Regex("(?is)<text\\b[^>]*\\bfor=[\"']([^\"']+)[\"'][^>]*>(.*?)</text>")
-            .findAll(track.value).associate { it.groupValues[1] to it.groupValues[2]
-                .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">") }
+            .findAll(track.value).associate { it.groupValues[1] to LyricsAuxiliaryText.plain(it.groupValues[2]) }
         val useful = ids.mapIndexedNotNull { index, id ->
             ChineseSubtitlePolicy.usable(rows.getOrElse(index) { "" }, entries[id])?.let { index to it }
         }.toMap()
@@ -317,7 +316,7 @@ internal object TtmlSubtitleTrack {
         tag = if (Regex("\\bxml:lang\\s*=").containsMatchIn(tag)) {
             tag.replace(Regex("\\bxml:lang\\s*=\\s*([\"']).*?\\1"), "xml:lang=\"ko\"")
         } else tag.dropLast(1) + " xml:lang=\"ko\">"
-        return modified.replaceRange(rootMatch.range, tag)
+        return TtmlOriginalLanguage.preserve(ttml,modified.replaceRange(rootMatch.range, tag))
     }
 
     private fun escape(text: String) = text.replace("&", "&amp;").replace("<", "&lt;")

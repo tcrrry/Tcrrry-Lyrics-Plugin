@@ -9,15 +9,20 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.LinearLayout
+import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.fillMaxSize
 import kotlin.math.abs
 
 /** Native measurement and accessibility remain available when host glass cannot load. */
 internal class SettingsSegmentedControl(context: Context, val heading: String,
-    val choices: List<String>, selected: Int, private val choose: (Int) -> Unit) : LinearLayout(context) {
+    val choices: List<String>, selected: Int, private val choose: (Int) -> Unit) : FrameLayout(context) {
+    var inlineGlass = false
+    private var liquid: SettingsGlassHostView? = null
+    private val nativeLabels = LinearLayout(context).apply { orientation = LinearLayout.HORIZONTAL }
     var selectedIndex by mutableIntStateOf(selected.coerceIn(choices.indices))
         private set
     var glassActive = false
@@ -38,15 +43,32 @@ internal class SettingsSegmentedControl(context: Context, val heading: String,
 
     init {
         require(choices.size >= 2)
-        orientation = HORIZONTAL
-        setPadding(dp(4), dp(4), dp(4), dp(4))
+        nativeLabels.setPadding(dp(4), dp(4), dp(4), dp(4))
+        addView(nativeLabels, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         SettingsGlassMaterial.mark(this, SettingsGlassKind.Segments)
         labels.forEachIndexed { index, label ->
             SettingsGlassMaterial.mark(label, SettingsGlassKind.Button)
             label.setOnClickListener { select(index) }
-            addView(label, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            nativeLabels.addView(label, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.MATCH_PARENT, 1f))
         }
         paintSelection()
+    }
+
+    fun attachInlineGlass(backdrop: com.kyant.backdrop.Backdrop, colors: SettingsColors,
+        hostContext: Context = settingsGlassContext(context)) {
+        if (!inlineGlass || liquid != null) return
+        val host = SettingsGlassHostView(hostContext)
+        host.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+        host.content { SettingsLiquidSegments(this, backdrop, colors, androidx.compose.ui.Modifier.fillMaxSize()) }
+        addView(host, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        liquid = host
+        glassActive = true
+    }
+
+    fun releaseInlineGlass() {
+        liquid?.let(::removeView)
+        liquid = null
+        glassActive = false
     }
 
     fun select(index: Int) {
@@ -75,6 +97,8 @@ internal class SettingsSegmentedControl(context: Context, val heading: String,
     private fun dp(value: Int) = (value * resources.displayMetrics.density + .5f).toInt()
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        // A local Compose host follows the same ScrollView transform as its labels.
+        if (liquid != null) return super.dispatchTouchEvent(event)
         if (glassActive) return super.dispatchTouchEvent(event)
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> { downX = event.x; downY = event.y; dragging = false }

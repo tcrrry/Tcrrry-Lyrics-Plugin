@@ -65,4 +65,112 @@ class CrossSourceAuxiliaryTest {
         assertEquals(1, Regex("<text for=\"L2\"").findAll(filled).count())
         assertEquals("星星的光", TtmlSubtitleTrack.subtitleValues(filled)[1])
     }
+    @Test fun offlineCantoneseDoesNotReplaceExistingPlatformPronunciationOrTimedBody() {
+        val context=org.robolectric.RuntimeEnvironment.getApplication()
+        com.tcrrry.lyrics.plugin.PluginStorage.run {
+            context.pluginPreferences("japanese_pronunciation",0).edit().putBoolean("cantonese_777",true).commit()
+        }
+        val native="<tt xmlns:itunes=\"urn\" itunes:timing=\"Word\"><body><div><p begin=\"1s\" end=\"3s\" itunes:key=\"L1\"><span begin=\"1s\" end=\"2s\">你</span><span begin=\"2s\" end=\"3s\">好</span></p></div></body></tt>"
+        val existing=requireNotNull(TtmlSubtitleTrack.attachPronunciation(native,mapOf(0 to "nei5 hou2")))
+        val filled=CrossSourceAuxiliary.dictionary(context,777,existing)
+        assertEquals(mapOf(0 to "nei5 hou2"),TtmlSubtitleTrack.subtitleValues(filled,true))
+        assertEquals(existing.substringAfter("<body>"),filled.substringAfter("<body>"))
+    }
+
+    @Test fun completeCantoneseTrackSurvivesDictionaryEnrichmentAndNativeLookup() {
+        val fixture=System.getProperty("cantoneseFixture")
+        org.junit.Assume.assumeNotNull(fixture)
+        val entries=org.json.JSONArray(java.io.File(fixture!!).readText())
+        val context=org.robolectric.RuntimeEnvironment.getApplication()
+        com.tcrrry.lyrics.plugin.PluginStorage.run {
+            context.pluginPreferences("japanese_pronunciation",0).edit().putBoolean("cantonese_777",true).commit()
+        }
+        fun stamp(ms:Long)=java.lang.String.format(java.util.Locale.US,"%d:%02d.%03d",ms/60000,ms/1000%60,ms%1000)
+        val traditional=android.icu.text.Transliterator.getInstance("Simplified-Traditional")
+        val text=(0 until entries.length()).map { traditional.transliterate(entries.getJSONObject(it).getString("text")) }
+        val primary=buildString {
+            append("<tt xmlns:itunes=\"urn\" itunes:timing=\"Line\"><body><div>")
+            text.forEachIndexed { i,value ->
+                val row=entries.getJSONObject(i);val start=row.getLong("start")
+                append("<p begin=\"${stamp(start)}\" end=\"${stamp(start+row.getLong("duration"))}\" itunes:key=\"L$i\">$value</p>")
+            }
+            append("</div></body></tt>")
+        }
+        val filled=CrossSourceAuxiliary.dictionary(context,777,primary)
+        val values=TtmlSubtitleTrack.subtitleValues(filled,true)
+        val expected=text.indices.filter { text[it].any { c -> c in '\u4e00'..'\u9fff' } }
+        assertEquals("pronunciation row coverage",expected.size,expected.count { !values[it].isNullOrBlank() })
+        val lookup=NativeSubtitleLookup(filled)
+        val displayed=text.map(com.tcrrry.lyrics.engine.lyrics.ChineseTextKey::of)
+        assertEquals("native row lookup coverage after simplified display",expected.size,expected.count { !lookup.forOriginal(displayed[it])?.pronunciation.isNullOrBlank() })
+        assertEquals(primary.substringAfter("<body>"),filled.substringAfter("<body>"))
+        fun lrc(i:Int,value:String):String {
+            val start=entries.getJSONObject(i).getLong("start")
+            return java.lang.String.format(java.util.Locale.US,"[%02d:%02d.%03d]%s",start/60000,start/1000%60,start%1000,value)
+        }
+        val qq=DirectLyricsRepository.Result(source="QQ音乐",
+            lyrics=displayed.mapIndexed { i,value -> lrc(i,value) }.joinToString("\n"),
+            romanizedLyrics=displayed.indices.map { i -> lrc(i,entries.getJSONObject(i).optString("reading")) }.joinToString("\n"))
+        val qqTrack=CrossSourceAuxiliary.enrich(primary,qq)
+        val qqLookup=NativeSubtitleLookup(qqTrack)
+        val qqRows=displayed.indices.filter { i -> entries.getJSONObject(i).optString("reading").matches(Regex("[A-Za-z ]+")) }
+        assertEquals(40,qqRows.size)
+        assertEquals("full QQ track native lookup coverage",40,qqRows.count { !qqLookup.forOriginal(displayed[it])?.pronunciation.isNullOrBlank() })
+        assertEquals("full QQ track character alignment coverage",40,qqRows.count {
+            com.tcrrry.lyrics.engine.lyrics.JapaneseRubyAlignment.align(displayed[it],qqLookup.forOriginal(displayed[it])!!.pronunciation!!)!=null
+        })
+    }
+
+    @Test fun qqCantoneseMergesAcrossHanVariantsAndAlignsWithoutOfflineOptIn() {
+        val context=org.robolectric.RuntimeEnvironment.getApplication()
+        com.tcrrry.lyrics.plugin.PluginStorage.run {
+            context.pluginPreferences("japanese_pronunciation",0).edit().putBoolean("cantonese_777",false).commit()
+        }
+        val originals=listOf("難離難捨想抱緊些","茫茫人生好像荒野","常情如此不可推卸","任世間再冷酷想起這單車")
+        val displayed=listOf("难离难舍想抱紧些","茫茫人生好像荒野","常情如此不可推卸","任世间再冷酷想起这单车")
+        val readings=listOf("naan lei naan se soeng pou gan se","mong mong yan sang hou zoeng fong ye","soeng cing yu ci ba ho tui se","yam sai gaan zoi laang huk soeng hei ze daan ce")
+        val primary="<tt xmlns:itunes=\"urn\" itunes:timing=\"Line\"><body><div>"+originals.mapIndexed { i,text ->
+            "<p begin=\"${i*5+1}s\" end=\"${i*5+4}s\" itunes:key=\"L$i\">$text</p>"
+        }.joinToString("")+"</div></body></tt>"
+        val source=DirectLyricsRepository.Result(source="QQ音乐",
+            lyrics=displayed.mapIndexed { i,text -> "[00:${(i*5+1).toString().padStart(2,'0')}]$text" }.joinToString("\n"),
+            romanizedLyrics=readings.mapIndexed { i,text -> "[00:${(i*5+1).toString().padStart(2,'0')}]$text" }.joinToString("\n"))
+        val merged=CrossSourceAuxiliary.enrich(primary,source)
+        assertEquals(4,TtmlSubtitleTrack.subtitleValues(merged,true).values.count { it.isNotBlank() })
+        val lookup=NativeSubtitleLookup(merged)
+        displayed.forEachIndexed { i,text ->
+            assertEquals(readings[i],lookup.forOriginal(text)!!.pronunciation)
+            assertEquals(text.length,com.tcrrry.lyrics.engine.lyrics.JapaneseRubyAlignment.align(text,readings[i])!!.units.size)
+        }
+        assertEquals(primary.substringAfter("<body>"),merged.substringAfter("<body>"))
+    }
+
+    @Test fun mixedEnglishCantoneseSourceRegistersReadingEvenWhenPrimaryIsAppleNative() {
+        val original="Where did you go 數數多久不碰到"
+        val reading="Where did you go sou sou do gau ba pung dou"
+        val primary="<tt xmlns:itunes=\"urn\" itunes:timing=\"Word\"><body><div><p begin=\"1s\" end=\"4s\" itunes:key=\"L1\">$original</p><p begin=\"5s\" end=\"8s\" itunes:key=\"L2\">Whoa whoa</p></div></body></tt>"
+        val source=DirectLyricsRepository.Result(source="QQ音乐",lyrics="[00:01]$original\n[00:05]Whoa whoa",
+            romanizedLyrics="[00:01]$reading\n[00:05]Whoa whoa")
+        val merged=CrossSourceAuxiliary.enrich(primary,source)
+        assertEquals(primary.substringAfter("<body>"),merged.substringAfter("<body>"))
+        val tracks=NativeSubtitleLookup(merged)
+        val units=requireNotNull(com.tcrrry.lyrics.engine.lyrics.JapaneseRubyAlignment.align(original,tracks.forOriginal(original)!!.pronunciation!!))
+        assertTrue(units.perCharacter);assertEquals(11,units.units.size)
+        // Cache replay retains provider provenance even without a platform primary marker.
+        val cached=TtmlAuxiliaryOrigins(pronunciation=setOf("QQ音乐")).attach(merged)
+        val pointer=Any();NativeLyricsPronunciationSubtitle.remember(pointer,cached)
+        assertTrue(NativeLyricsPronunciationSubtitle.isManaged(pointer))
+        assertEquals(reading,NativeLyricsPronunciationSubtitle.lineSubtitles(pointer,original)!!.pronunciation)
+    }
+
+    @Test fun explicitJapaneseKanjiDocumentNeverUsesCantoneseProviderColumns() {
+        val japanese="<tt xml:lang=\"ja\" xmlns:itunes=\"urn\"><body><div><p begin=\"1s\" end=\"3s\" itunes:key=\"L1\">桜</p></div></body></tt>"
+        val platform=DirectLyricsRepository.Result(source="QQ音乐",lyrics="[00:01]桜",romanizedLyrics="[00:01]sakura")
+        val merged=CrossSourceAuxiliary.enrich(japanese,platform)
+        val pointer=Any()
+        NativeLyricsPronunciationSubtitle.remember(pointer,TtmlAuxiliaryOrigins(pronunciation=setOf("QQ音乐")).attach(merged))
+        val aligned=requireNotNull(com.tcrrry.lyrics.engine.lyrics.JapaneseRubyAlignment.align("桜","sakura"))
+        assertFalse(aligned.perCharacter)
+    }
+
 }

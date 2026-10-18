@@ -40,5 +40,8 @@ dependencies {
  testImplementation(glassHost)
 }
 tasks.withType<Test>().configureEach {
+    providers.gradleProperty("koreanFixtureDir").orNull?.let { systemProperty("koreanFixtureDir", it); inputs.files(fileTree(it) { include("*-netease.json") }) }
+    providers.gradleProperty("cantoneseFixture").orNull?.let { systemProperty("cantoneseFixture", it); inputs.file(it) }
     providers.gradleProperty("fullPluginFixture").orNull?.let { systemProperty("fullPluginFixture", it); inputs.file(it) }
+    providers.gradleProperty("translationPluginFixture").orNull?.let { systemProperty("translationPluginFixture", it); inputs.file(it) }
 }

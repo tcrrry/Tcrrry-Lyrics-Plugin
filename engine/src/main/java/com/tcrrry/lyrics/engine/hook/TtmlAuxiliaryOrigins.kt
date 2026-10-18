@@ -32,3 +32,17 @@ internal data class TtmlAuxiliaryOrigins(val translation: Set<String> = emptySet
         }
     }
 }
+
+/** Keep the source language when exposing auxiliary tracks uses a synthetic ko root. */
+internal object TtmlOriginalLanguage {
+    private val marker=Regex("<!--tcrrry-source-language-v1 ([A-Za-z0-9-]+)-->")
+    private val root=Regex("""(?is)<tt\b[^>]*\bxml:lang\s*=\s*["']([A-Za-z0-9-]+)["']""")
+    fun read(ttml:String):String? = marker.find(ttml.take(2048))?.groupValues?.get(1)
+        ?: root.find(ttml)?.groupValues?.get(1)
+    fun preserve(original:String,rendered:String):String {
+        if(marker.containsMatchIn(rendered.take(2048))) return rendered
+        val language=read(original) ?: return rendered
+        val comment="<!--tcrrry-source-language-v1 $language-->"
+        return if(rendered.startsWith("<?xml")) rendered.replaceFirst("?>","?>$comment") else comment+rendered
+    }
+}

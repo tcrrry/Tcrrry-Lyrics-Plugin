@@ -10,13 +10,14 @@ from host_dex import dex_classes
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('module', type=Path)
 parser.add_argument('--javap', required=True)
+parser.add_argument('--api-jar', type=Path, help='Compile-only API JAR; defaults to the plugin SDK')
 args = parser.parse_args()
 classes = {}
 with zipfile.ZipFile(args.module) as archive:
     for name in archive.namelist():
         if name.endswith('.dex'):
             classes.update(dex_classes(archive.read(name)))
-jar = Path(__file__).resolve().parents[1] / 'lib/ampp-plugin-api-v1.jar'
+jar = args.api_jar or Path(__file__).resolve().parents[1] / 'lib/ampp-plugin-api-v1.jar'
 with zipfile.ZipFile(jar) as archive:
     names = [name[:-6].replace('/', '.') for name in archive.namelist() if name.endswith('.class')]
 output = subprocess.check_output([args.javap, '-p', '-s', '-classpath', str(jar), *names], text=True)

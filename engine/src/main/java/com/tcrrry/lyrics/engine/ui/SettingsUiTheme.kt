@@ -91,6 +91,9 @@ internal object SettingsUiTheme {
                     }
                 }
                 setContentView(content)
+                // AlertController saw no editor during super.onCreate and may have blocked IME.
+                window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_ALT_FOCUSABLE_IM or
+                    android.view.WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
             }
         })
 

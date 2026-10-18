@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -39,8 +40,6 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.catalog.components.LiquidBottomTab
-import com.kyant.backdrop.catalog.components.LiquidBottomTabs
 import java.util.WeakHashMap
 import kotlin.math.abs
 
@@ -60,6 +59,24 @@ internal data class SettingsGlassBounds(val view: View, val style: SettingsGlass
     val left: Int, val top: Int, val width: Int, val height: Int,
     val clipLeft: Int, val clipTop: Int, val clipRight: Int, val clipBottom: Int,
     val opacity: Float, val focused: Boolean, val enabled: Boolean)
+
+@Composable
+internal fun SettingsLiquidSegments(group: SettingsSegmentedControl, backdrop: Backdrop,
+    colors: SettingsColors, modifier: Modifier) {
+    val density = LocalDensity.current
+    HostLiquidBottomTabs(selectedTabIndex = { group.selectedIndex },
+        onTabSelected = { if (group.isAttachedToWindow) group.select(it) },
+        backdrop = backdrop, tabsCount = group.choices.size, modifier = modifier,
+        accentOverride = Color(colors.primary), panelHeight = with(density) { group.height.toDp() }, panelBlur = 4.dp) {
+        group.choices.forEachIndexed { index, caption ->
+            HostLiquidBottomTab(onClick = { if (group.isAttachedToWindow) group.select(index) }) {
+                BasicText(caption, Modifier.padding(horizontal = 8.dp), style = TextStyle(color = Color(colors.text),
+                    fontSize = with(density) { group.labels[index].textSize.toSp() },
+                    fontWeight = FontWeight.Medium, textAlign = TextAlign.Center))
+            }
+        }
+    }
+}
 
 internal fun settingsGlassBounds(panel: ViewGroup, content: View): List<SettingsGlassBounds> {
     val origin = IntArray(2)
@@ -94,6 +111,8 @@ internal class SettingsGlassControls(private val panel: ViewGroup, private val c
         val animator: StateListAnimator?)
     private val bindings = mutableMapOf<View, Binding>()
     private var groups by mutableStateOf(emptyList<SettingsGlassBounds>())
+    private val inlineGroups = mutableSetOf<SettingsSegmentedControl>()
+    private val frosted: Backdrop
     private var enabled = false
     private var closed = false
     private var tracking: SettingsSegmentedControl? = null
@@ -107,7 +126,7 @@ internal class SettingsGlassControls(private val panel: ViewGroup, private val c
 
     init {
         host?.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-        val frosted = object : Backdrop {
+        frosted = object : Backdrop {
             override val isCoordinatesDependent = backdrop.isCoordinatesDependent
             override fun DrawScope.drawBackdrop(density: Density, coordinates: LayoutCoordinates?,
                 layerBlock: (GraphicsLayerScope.() -> Unit)?) {
@@ -123,22 +142,9 @@ internal class SettingsGlassControls(private val panel: ViewGroup, private val c
                     Box(Modifier.absoluteOffset { IntOffset(surface.clipLeft, surface.clipTop) }
                         .requiredSize(with(density) { (surface.clipRight - surface.clipLeft).toDp() },
                             with(density) { (surface.clipBottom - surface.clipTop).toDp() }).clipToBounds()) {
-                        LiquidBottomTabs(selectedTabIndex = { group.selectedIndex },
-                            onTabSelected = { index -> if (!closed && group.isAttachedToWindow) group.select(index) },
-                            backdrop = frosted, tabsCount = group.choices.size,
-                            modifier = Modifier.absoluteOffset { IntOffset(surface.left - surface.clipLeft, surface.top - surface.clipTop) }
-                                .requiredSize(with(density) { surface.width.toDp() }, with(density) { surface.height.toDp() }),
-                            accentOverride = Color(colors.primary), panelHeight = with(density) { surface.height.toDp() },
-                            panelBlur = 4.dp) {
-                            group.choices.forEachIndexed { index, caption ->
-                                LiquidBottomTab(onClick = { if (!closed) group.select(index) }) {
-                                    BasicText(caption, Modifier.padding(horizontal = 8.dp),
-                                        style = TextStyle(color = Color(colors.text),
-                                            fontSize = with(density) { group.labels[index].textSize.toSp() },
-                                            fontWeight = FontWeight.Medium, textAlign = TextAlign.Center))
-                                }
-                            }
-                        }
+                        SettingsLiquidSegments(group, frosted, colors,
+                            Modifier.absoluteOffset { IntOffset(surface.left - surface.clipLeft, surface.top - surface.clipTop) }
+                                .requiredSize(with(density) { surface.width.toDp() }, with(density) { surface.height.toDp() }))
                     }
                 } }
             }
@@ -184,6 +190,20 @@ internal class SettingsGlassControls(private val panel: ViewGroup, private val c
     private fun update() {
         if (!enabled || closed) return
         val next = settingsGlassBounds(panel, content)
+        val local = mutableSetOf<SettingsSegmentedControl>()
+        fun inline(view: View) {
+            if (view is SettingsSegmentedControl) {
+                if (view.inlineGlass) local += view
+            } else if (view is ViewGroup && view !is SettingsGlassHostView)
+                for (index in 0 until view.childCount) inline(view.getChildAt(index))
+        }
+        inline(panel)
+        inlineGroups.filter { it !in local }.forEach { it.releaseInlineGlass(); inlineGroups.remove(it) }
+        local.filter { it !in inlineGroups }.forEach { group ->
+            inlineGroups += group
+            runCatching { group.attachInlineGlass(frosted, colors) }
+                .onFailure { android.util.Log.w("TcrrrySettings", "Inline liquid selection unavailable", it) }
+        }
         // Native plates stay on their own views. Do not recreate them during each fling frame.
         val native = mutableListOf<Pair<View, SettingsGlassStyle>>()
         fun visit(view: View) {
@@ -215,7 +235,8 @@ internal class SettingsGlassControls(private val panel: ViewGroup, private val c
             return view is ViewGroup && (0 until view.childCount).any { scrollable(view.getChildAt(it)) }
         }
         // A scrolling page uses native segments, keeping their text/background in the same render node.
-        val selectors = if (host == null || scrollable(panel)) emptyList() else next.filter { it.style.kind == SettingsGlassKind.Segments }
+        val selectors = if (host == null || scrollable(panel)) emptyList() else next.filter {
+            it.style.kind == SettingsGlassKind.Segments && !(it.view as SettingsSegmentedControl).inlineGlass }
         groups.filter { old -> selectors.none { it.view === old.view } }.forEach { (it.view as SettingsSegmentedControl).glassActive = false }
         selectors.forEach { (it.view as SettingsSegmentedControl).let { group -> if (!group.glassActive) group.glassActive = true } }
         if (groups != selectors) groups = selectors
@@ -268,5 +289,7 @@ internal class SettingsGlassControls(private val panel: ViewGroup, private val c
         bindings.keys.toList().forEach(::restore)
         groups.forEach { (it.view as SettingsSegmentedControl).glassActive = false }
         groups = emptyList()
+        inlineGroups.forEach { it.releaseInlineGlass() }
+        inlineGroups.clear()
     }
 }

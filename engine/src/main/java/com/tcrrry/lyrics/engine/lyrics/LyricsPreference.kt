@@ -10,6 +10,11 @@ internal object LyricsPreference {
     fun smoothShortUnits(context: Context) = prefs(context).getBoolean("smooth_short_units", true)
     fun rubyPronunciation(context: Context) = prefs(context).getBoolean("ruby_pronunciation", false)
     fun hideOpeningCredits(context: Context) = prefs(context).getBoolean("hide_opening_credits", false)
+    fun simplifiedChinese(context: Context) = prefs(context).getBoolean("simplified_chinese", false)
+    fun updateSimplifiedChinese(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean("simplified_chinese", enabled)
+            .putInt("revision", revision(context) + 1).apply()
+    }
     fun updateHideOpeningCredits(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean("hide_opening_credits", enabled)
             .putInt("revision", revision(context) + 1).apply()

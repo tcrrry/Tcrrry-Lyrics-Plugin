@@ -1,0 +1,22 @@
+{
+  "bytes": 70593055,
+  "sha256": "c8246f3a1e0163bbfe0bc3bc4caabe0d2b2af20af0173468d2078f81ece06637",
+  "native": {
+    "arm64-v8a": {
+      "bytes": 16361048,
+      "sha256": "35b3d0366291347e3f25e80e809ee398d716aea49cd03278007fedd526a1496f"
+    },
+    "armeabi-v7a": {
+      "bytes": 11608808,
+      "sha256": "cdf803c7a17cadf5f53314365dd3c999746d98c510863c636de62c7acd8cb016"
+    },
+    "x86": {
+      "bytes": 17258012,
+      "sha256": "8501cf6c07570a276539399d2e63b7f3f9f46714b33607599a28ab6b3f33878e"
+    },
+    "x86_64": {
+      "bytes": 17371632,
+      "sha256": "d7e1b7be14a5cd2c20331c9a511efb3e98b777347abf7eb9bce9166fcb246975"
+    }
+  }
+}

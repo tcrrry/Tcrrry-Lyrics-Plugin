@@ -33,7 +33,5 @@ with zipfile.ZipFile(package) as archive:
     assert not any(c.startswith('Lcom/google/android/flexbox/') for c in classes), 'Test Flexbox class leaked into DEX'
     assert not any(c.startswith(('Lcom/kyant/', 'Landroidx/compose/')) for c in classes), 'Host glass or Compose class leaked into DEX'
     assert not any(c.startswith('Landroidx/savedstate/R') for c in classes), 'Test saved-state resources leaked into DEX'
-    with zipfile.ZipFile(root/'dist/Tcrrry-Lyrics-Offline-1.0.3.apk') as apk:
-        native=[name for name in apk.namelist() if name.startswith('lib/') and name.endswith('.so')]
-        assert native,'ML Kit native libraries missing in companion'
-    print(json.dumps({'entryDefined':True,'noTestHostClasses':True,'dexFiles':dexes,'definedClasses':len(classes),'noSdkDefinitions':True,'noOriginalModuleNamespace':True,'dictionaryPinsMatch':True,'nativeCodeOnlyInCompanion':True,'companionNativeLibraries':native},indent=2))
+    assert not any(name.startswith(('assets/pure-offline/','assets/bundled-models/')) or name.endswith('.so') for name in archive.namelist()), 'Translation payload leaked into the main ZIP'
+    print(json.dumps({'entryDefined':True,'noTestHostClasses':True,'dexFiles':dexes,'definedClasses':len(classes),'noSdkDefinitions':True,'noOriginalModuleNamespace':True,'dictionaryPinsMatch':True,'mainContainsTranslationRuntime':False,'optionalTranslationPlugin':'com.tcrrry.translation'},indent=2))

@@ -99,3 +99,13 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+## AM++ native lyric result channel
+
+`LyricsResultSubmissionBridge`, `LyricsResultSubmissionContract`, the member resolver
+from `FragmentProfileMembers`, and opaque parser document tracking are adapted from
+[Zennmn/AM-plus-plus](https://github.com/Zennmn/AM-plus-plus/tree/d781fc260198f26a61f3d8631a19527c6bf17594),
+commit `d781fc260198f26a61f3d8631a19527c6bf17594`, GPL-3.0. Hooks use the plugin SDK,
+with plugin lifecycle cleanup; only the exact 1609 result-channel profile is imported.
+The plugin's pronunciation, translation and original-lyrics presentation remains its
+existing implementation.

@@ -101,7 +101,7 @@ internal class DesktopLyricsSource(
         val mode = translationPrefs.getString("mode", "off").orEmpty()
         val translationKey = "$key|${result.source}|${result.recordId}|$mode|${translationRevisions[track.appleMusicId] ?: 0}|" +
             "${translationPrefs.getString("active_api_profile", "")}|" +
-            "${translationPrefs.getString("offline_source_language", "auto")}|" +
+            "auto-v2|" +
             "${result.lyrics.hashCode()}|${result.wordLyrics.hashCode()}|${result.translatedLyrics.hashCode()}|${result.romanizedLyrics.hashCode()}|${result.romanizedWordLyrics.hashCode()}"
         activeTranslationKeys[track.appleMusicId] = translationKey
         val translationOutcome = completedTranslations[translationKey]

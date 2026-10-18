@@ -122,10 +122,8 @@ class SupplementTranslation(private val context: Context) {
             Line(row.getInt("id"), row.getString("text").take(2000))
         }.filter { it.text.isNotBlank() }
         if (lines.isEmpty()) return@withContext
-        val selectedLanguage = prefs.getString("offline_source_language", "auto").orEmpty()
         val language = if (mode == "offline") {
-            if (selectedLanguage == "auto") OfflineTranslationLanguage.detect(lines.joinToString(" ") { it.text })
-            else selectedLanguage.takeIf { it.matches(Regex("[a-z]{2,3}")) }
+            OfflineTranslationLanguage.detect(lines.joinToString(" ") { it.text })
         } else null
         if (language != null) prefs.edit().putString("last_language", language).apply()
         if (mode == "offline" && language == "zh") return@withContext

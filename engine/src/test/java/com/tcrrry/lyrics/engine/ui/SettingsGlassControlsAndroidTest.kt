@@ -184,4 +184,36 @@ class SettingsGlassControlsAndroidTest {
         assertSame(background,group.background)
         controls.close()
     }
+
+    @Test fun inlineLiquidHostMovesAndClipsWithItsOwnScrollingControl() {
+        val context = activity()
+        val body = LinearLayout(context).apply { orientation = LinearLayout.VERTICAL }
+        val scroll = ScrollView(context).apply { addView(body) }
+        val group = SettingsSegmentedControl(context, "Translation", listOf("Off", "Offline", "API"), 1) {}
+            .apply { inlineGlass = true }
+        body.addView(View(context), LinearLayout.LayoutParams(-1, 80))
+        body.addView(group, LinearLayout.LayoutParams(-1, 80))
+        body.addView(View(context), LinearLayout.LayoutParams(-1, 800))
+        layout(scroll, 320, 240)
+        group.attachInlineGlass(backdrop, SettingsColors.Light, context)
+        val host = (0 until group.childCount).map { group.getChildAt(it) }.filterIsInstance<SettingsGlassHostView>().single()
+        // Geometry test only: host Compose resources are supplied by AM++, not this compiler APK.
+        host.compose.visibility = View.GONE
+        layout(scroll, 320, 240)
+        assertSame(group, host.parent)
+        assertEquals(group.width, host.width)
+        assertEquals(group.height, host.height)
+        assertTrue(group.glassActive)
+        val before = IntArray(2); SettingsDialogMotion.layoutPositionOnScreen(host, before)
+        scroll.scrollTo(0, 100)
+        val after = IntArray(2); SettingsDialogMotion.layoutPositionOnScreen(host, after)
+        assertEquals(before[1] - 100, after[1])
+        assertEquals(group.height, host.height)
+        group.select(2)
+        assertEquals(2, group.selectedIndex)
+        group.releaseInlineGlass()
+        assertNull(host.parent)
+        assertFalse(group.glassActive)
+        assertTrue(group.labels.none { it.currentTextColor == android.graphics.Color.TRANSPARENT })
+    }
 }

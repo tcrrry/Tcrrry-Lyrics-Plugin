@@ -48,6 +48,21 @@ def main():
         c = classes['L'+owner+';']
         if c['fields'].get(name) != descriptor or bool(c['field_access'][name] & 8) != static:
             raise RuntimeError(f'Wrong field contract: {owner}.{name}')
+    result = profile.get('lyricResultSubmission')
+    if result:
+        assert result['contractVersion'] == 1
+        required_methods = {'resultSet','resultPost','resultValue','fragmentResume','buildIndex','loadLyrics',
+                            'systemLyricsLanguage','pointerGet','pointerAdamId','pointerScript','clear'}
+        assert required_methods <= result['methods'].keys()
+        assert {'fragmentViewModel','lyricsResult'} <= result['fields'].keys()
+        def result_type(name):
+            return {'void':'V','boolean':'Z','int':'I','float':'F','long':'J'}.get(name,
+                name if name.startswith('[') else 'L'+name.replace('.', '/')+';')
+        for entry in result['methods'].values():
+            signature = entry['name']+'('+''.join(result_type(t) for t in entry['parameters'])+')'+result_type(entry['returns'])
+            method(entry['owner'].replace('.', '/'), signature, entry['static'])
+        for entry in result['fields'].values():
+            field(entry['owner'].replace('.', '/'), entry['name'], result_type(entry['type']))
     # Plugin 1.0.4/1.0.5 recovery and geometry seams, beyond the original extension.
     field('q8/p9', 'a0', 'Lcom/apple/android/music/common/views/FullWidthAlphaGradientFlexboxLayout;')
     field('q8/p9', 'Z', 'Lcom/apple/android/music/common/views/FullWidthAlphaGradientFlexboxLayout;')

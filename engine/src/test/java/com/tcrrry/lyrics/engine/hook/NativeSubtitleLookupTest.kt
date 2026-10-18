@@ -34,4 +34,20 @@ class NativeSubtitleLookupTest {
             "<text for=\"a\"><span>a &amp; </span><span>b</span></text>"))
         assertEquals("a & b", lookup.forOriginal("A&amp;B")?.pronunciation)
     }
+    @Test fun simplifiedDisplayStillFindsCantoneseReadingsFromTraditionalSource() {
+        val originals=listOf("難離難捨想抱緊些","茫茫人生好像荒野","常情如此不可推卸","任世間再冷酷想起這單車")
+        val displayed=listOf("难离难舍想抱紧些","茫茫人生好像荒野","常情如此不可推卸","任世间再冷酷想起这单车")
+        val input=document(originals.mapIndexed { i,text -> "<p itunes:key=\"L$i\">$text</p>" }.joinToString(""),
+            originals.indices.joinToString("") { "<text for=\"L$it\">reading$it</text>" })
+        val lookup=NativeSubtitleLookup(input)
+        assertEquals(displayed.size,displayed.count { !lookup.forOriginal(it)?.pronunciation.isNullOrBlank() })
+    }
+
+    @Test fun traditionalSimplifiedCollisionDoesNotGuessDifferentReadings() {
+        val lookup=NativeSubtitleLookup(document("<p itunes:key=\"a\">發</p><p itunes:key=\"b\">髮</p>",
+            "<text for=\"a\">faat3</text><text for=\"b\">faat1</text>"))
+        assertNull(lookup.forOriginal("发")?.pronunciation)
+        assertEquals("漢字かな",com.tcrrry.lyrics.engine.lyrics.ChineseTextKey.of("漢字かな"))
+    }
+
 }

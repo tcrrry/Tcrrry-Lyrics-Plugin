@@ -229,7 +229,10 @@ internal object DesktopLyricsTtmlConverter {
             JapanesePronunciationSupplement.ReadingUnit(it.start, it.end, it.text)
         }
         if (suppliedUnits == null && korean == null && !Regex("[ぁ-ゖァ-ヺ\\p{IsHan}]").containsMatchIn(original)) return null
-        val units = suppliedUnits ?: korean ?: JapanesePronunciationSupplement.alignedUnits(original, pronunciation) ?: return null
+        val cantonese = if(suppliedUnits==null && korean==null) LanguagePronunciationSupplement.alignedCantoneseUnits(original,pronunciation)?.map {
+            JapanesePronunciationSupplement.ReadingUnit(it.start,it.end,it.text)
+        } else null
+        val units = suppliedUnits ?: korean ?: cantonese ?: JapanesePronunciationSupplement.alignedUnits(original, pronunciation) ?: return null
         if (normalizedReading(units.joinToString(" ") { it.text }) != normalizedReading(pronunciation)) return null
         var cursor = 0
         val ranges = line.words.map { word ->

@@ -5,13 +5,20 @@ import java.util.Locale
 /** Spatial reading ranges only. No lyric text or source timestamps are changed. */
 internal object JapaneseRubyAlignment {
     data class Unit(val start: Int, val end: Int, val reading: String)
-    data class Result(val units: List<Unit>, val dictionaryMatch: Boolean)
+    data class Result(val units: List<Unit>, val dictionaryMatch: Boolean, val perCharacter: Boolean = false)
     private fun normalized(text: String) = text.filter(Char::isLetterOrDigit).lowercase(Locale.ROOT)
     fun displayReading(text:String)=text.filter { it.isLetterOrDigit() || it=='\'' || it=='’' || it=='-' }
 
     fun align(original: String, reading: String): Result? {
-        if (original.length > 500 || reading.length > 2000 ||
-            !Regex("[ぁ-ゖァ-ヺ\\p{IsHan}]").containsMatchIn(original)) return null
+        if(original.length>500 || reading.length>2000) return null
+        if(Regex("[가-힣]").containsMatchIn(original)) {
+            val units=KoreanPronunciationAlignment.units(original,reading) ?: return null
+            return Result(units.map { Unit(it.start,it.end,it.text) },true,perCharacter=true)
+        }
+        if (!Regex("[ぁ-ゖァ-ヺ\\p{IsHan}]").containsMatchIn(original)) return null
+        LanguagePronunciationSupplement.alignedCantoneseUnits(original,reading)?.let { units ->
+            return Result(units.map { Unit(it.start,it.end,it.text) },true,perCharacter=true)
+        }
         val generated = JapanesePronunciationSupplement.units(original)
         val dictionaryMatch = generated != null && normalized(generated.joinToString("") { it.text }) == normalized(reading)
         // Platform spacing and pronunciation remain authoritative. The dictionary

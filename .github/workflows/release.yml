@@ -23,11 +23,11 @@ jobs:
       - run: chmod +x gradlew
       - run: ./gradlew :engine:testDebugUnitTest :translation-plugin:testDebugUnitTest :offline-runtime:testDebugUnitTest :engine:lintRelease :translation-plugin:lintRelease :offline-runtime:lintRelease packagePlugin packageTranslation --no-daemon --max-workers=2
       - run: python3 scripts/verify-package.py && python3 scripts/verify-translation-package.py
-      - run: ./gradlew :engine:testDebugUnitTest --tests '*FullPluginImportTest' --tests '*TranslationPluginImportTest' -PfullPluginFixture="$PWD/dist/Tcrrry-Lyrics-Plugin-1.0.10.zip" -PtranslationPluginFixture="$PWD/dist/Tcrrry-Translation-Plugin-1.0.0.zip" --no-daemon --max-workers=2
+      - run: ./gradlew :engine:testDebugUnitTest --tests '*FullPluginImportTest' --tests '*TranslationPluginImportTest' -PfullPluginFixture="$PWD/dist/Tcrrry-Lyrics-Plugin-1.1.zip" -PtranslationPluginFixture="$PWD/dist/Tcrrry-Translation-Plugin-1.0.0.zip" --no-daemon --max-workers=2
       - uses: actions/upload-artifact@v4
         with:
           name: sdk-plugins
           path: |
-            dist/Tcrrry-Lyrics-Plugin-1.0.10.zip
+            dist/Tcrrry-Lyrics-Plugin-1.1.zip
             dist/Tcrrry-Translation-Plugin-1.0.0.zip
-            dist/Tcrrry-Lyrics-Plugin-1.0.10-source.zip
+            dist/Tcrrry-Lyrics-Plugin-1.1-source.zip

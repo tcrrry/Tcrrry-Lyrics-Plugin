@@ -44,6 +44,20 @@ class NativeLyricsHostContractTest {
         host(1610)
         assertEquals("ja.i0",NativeLyricsHostContract.className("ja.i0"))
     }
+    @Test fun host1613UsesItsOwnWordAdapterReaderAndInheritedPageBindings() {
+        host(1613)
+        assertEquals("com.apple.android.music.player.x",NativeLyricsHostContract.className("com.apple.android.music.player.A"))
+        assertEquals("com.apple.android.music.player.x\$a",NativeLyricsHostContract.className("com.apple.android.music.player.A\$a"))
+        assertEquals("com.apple.android.music.player.g1",NativeLyricsHostContract.className("com.apple.android.music.player.n1"))
+        assertEquals("com.apple.android.music.ttml.i",NativeLyricsHostContract.className("com.apple.android.music.ttml.j"))
+        assertEquals("com.apple.android.music.player.M",NativeLyricsHostContract.className("com.apple.android.music.player.P"))
+        assertEquals("V",NativeLyricsHostContract.fieldName("com.apple.android.music.player.fragment.l","X"))
+        val profile=AppleMusicProfiles.match(TargetBuild("com.apple.android.music","7.0.0-beta",1613))!!
+        assertEquals("com.apple.android.music.player.x",profile.methodContracts.getValue("cjk-karaoke-animation-method").owner)
+        assertEquals(listOf("z3.y"),profile.methodContracts.getValue("metadata-to-playback-item-method").parameters)
+        host(1614)
+        assertEquals("com.apple.android.music.player.A",NativeLyricsHostContract.className("com.apple.android.music.player.A"))
+    }
     @Test fun bothProfilesResolveTheirOwnCompleteMetadataContracts() {
         val original=AppleMusicProfiles.match(TargetBuild("com.apple.android.music","7.0.0-beta",1606))!!
         val newer=AppleMusicProfiles.match(TargetBuild("com.apple.android.music","7.0.0-beta",1609))!!

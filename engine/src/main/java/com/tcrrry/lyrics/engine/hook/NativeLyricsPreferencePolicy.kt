@@ -3,12 +3,14 @@ package com.tcrrry.lyrics.engine.hook
 internal object NativeLyricsPreferencePolicy {
     fun refreshForNativeDocument(preferNative: Boolean, selectedSource: String?, preparedTiming: TtmlTimingMode?, preparing: Boolean): Boolean =
         preferNative || (selectedSource == null && !preparing && preparedTiming != TtmlTimingMode.WORD)
-    fun preferNative(qualityFirst: Boolean, selectedSource: String?, nativeTtml: String? = null): Boolean =
-        selectedSource == LyricsSourceMenuPolicy.NATIVE || (selectedSource == null &&
+    fun preferNative(qualityFirst: Boolean, selectedSource: String?, nativeTtml: String? = null,
+        hasCustomLyrics: Boolean = false): Boolean =
+        selectedSource == LyricsSourceMenuPolicy.NATIVE || (selectedSource == null && !hasCustomLyrics &&
             (qualityFirst || nativeTtml?.let(TtmlTimingPolicy::hasTimedWords) == true))
     /** Only automatic word-first matching can fall back to the original line document. */
-    fun useNativeLineFallback(selectedSource: String?, nativeTtml: String?, candidateTtml: String?): Boolean =
-        selectedSource == null && nativeTtml != null && hasContent(nativeTtml) &&
+    fun useNativeLineFallback(selectedSource: String?, nativeTtml: String?, candidateTtml: String?,
+        hasCustomLyrics: Boolean = false): Boolean =
+        selectedSource == null && !hasCustomLyrics && nativeTtml != null && hasContent(nativeTtml) &&
             (candidateTtml == null || !TtmlTimingPolicy.hasTimedWords(candidateTtml))
     private val paragraph = Regex("(?is)<p\\b[^>]*>(.*?)</p\\s*>")
     private val markup = Regex("<[^>]+>")

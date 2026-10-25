@@ -1,5 +1,7 @@
 package dev.amenhancer.plugin.runtime
 
+import dev.amenhancer.module.i18n.ModuleText
+
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -18,16 +20,16 @@ data class PluginManifest(val id: String, val name: String, val author: String, 
     companion object {
         fun parse(text: String): PluginManifest {
             val json = JSONObject(text)
-            require(json.getInt("formatVersion") == 1) { "不支持的插件包格式" }
-            require(json.getInt("apiVersion") == 1) { "插件需要不同版本的 API" }
-            fun field(key: String) = json.getString(key).also { require(it.isNotBlank() && it.length <= 1024) { "无效字段：$key" } }
+            require(json.getInt("formatVersion") == 1) { ModuleText.PLUGIN_FORMAT_UNSUPPORTED.text() }
+            require(json.getInt("apiVersion") == 1) { ModuleText.PLUGIN_API_UNSUPPORTED.text() }
+            fun field(key: String) = json.getString(key).also { require(it.isNotBlank() && it.length <= 1024) { ModuleText.PLUGIN_FIELD_INVALID.text(key) } }
             val id = field("id")
-            require(id.matches(Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+")) && id.length <= 180) { "插件 ID 必须是反向域名" }
+            require(id.matches(Regex("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+")) && id.length <= 180) { ModuleText.PLUGIN_ID_INVALID.text() }
             val entry = field("entryClass")
-            require(entry.matches(Regex("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)+"))) { "无效入口类" }
+            require(entry.matches(Regex("[A-Za-z_$][A-Za-z0-9_$]*(\\.[A-Za-z_$][A-Za-z0-9_$]*)+"))) { ModuleText.PLUGIN_ENTRY_CLASS_INVALID.text() }
             val version = json.getLong("versionCode")
             val min = json.getInt("minAndroidApi")
-            require(version > 0 && min >= 26) { "无效版本或最低 Android API" }
+            require(version > 0 && min >= 26) { ModuleText.PLUGIN_VERSION_INVALID.text() }
             return PluginManifest(id, field("name"), field("author"), field("versionName"), version, entry, min,
                 json.optString("description").take(8192))
         }
@@ -69,7 +71,7 @@ class PluginStore(val root: File) {
     }
     @Synchronized fun setEnabled(id: String, enabled: Boolean) {
         val json = readIndex(); val entry = json.getJSONObject(id)
-        require(!entry.optBoolean("deleted")) { "插件已删除" }
+        require(!entry.optBoolean("deleted")) { ModuleText.PLUGIN_DELETED.text() }
         entry.put("enabled", enabled); writeIndex(json)
     }
     @Synchronized fun delete(id: String) {
@@ -85,28 +87,28 @@ class PluginStore(val root: File) {
             input.use { source -> FileOutputStream(archive).use { boundedCopy(source, it, MAX_INPUT) } }
             ZipFile(archive).use { zip ->
                 val entries = zip.entries().asSequence().toList()
-                require(entries.size <= MAX_ENTRIES) { "插件包条目过多" }
+                require(entries.size <= MAX_ENTRIES) { ModuleText.PLUGIN_TOO_MANY_ENTRIES.text() }
                 val names = hashSetOf<String>(); var expanded = 0L
                 for (entry in entries) {
                     val name = entry.name
                     safeRelative(name.removeSuffix("/"))
-                    require(names.add(name)) { "重复 ZIP 条目：$name" }
-                    require(name == "plugin.json" || name == "code.jar" || name.startsWith("assets/")) { "不支持的插件文件：$name" }
+                    require(names.add(name)) { ModuleText.PLUGIN_ZIP_DUPLICATE.text(name) }
+                    require(name == "plugin.json" || name == "code.jar" || name.startsWith("assets/")) { ModuleText.PLUGIN_FILE_UNSUPPORTED.text(name) }
                     if (entry.isDirectory) continue
                     val file = child(dir, name); val parent = checkNotNull(file.parentFile); require(parent.mkdirs() || parent.isDirectory)
                     val limit = if (name == "plugin.json") MAX_MANIFEST else MAX_EXPANDED - expanded
                     zip.getInputStream(entry).use { source ->
                         FileOutputStream(file).use { output ->
-                            if (name == "code.jar") require(file.setReadOnly()) { "无法将插件代码设为只读" }
+                            if (name == "code.jar") require(file.setReadOnly()) { ModuleText.PLUGIN_CODE_READ_ONLY_FAILED.text() }
                             expanded += boundedCopy(source, output, limit)
                             output.fd.sync()
                         }
                     }
-                    require(expanded <= MAX_EXPANDED) { "插件包解压大小超限" }
+                    require(expanded <= MAX_EXPANDED) { ModuleText.PLUGIN_EXPANDED_TOO_LARGE.text() }
                 }
             }
             val manifest = PluginManifest.parse(File(dir, "plugin.json").readText())
-            require(androidApi >= manifest.minAndroidApi) { "插件需要 Android API ${manifest.minAndroidApi}" }
+            require(androidApi >= manifest.minAndroidApi) { ModuleText.PLUGIN_ANDROID_REQUIRED.text(manifest.minAndroidApi) }
             validateCode(File(dir, "code.jar"))
             archive.delete()
             val previous = synchronized(this) { readIndex().optJSONObject(manifest.id)?.optString("version") }
@@ -116,7 +118,7 @@ class PluginStore(val root: File) {
     @Synchronized fun commit(prepared: PreparedPlugin) {
         require(prepared.directory.parentFile?.canonicalFile == staging.canonicalFile && prepared.directory.isDirectory)
         val json = readIndex(); val old = json.optJSONObject(prepared.manifest.id)
-        require(old?.optString("version") == prepared.previousVersion) { "插件已被其他操作更新，请重新导入" }
+        require(old?.optString("version") == prepared.previousVersion) { ModuleText.PLUGIN_CONCURRENT_UPDATE.text() }
         val version = UUID.randomUUID().toString()
         val destination = versionDirectory(prepared.manifest.id, version)
         val parent = checkNotNull(destination.parentFile); require(parent.mkdirs() || parent.isDirectory)
@@ -151,7 +153,7 @@ class PluginStore(val root: File) {
         const val MAX_MANIFEST = 64L * 1024
         internal fun safeRelative(path: String) {
             require(path.isNotEmpty() && !path.contains('\\') && !path.contains(':') &&
-                path.split('/').none { it.isEmpty() || it == "." || it == ".." }) { "无效相对路径：$path" }
+                path.split('/').none { it.isEmpty() || it == "." || it == ".." }) { ModuleText.PLUGIN_PATH_INVALID.text(path) }
         }
         internal fun child(parent: File, path: String): File {
             safeRelative(path)
@@ -160,40 +162,40 @@ class PluginStore(val root: File) {
         internal fun removeTree(file: File) {
             if (!file.exists()) return
             if (file.isDirectory) file.listFiles()?.forEach(::removeTree)
-            file.setWritable(true); check(file.delete()) { "无法删除 ${file.name}" }
+            file.setWritable(true); check(file.delete()) { ModuleText.FILE_DELETE_FAILED.text(file.name) }
         }
         internal fun boundedCopy(input: InputStream, output: java.io.OutputStream, max: Long): Long {
             var size = 0L; val buffer = ByteArray(8192)
             while (true) {
                 val read = input.read(buffer); if (read < 0) break
-                size += read; require(size <= max) { "插件文件大小超限" }; output.write(buffer, 0, read)
+                size += read; require(size <= max) { ModuleText.PLUGIN_FILE_TOO_LARGE.text() }; output.write(buffer, 0, read)
             }
             return size
         }
         internal fun validateCode(file: File) {
-            require(file.isFile) { "缺少 code.jar" }
+            require(file.isFile) { ModuleText.PLUGIN_CODE_MISSING.text() }
             ZipFile(file).use { zip ->
                 val entries = zip.entries().asSequence().toList()
                 require(entries.size in 1..MAX_ENTRIES)
                 val names = hashSetOf<String>(); var total = 0L; var dexCount = 0
                 entries.forEach { entry ->
-                    safeRelative(entry.name.removeSuffix("/")); require(names.add(entry.name)) { "重复代码条目" }
-                    require(entry.name.matches(Regex("classes(?:[2-9]|[1-9][0-9]+)?\\.dex")) || entry.name.startsWith("META-INF/")) { "代码包仅支持 DEX：${entry.name}" }
+                    safeRelative(entry.name.removeSuffix("/")); require(names.add(entry.name)) { ModuleText.PLUGIN_CODE_DUPLICATE.text() }
+                    require(entry.name.matches(Regex("classes(?:[2-9]|[1-9][0-9]+)?\\.dex")) || entry.name.startsWith("META-INF/")) { ModuleText.PLUGIN_CODE_DEX_ONLY.text(entry.name) }
                     if (!entry.isDirectory) {
                         val output = java.io.ByteArrayOutputStream()
                         zip.getInputStream(entry).use { total += boundedCopy(it, output, MAX_EXPANDED - total) }
                         if (entry.name.endsWith(".dex")) { validateDex(output.toByteArray()); dexCount++ }
                     }
                 }
-                require(dexCount > 0 && names.contains("classes.dex")) { "代码包缺少 Android DEX" }
+                require(dexCount > 0 && names.contains("classes.dex")) { ModuleText.PLUGIN_DEX_MISSING.text() }
             }
         }
         internal fun validateDex(bytes: ByteArray) {
-            require(bytes.size >= 112 && bytes.copyOfRange(0, 8).toString(Charsets.ISO_8859_1).matches(Regex("dex\\n0(?:35|37|38|39|40)\\u0000"))) { "损坏或不支持的 DEX" }
+            require(bytes.size >= 112 && bytes.copyOfRange(0, 8).toString(Charsets.ISO_8859_1).matches(Regex("dex\\n0(?:35|37|38|39|40)\\u0000"))) { ModuleText.PLUGIN_DEX_INVALID.text() }
             val buf = ByteBuffer.wrap(bytes).order(ByteOrder.LITTLE_ENDIAN)
-            require(buf.getInt(32) == bytes.size && buf.getInt(36) == 112 && buf.getInt(40) == 0x12345678) { "损坏的 DEX 头" }
-            require(MessageDigest.getInstance("SHA-1").digest(bytes.copyOfRange(32, bytes.size)).contentEquals(bytes.copyOfRange(12, 32))) { "DEX 签名损坏" }
-            require(Adler32().apply { update(bytes, 12, bytes.size - 12) }.value.toInt() == buf.getInt(8)) { "DEX 校验损坏" }
+            require(buf.getInt(32) == bytes.size && buf.getInt(36) == 112 && buf.getInt(40) == 0x12345678) { ModuleText.PLUGIN_DEX_HEADER_INVALID.text() }
+            require(MessageDigest.getInstance("SHA-1").digest(bytes.copyOfRange(32, bytes.size)).contentEquals(bytes.copyOfRange(12, 32))) { ModuleText.PLUGIN_DEX_SIGNATURE_INVALID.text() }
+            require(Adler32().apply { update(bytes, 12, bytes.size - 12) }.value.toInt() == buf.getInt(8)) { ModuleText.PLUGIN_DEX_CHECKSUM_INVALID.text() }
             // References to SDK types are allowed; defining a private copy is not.
             val strings = buf.getInt(60); val types = buf.getInt(68); val count = buf.getInt(96); val defs = buf.getInt(100)
             require(count >= 0 && defs >= 0 && defs.toLong() + count.toLong() * 32 <= bytes.size)
@@ -206,7 +208,7 @@ class PluginStore(val root: File) {
                 val start = offset; while (offset < bytes.size && bytes[offset] != 0.toByte()) offset++
                 require(offset < bytes.size)
                 val name = bytes.copyOfRange(start, offset).toString(Charsets.UTF_8)
-                require(!name.startsWith("Ldev/amenhancer/plugin/api/")) { "插件不可打包 SDK 类" }
+                require(!name.startsWith("Ldev/amenhancer/plugin/api/")) { ModuleText.PLUGIN_SDK_BUNDLED.text() }
             }
         }
     }

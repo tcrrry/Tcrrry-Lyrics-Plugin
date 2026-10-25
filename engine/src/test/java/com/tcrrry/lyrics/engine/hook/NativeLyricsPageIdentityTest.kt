@@ -62,4 +62,21 @@ class NativeLyricsPageIdentityTest {
         assertFalse(h.restoreLibraryAlias(page, snapshot()))
         assertSame(original, page.item)
     }
+    @Test fun capturedLibraryLoadMapsOnlyTheVerifiedPersistentAndQueueItemToMediaId() {
+        val h=helper();val published=snapshot();val page=Page(Item(expected),expected)
+        val alias=Item(expected.copy(id=182871078))
+        assertEquals(expected.id,h.canonicalIdForItem(page,published,alias))
+        assertEquals(182871078L,alias.identity.id)
+        assertNull(h.canonicalIdForItem(page,published,Item(alias.identity.copy(queueId=84))))
+        assertNull(h.canonicalIdForItem(page,published,Item(alias.identity.copy(persistentId=73))))
+        page.live=expected.copy(queueId=99)
+        assertNull(h.canonicalIdForItem(page,published,alias))
+    }
+    @Test fun absentPersistentOrQueueIdentityCannotMapALoadByTitleOrSongIdAlone() {
+        val h=helper()
+        for(identity in listOf(expected.copy(persistentId=0),expected.copy(queueId=0))){
+            assertNull(h.canonicalIdForItem(Page(Item(identity),identity),snapshot(identity),Item(identity.copy(id=1))))
+        }
+    }
+
 }

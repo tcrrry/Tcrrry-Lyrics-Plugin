@@ -168,7 +168,7 @@ internal object NativeLyricsPronunciationSubtitle {
 
     fun install(loader: ClassLoader, build: TargetBuild = TargetBuild.UNKNOWN) {
         installPronunciationStyleGuard()
-        val modern = build.versionName == "7.0.0-beta" && build.versionCode in setOf(1606L, 1609L)
+        val modern = build.versionName == "7.0.0-beta" && build.versionCode in setOf(1606L, 1609L, 1613L)
         if (modern) NativeLineLyricsPresentation.install(loader)
         runCatching {
             val adapter = loader.lyricsClass("com.apple.android.music.player.A")

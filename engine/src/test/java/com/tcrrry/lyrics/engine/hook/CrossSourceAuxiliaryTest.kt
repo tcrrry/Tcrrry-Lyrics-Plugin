@@ -12,6 +12,20 @@ class CrossSourceAuxiliaryTest {
     private val primary = "<tt xmlns:itunes=\"urn\" itunes:timing=\"Line\"><body><div><p begin=\"1s\" end=\"3s\" itunes:key=\"L1\">君の声</p></div></body></tt>"
     private val source = DirectLyricsRepository.Result(lyrics = "[00:01.000]君の声", translatedLyrics = "[00:01.000]你的声音",
         romanizedLyrics = "[00:01.000]kimi no koe", source = "QQ音乐")
+    @Test fun nativeWordRowsWithoutParagraphStartStillReceiveOfflineReadings() {
+        val context=org.robolectric.RuntimeEnvironment.getApplication()
+        val raw="""<tt xmlns:itunes="urn" itunes:timing="Word"><body><div><p itunes:key="L1"><span begin="1s" end="2s">君の声</span></p></div></body></tt>"""
+        val filled=CrossSourceAuxiliary.dictionary(context,777,raw)
+        assertEquals("kimi no koe",TtmlSubtitleTrack.subtitleValues(filled,true)[0])
+        assertEquals(raw.substringAfter("<body>"),filled.substringAfter("<body>"))
+    }
+    @Test fun untimedRowsDoNotShiftDictionaryReadingsAndXmlEntitiesAreDecoded() {
+        val context=org.robolectric.RuntimeEnvironment.getApplication()
+        val raw="""<tt xmlns:itunes="urn"><body><div><p itunes:key="intro">♪</p><p begin="1s" end="3s" itunes:key="L1">&#x541B;の声</p></div></body></tt>"""
+        val filled=CrossSourceAuxiliary.dictionary(context,777,raw)
+        assertEquals(mapOf(1 to "kimi no koe"),TtmlSubtitleTrack.subtitleValues(filled,true))
+        assertEquals(raw.substringAfter("<body>"),filled.substringAfter("<body>"))
+    }
     @Test fun exactLineGetsAuxiliaryButKeepsNativeBodyAndTiming() {
         val merged = CrossSourceAuxiliary.enrich(primary, source)
         assertTrue(merged.contains("你的声音")); assertTrue(merged.contains("kimi no koe"))

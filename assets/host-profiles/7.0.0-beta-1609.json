@@ -3885,6 +3885,13 @@
         "returns": "java.lang.Object",
         "static": false
       },
+      "finishLoading": {
+        "owner": "com.apple.android.music.player.fragment.PlayerLyricsViewFragment",
+        "name": "o2",
+        "parameters": [],
+        "returns": "void",
+        "static": false
+      },
       "fragmentResume": {
         "owner": "com.apple.android.music.player.fragment.PlayerLyricsViewFragment",
         "name": "onResume",

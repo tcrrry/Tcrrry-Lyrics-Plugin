@@ -65,6 +65,10 @@ internal class FallbackLyricsTranslation(private val context: Context,
                 baseCandidate.copy(ttml = origins.copy(pronunciation = origins.pronunciation + "dictionary").attach(dictionary))
             }
             if (readings.size >= 64) readings.keys.firstOrNull()?.let(readings::remove)
+            ModernXposedRuntime.log("local pronunciation id=$id source=${baseCandidate.source} " +
+                "rows=${TtmlSubtitleTrack.lines(baseCandidate.ttml).size} " +
+                "before=${TtmlSubtitleTrack.subtitleValues(baseCandidate.ttml, true).size} " +
+                "after=${TtmlSubtitleTrack.subtitleValues(result.ttml, true).size}")
             readings[readingKey] = result
             result
         }.getOrElse {

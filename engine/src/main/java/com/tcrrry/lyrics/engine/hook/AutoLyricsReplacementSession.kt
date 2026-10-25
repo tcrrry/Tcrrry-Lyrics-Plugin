@@ -335,6 +335,7 @@ class AutoLyricsReplacementSession(
     private val retryCooldownMs: Long = DEFAULT_RETRY_COOLDOWN_MS,
     private val onTaggedRefreshFinished: ((Long, Boolean, Long?) -> Unit)? = null,
     private val presentationKey: () -> String = { "" },
+    private val onLookupFinished: ((Long, Boolean) -> Unit)? = null,
 ) {
     private val pointers = object : LinkedHashMap<Long, Any>(CACHE_CAPACITY, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Any>?): Boolean =
@@ -484,6 +485,9 @@ class AutoLyricsReplacementSession(
             try {
                 val job = FutureTask<Unit> { prepare(appleMusicId, requestGeneration) }
                 jobs[appleMusicId] = job
+                // FutureTask.cancel does not remove it from a bounded executor's
+                // queue. Rapid refreshes otherwise reject the newest source.
+                (executor as? ThreadPoolExecutor)?.purge()
                 executor.execute(job)
             } catch (_: RejectedExecutionException) {
                 if (pending[appleMusicId] == requestGeneration) pending.remove(appleMusicId)
@@ -618,6 +622,8 @@ class AutoLyricsReplacementSession(
                     jobs.remove(appleMusicId)
                 }
             }
+            if (isCurrentRequest(appleMusicId, requestGeneration))
+                onLookupFinished?.invoke(appleMusicId, readyReplacementFor(appleMusicId) != null)
         }
     }
 

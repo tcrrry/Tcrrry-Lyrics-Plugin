@@ -4,9 +4,9 @@
   "id": "com.tcrrry.lyrics",
   "name": "Tcrrry 歌词增强",
   "author": "Tcrrry",
-  "versionName": "1.1",
-  "versionCode": 62,
+  "versionName": "1.2",
+  "versionCode": 67,
   "entryClass": "com.tcrrry.lyrics.plugin.LyricsPlugin",
   "minAndroidApi": 31,
-  "description": "修复搜索输入法，重做语言包管理；离线机翻由可选的 Tcrrry 离线翻译插件提供。保留 1017 适配、繁简转换及原有歌词功能。"
+  "description": "适配 AM++ 1024 / Apple Music 1613，兼容 1606、1609；修复注音对齐、无歌词加载和自导入歌曲选源。离线机翻由可选翻译插件提供。"
 }

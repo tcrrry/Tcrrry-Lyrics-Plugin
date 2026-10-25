@@ -76,8 +76,11 @@ final class NativeRepeatButtonBridge {
         }));
     }
     private View button(Object binding) throws Exception { return (View)root.get(repeatBinding.get(binding)); }
-    // These are the verified 1609 host IDs, not resources in the compiler APK.
-    @android.annotation.SuppressLint("ResourceType")
+    private int resource(View view,String type,String name) {
+        int id=view.getResources().getIdentifier(name,type,"com.apple.android.music");
+        if(id==0) throw new IllegalStateException("Missing native resource: "+type+"/"+name);
+        return id;
+    }
     private void decorate(Object binding) throws Exception {
         RadioRepeatExperiment.Snapshot snapshot=host.radioSnapshot(radio.latest());
         RadioRepeatExperiment.Snapshot previous=bindings.put(binding,snapshot);
@@ -87,18 +90,18 @@ final class NativeRepeatButtonBridge {
             return;
         }
         View button=button(binding);
-        ImageView off=button.findViewById(0x7f0a01a6);
-        View on=button.findViewById(0x7f0a01a7);
+        ImageView off=button.findViewById(resource(button,"id","button_off"));
+        View on=button.findViewById(resource(button,"id","button_on"));
         if(off==null || !setMask.getDeclaringClass().isInstance(on)) return;
         boolean selected=radio.effective(snapshot.manager,0,snapshot)==1;
-        int icon=selected ? 0x7f080784 : 0x7f080783;
+        int icon=resource(button,"drawable",selected ? "nowplaying_repeatone" : "nowplaying_repeat");
         off.setImageResource(icon); setMask.invoke(on,icon);
-        off.setColorFilter(button.getContext().getColor(0x7f06044c),PorterDuff.Mode.SRC_IN);
+        off.setColorFilter(button.getContext().getColor(resource(button,"color","white")),PorterDuff.Mode.SRC_IN);
         off.setVisibility(selected ? View.INVISIBLE : View.VISIBLE);
         on.setVisibility(selected ? View.VISIBLE : View.INVISIBLE);
         button.setSelected(selected);
-        button.setContentDescription(button.getResources().getString(0x7f140883)+" "
-                +button.getResources().getString(selected ? 0x7f140888 : 0x7f1407a0));
+        button.setContentDescription(button.getResources().getString(resource(button,"string","repeat"))+" "
+                +button.getResources().getString(resource(button,"string",selected ? "repeat_once" : "off")));
     }
     void start() { active=true; }
     void refresh() { main.removeCallbacks(refreshTask); main.post(refreshTask); }

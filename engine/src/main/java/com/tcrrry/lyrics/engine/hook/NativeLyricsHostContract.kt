@@ -5,14 +5,14 @@ import com.tcrrry.lyrics.host.applemusic.AppleMusicHostProfiles
 import java.lang.reflect.Field
 import org.json.JSONObject
 
-/** Only the exact 1609 build remaps the previously verified native lyric seams.
+/** Only explicitly audited builds remap the previously verified native lyric seams.
  * Resolve names once during registration, never by guessing a same-shaped field.
  */
 internal object NativeLyricsHostContract {
     private fun mapping(): JSONObject? {
         if (!PluginLifetime.alive) return null
         val host = PluginLifetime.context
-        if (host.hostVersionCode != 1609L || host.hostVersionName != "7.0.0-beta") return null
+        if (host.hostVersionCode !in setOf(1609L, 1613L) || host.hostVersionName != "7.0.0-beta") return null
         return AppleMusicHostProfiles.find("com.apple.android.music", host.hostVersionName, host.hostVersionCode)
             ?.document?.getJSONObject("pluginLyricsCompatibility")
     }

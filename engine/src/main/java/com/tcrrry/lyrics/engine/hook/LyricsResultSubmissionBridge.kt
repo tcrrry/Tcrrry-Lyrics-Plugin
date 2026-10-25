@@ -23,6 +23,31 @@ internal class LyricsResultSubmissionBridge private constructor(
     private val lock = Any()
     private var attachedFragment = java.lang.ref.WeakReference<Any>(null)
     internal var pageObserver: ((Any) -> Unit)? = null
+    internal var pageIdentityReconciler: ((Any) -> Boolean)? = null
+    internal var requestIdentityResolver: ((Any) -> Long?)? = null
+    internal var pageContentObserver: ((Any, Long, Boolean) -> Unit)? = null
+    private var finishedLookupId: Long? = null
+
+    /** An exhausted search is a terminal UI state, even when no pointer exists. */
+    fun onLookupFinished(id: Long) {
+        mainHandler.post {
+            if (closed || verifiedCurrentId() != id) return@post
+            finishedLookupId = id
+            selectAndPublish(id)
+        }
+    }
+
+    private fun notifyContent(fragment: Any?, id: Long, hasContent: Boolean) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { if (!closed) notifyContent(fragment, id, hasContent) }
+            return
+        }
+        if (fragment == null || (!hasContent && fragmentSongId(fragment) != id)) return
+        runCatching {
+            if (!hasContent) contract.finishLoadingMethod?.invoke(fragment)
+            pageContentObserver?.invoke(fragment, id, hasContent)
+        }.onFailure { report("lyric empty-state presentation failed", it) }
+    }
     private val pendingFragments = mutableListOf<Pair<WeakReference<Any>, WeakReference<Any>>>()
     private val postedEmptyGenerations = WeakIdentityMap<Any, Long>()
     private val diagnostics = mutableSetOf<String>()
@@ -233,6 +258,7 @@ internal class LyricsResultSubmissionBridge private constructor(
         }
         runCatching {
             val instance = contract.fragmentViewModelField.get(fragment) ?: return
+            reconcilePageIdentity(fragment, instance)
             val id = fragmentSongId(fragment) ?: return
             val publishedId = currentSong.current()?.details?.appleMusicId
             val result = contract.lyricsResultField.get(instance) ?: return
@@ -271,6 +297,23 @@ internal class LyricsResultSubmissionBridge private constructor(
         }.onFailure { report("lyric result attachment failed", it) }
     }
 
+    private fun reconcilePageIdentity(fragment: Any, instance: Any) {
+        val previousId = fragmentSongId(fragment) ?: return
+        if (pageIdentityReconciler?.invoke(fragment) != true) return
+        val canonicalId = fragmentSongId(fragment) ?: return
+        if (canonicalId == previousId || currentSong.current()?.details?.appleMusicId != canonicalId) return
+        synchronized(lock) {
+            // Only retire the captured alias for this exact VM. Never relabel a
+            // different native request merely because metadata now names a new song.
+            if (!closed && vm === instance && requestId == previousId) {
+                advanceRequestLocked()
+                requestId = 0L
+                requestCaptured = false
+                clearSelectionLocked()
+            }
+        }
+    }
+
     /** A completed native install acknowledges delivery, not merely selection. */
     fun onInstalled(fragment: Any, pointer: Any?) {
         if (closed || pointer == null || Looper.myLooper() != Looper.getMainLooper()) return
@@ -286,6 +329,10 @@ internal class LyricsResultSubmissionBridge private constructor(
 
     /** The current playback identity changed; a selection for the old request is dropped. */
     fun onSongChanged(appleMusicId: Long?) {
+        if (appleMusicId != observedPlaybackId) {
+            notifyContent(attachedFragment.get(), requestIdSnapshot(), true)
+            finishedLookupId = null
+        }
         synchronized(lock) {
             val changed = appleMusicId != observedPlaybackId
             observedPlaybackId = appleMusicId
@@ -331,6 +378,7 @@ internal class LyricsResultSubmissionBridge private constructor(
                     synchronized(lock) { pendingFragments.removeAll { it.first === fragmentRef } }
                     return@runCatching
                 }
+                reconcilePageIdentity(fragment, instance)
                 if (fragmentSongId(fragment) != appleMusicId) return@runCatching
                 // A load capture alone may come from a static/share-lyrics VM.
                 // Prefer an existing VM only while its observed panel owner is
@@ -355,6 +403,10 @@ internal class LyricsResultSubmissionBridge private constructor(
 
     fun close() {
         pageObserver = null
+        pageIdentityReconciler = null
+        requestIdentityResolver = null
+        pageContentObserver = null
+        finishedLookupId = null
         mainHandler.removeCallbacksAndMessages(null)
         synchronized(lock) {
             closed = true
@@ -371,11 +423,16 @@ internal class LyricsResultSubmissionBridge private constructor(
     private fun selectAndPublish(appleMusicId: Long) {
         if (closed) return
         if (!runCatching {
+                attachedFragment.get()?.let { fragment ->
+                    val instance = vmSnapshot()
+                    if (instance != null && contract.fragmentViewModelField.get(fragment) === instance)
+                        reconcilePageIdentity(fragment, instance)
+                }
                 if (!recoverRequestBinding()) return@runCatching false
                 containerSnapshot()?.let(::hydrateStoredResult)
                 true
             }.onFailure { report("lyric result recovery failed", it) }.getOrDefault(false)) return
-        if (!currentRequest() || requestIdSnapshot() != appleMusicId || !nativeObserved) {
+        if (!currentRequest() || requestIdSnapshot() != appleMusicId) {
             trace("waiting observed=$nativeObserved callback=$appleMusicId")
             return
         }
@@ -386,14 +443,25 @@ internal class LyricsResultSubmissionBridge private constructor(
         // Wait for the native item-update callback rather than rewriting it.
         if (fragment != null && (fragmentSongId(fragment) != appleMusicId ||
                 contract.fragmentViewModelField.get(fragment) !== instance)) return
+        // A verified live panel can use an already prepared document even when
+        // the host load never delivered a result callback. Do not require a
+        // missing callback forever; a later native result still goes through
+        // normal native/source arbitration. Ownerless requests must keep waiting.
+        if (!nativeObserved && (fragment == null || fragmentViewMethod?.invoke(fragment) == null)) {
+            trace("waiting observed=false callback=$appleMusicId")
+            return
+        }
         val original = synchronized(lock) { nativeOriginal }
         val retryInstallation = fragment != null && synchronized(lock) { installationPending }
         val chosen = runCatching { selectReplacement(appleMusicId, original) }.getOrNull()
             ?: currentDocument()?.takeIf { retryInstallation } ?: run {
+            if (finishedLookupId == appleMusicId)
+                notifyContent(fragment, appleMusicId, currentDocument() != null || original?.let(isAlive) == true)
             trace("no prepared replacement")
             return
         }
         if (!isAlive(chosen) || pointerId(chosen) != appleMusicId) return
+        notifyContent(fragment, appleMusicId, true)
         val effective = canonical(chosen) ?: return
         if (effective === selectionSnapshot() && !retryInstallation) return
         val target = containerSnapshot() ?: return
@@ -482,7 +550,7 @@ internal class LyricsResultSubmissionBridge private constructor(
         // Re-read even after an observed empty result: a later native write may
         // have bypassed interception. Never mistake our selected replacement
         // for the native original used in automatic quality arbitration.
-        if (nativeObserved && (pointer == null || pointer === selectionSnapshot())) return
+        if ((pointer != null && pointer === selectionSnapshot()) || (nativeObserved && pointer == null)) return
         recordNativeOriginal(pointer)
         rememberSelection(pointer)
     }
@@ -575,6 +643,7 @@ internal class LyricsResultSubmissionBridge private constructor(
             selectedPointer = pointer
             selectedDocument = document
         }
+        if (pointer != null) notifyContent(attachedFragment.get(), requestIdSnapshot(), true)
     }
 
     private fun clearSelectionLocked() {
@@ -594,10 +663,10 @@ internal class LyricsResultSubmissionBridge private constructor(
     private fun containerOf(instance: Any): Any? =
         runCatching { contract.lyricsResultField.get(instance) }.getOrNull()
 
-    private fun readAppleMusicId(item: Any): Long? = itemIdMethod
-        ?.let { method -> runCatching { method.invoke(item) as? String }.getOrNull() }
-        ?.toLongOrNull()
-        ?.takeIf { it > 0L }
+    private fun readAppleMusicId(item: Any): Long? =
+        runCatching { requestIdentityResolver?.invoke(item) }.getOrNull()?.takeIf { it > 0L }
+            ?: itemIdMethod?.let { method -> runCatching { method.invoke(item) as? String }.getOrNull() }
+                ?.toLongOrNull()?.takeIf { it > 0L }
 
     /** Pair members are read by name so no module/host Kotlin type is assumed. */
     private fun nativePointerOf(value: Any?): Any? = value

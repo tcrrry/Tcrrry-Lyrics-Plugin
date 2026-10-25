@@ -10,6 +10,25 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [35])
 class JapaneseRubyAlignmentTest {
+    @Test fun mireiScreenshotReadingsRetainProviderLetters() {
+        val cases = listOf(
+            "自分に誓った約束だから" to "ji bun ni qi ka 'ta yaku soku da ka la",
+            "競争社会and I" to "kiyou sou xia kai and I",
+            "戦い続けて一人ぼっちだけど" to "tataka i cuzu ke te hito li bo qi da ke do",
+            "３６ヶ月の日々は" to "sa n ju u ro 'k ka ge tsu no hi bi wa",
+            "片っ方を探す靴下" to "ka ta 'p po wo sa ga su ku tsu shi ta",
+        )
+        val failed = cases.mapNotNull { (original, reading) ->
+            val result = JapaneseRubyAlignment.align(original, reading)
+            println("MIREI $original => $result")
+            println("dictionary ${JapanesePronunciationSupplement.units(original)}")
+            if (result == null) original else {
+                assertEquals(reading.filter(Char::isLetterOrDigit), result.units.joinToString("") { it.reading }.filter(Char::isLetterOrDigit))
+                null
+            }
+        }
+        assertEquals(emptyList<String>(), failed)
+    }
     @Test fun missingYouExpandedContractedKanaKeepsProviderTextAndOriginalRanges() {
         val original="一人じゃまだ何もできないよ"
         val reading="hito li ji a ma da nani mo de ki na i yo"

@@ -148,7 +148,7 @@ internal class AppleMusicCjkKaraokeAnimationTarget(
 
     /** Gate values are local in V by this point. d0/c0 must see real word metadata. */
     private fun installGradientMetadataRestoreHook(a0: Executable): Boolean = runCatching {
-        if (a0.declaringClass.name != "com.apple.android.music.player.A") return@runCatching true
+        if (a0.declaringClass.name != NativeLyricsHostContract.className("com.apple.android.music.player.A")) return@runCatching true
         val gradient = a0.declaringClass.declaredMethods.single { it.name == "d0" && it.parameterCount == 9 }
         ModernXposedRuntime.hookMethod(gradient, object : ModernMethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {

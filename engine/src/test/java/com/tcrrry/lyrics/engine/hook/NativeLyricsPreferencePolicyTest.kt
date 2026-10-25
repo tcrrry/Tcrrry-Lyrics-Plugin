@@ -4,6 +4,17 @@ import org.junit.Test
 @org.junit.runner.RunWith(org.robolectric.RobolectricTestRunner::class)
 @org.robolectric.annotation.Config(manifest = org.robolectric.annotation.Config.NONE, sdk = [35])
 class NativeLyricsPreferencePolicyTest {
+    @Test fun customLyricsNeverInheritAutomaticNativePriorityOrDisplacePlatformLineResults() {
+        val line = "<tt><body><p>用户随意导入</p></body></tt>"
+        val word = """<tt itunes:timing="Word"><body><p><span begin="1s" end="2s">君</span></p></body></tt>"""
+        assertFalse(NativeLyricsPreferencePolicy.preferNative(true, null, word, true))
+        assertFalse(NativeLyricsPreferencePolicy.preferNative(false, null, word, true))
+        assertFalse(NativeLyricsPreferencePolicy.useNativeLineFallback(null, line, line, true))
+        assertFalse(NativeLyricsPreferencePolicy.useNativeLineFallback(null, line, null, true))
+        assertTrue(NativeLyricsPreferencePolicy.preferNative(true, null, word, false))
+        assertTrue(NativeLyricsPreferencePolicy.preferNative(false, LyricsSourceMenuPolicy.NATIVE, line, true))
+        assertFalse(NativeLyricsPreferencePolicy.preferNative(true, "QQ音乐", word, true))
+    }
     @org.junit.Before fun attachPlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.attach() }
     @org.junit.After fun closePlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.current.close() }
     @Test fun explicitNativeOverridesWordPriorityButExplicitAuthorOverridesQualityPriority() {

@@ -7,7 +7,7 @@ import java.text.Normalizer
 
 /** Exact text and mutually unique nearby times; never replace the primary word-timed body. */
 internal object CrossSourceAuxiliary {
-    private data class Row(val start: Long, val text: String, val key: String, val raw: String)
+    private data class Row(val start: Long, val text: String, val key: String, val raw: String, val index: Int)
     private val paragraphs = Regex("(?is)<p\\b([^>]*)>(.*?)</p\\s*>")
     private val tags = Regex("<[^>]+>")
     private fun normalized(text: String) = com.tcrrry.lyrics.engine.lyrics.ChineseTextKey.of(Normalizer.normalize(text, Normalizer.Form.NFKC).filterNot(Char::isWhitespace))
@@ -16,11 +16,14 @@ internal object CrossSourceAuxiliary {
         if (text.endsWith("s")) return@runCatching (text.dropLast(1).toDouble() * 1000).toLong()
         (text.split(':').fold(0.0) { value, part -> value * 60 + part.toDouble() } * 1000).toLong()
     }.getOrNull()
-    private fun rows(ttml: String) = paragraphs.findAll(ttml).mapNotNull { match ->
-        val begin = Regex("\\bbegin\\s*=\\s*[\"']([^\"']+)").find(match.groupValues[1])?.groupValues?.get(1) ?: return@mapNotNull null
+    private fun rows(ttml: String) = paragraphs.findAll(ttml).mapIndexedNotNull { index, match ->
+        val begin = Regex("\\bbegin\\s*=\\s*[\"']([^\"']+)").find(match.groupValues[1])?.groupValues?.get(1)
+        // Native Word TTML can carry timings only on its child spans.
+        val start = begin?.let(::time) ?: NativeLyricsTimedWords.parse(match.groupValues[2])?.words?.firstOrNull()?.first
+            ?: return@mapIndexedNotNull null
         val key = Regex("\\bitunes:key\\s*=\\s*[\"']([^\"']+)").find(match.groupValues[1])?.groupValues?.get(1).orEmpty()
-        val text = tags.replace(match.groupValues[2], "").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
-        time(begin)?.let { Row(it, normalized(text), key, text) }
+        val text = LyricsAuxiliaryText.plain(tags.replace(match.groupValues[2], ""))
+        Row(start, normalized(text), key, text, index)
     }.toList()
     private fun track(ttml: String, name: String): Map<String, String> {
         val block = Regex("(?is)<$name\\b[^>]*>(.*?)</$name>").find(ttml)?.groupValues?.get(1) ?: return emptyMap()
@@ -43,11 +46,11 @@ internal object CrossSourceAuxiliary {
         source = com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.fill(context, id, source)
         if (context.pluginPreferences("japanese_pronunciation", android.content.Context.MODE_PRIVATE).getBoolean("enabled", true))
             source = com.tcrrry.lyrics.engine.lyrics.JapanesePronunciationSupplement.fill(source)
-        val converted = DesktopLyricsTtmlConverter.convert(source) ?: return primary
-        val rendered = rows(converted); val readings = track(converted, "transliteration")
-        val values = original.indices.mapNotNull { index ->
-            rendered.getOrNull(index)?.takeIf { it.text == original[index].text && it.start == original[index].start }
-                ?.let { readings[it.key] }?.let { index to it }
+        // Read back the generated LRC directly. A TTML round-trip can drop empty
+        // rows or re-group timestamps, which must not shift the native row keys.
+        val readings = DesktopLyricsTtmlConverter.pronunciationEntries(source).groupBy { it.first }
+        val values = original.mapNotNull { row ->
+            readings[row.start]?.map { it.second }?.distinct()?.singleOrNull()?.let { row.index to it }
         }.toMap()
         return TtmlSubtitleTrack.attachPronunciation(primary, values) ?: primary
     }
@@ -80,8 +83,8 @@ internal object CrossSourceAuxiliary {
                     targetRows[index].start to LyricsAuxiliaryText.plain(it)
                 } })
         }
-        var result = TtmlSubtitleTrack.attach(primary, matched.mapNotNull { (index, key) -> translations[key]?.let { index to it } }.toMap()) ?: primary
-        result = TtmlSubtitleTrack.attachPronunciation(result, matched.mapNotNull { (index, key) -> pronunciation[key]?.let { index to it } }.toMap()) ?: result
+        var result = TtmlSubtitleTrack.attach(primary, matched.mapNotNull { (index, key) -> translations[key]?.let { targetRows[index].index to it } }.toMap()) ?: primary
+        result = TtmlSubtitleTrack.attachPronunciation(result, matched.mapNotNull { (index, key) -> pronunciation[key]?.let { targetRows[index].index to it } }.toMap()) ?: result
         return result
     }
 }

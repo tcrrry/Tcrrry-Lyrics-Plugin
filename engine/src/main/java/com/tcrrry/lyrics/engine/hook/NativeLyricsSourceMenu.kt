@@ -46,7 +46,7 @@ internal object NativeLyricsSourceMenu {
         anchorPages[button]?.get()?.let(CurrentLyricsSourceStatus::rememberVisiblePage)
     }
 
-    private val menus = Collections.synchronizedMap(WeakHashMap<LinearLayout, Boolean>())
+    private val menus = Collections.synchronizedMap(WeakHashMap<LinearLayout, WeakReference<View>>())
 
     fun cleanupPluginRows() {
         menus.keys.toList().forEach { menu ->
@@ -68,7 +68,7 @@ internal object NativeLyricsSourceMenu {
         NativeLyricsPronunciation.install(loader)
         NativeLyricsPronunciationSubtitle.install(loader, build)
         val fragment = loader.lyricsClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
-        val boundButton: ((Any) -> View?)? = if (build.versionCode == 1609L && build.versionName == "7.0.0-beta") {
+        val boundButton: ((Any) -> View?)? = if (build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") {
             runCatching {
                 val binding = fragment.lyricsDeclaredField("n0").apply { isAccessible = true }
                 val button = binding.type.getDeclaredField("o0").apply { isAccessible = true }
@@ -116,7 +116,7 @@ internal object NativeLyricsSourceMenu {
                     }
                 })
         }
-        if (build.versionCode == 1609L && build.versionName == "7.0.0-beta") {
+        if (build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") {
             runCatching { installBindingAnchorHooks(loader.loadClass("q8.X4")) }
                 .onFailure { ModernXposedRuntime.log("early lyrics menu anchor unavailable", it) }
         }
@@ -234,12 +234,27 @@ internal object NativeLyricsSourceMenu {
                         }
                     }.onFailure { ModernXposedRuntime.log("lyrics source menu extension failed open", it) }
                 }
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    val popup = param.thisObject as? PopupWindow ?: return
+                    val menu = popup.contentView as? LinearLayout ?: return
+                    val owned = menus[menu]?.get() ?: return
+                    if (!popup.isShowing || menu.findViewWithTag<View>(ROW_TAG) === owned) return
+                    val anchor = param.args.firstOrNull() as? View ?: return
+                    // Another embedded menu hook can replace the same tagged row
+                    // after our before-hook, leaving its buttons bound to a different
+                    // source session. Reclaim only that row on this verified popup.
+                    runCatching {
+                        appendRow(menu, popup, anchor, currentId, openSettings)
+                        anchorPages[anchor]?.get()?.let { page ->
+                            NativeLyricsAuxiliaryControls.extendMenu(page, menu, popup, currentId)
+                        }
+                    }.onFailure { ModernXposedRuntime.log("lyrics source menu ownership recovery failed", it) }
+                }
             })
         }
     }
 
     private fun appendRow(menu: LinearLayout, popup: PopupWindow, anchor: View, currentId: () -> Long?, openSettings: (Activity) -> Unit) {
-        menus[menu] = true
         menu.findViewWithTag<View>(EMPHASIS_TAG)?.let { menu.removeView(it) }
         menu.findViewWithTag<View>(ROW_TAG)?.let { menu.removeView(it) }
         menu.findViewWithTag<View>(DIVIDER_TAG)?.let { menu.removeView(it) }
@@ -278,6 +293,7 @@ internal object NativeLyricsSourceMenu {
             isFocusable = true
             contentDescription = "歌词源：${LyricsSourceMenuPolicy.caption(applied())}。$detail。单击切换来源，双击寻找当前源的其他匹配，长按打开详细歌词设置"
         }
+        menus[menu] = WeakReference(row)
         row.setOnClickListener {
             if (!valid()) return@setOnClickListener
             val next = CurrentLyricsSourceStatus.beginSourceCycle(app, songId) ?: return@setOnClickListener

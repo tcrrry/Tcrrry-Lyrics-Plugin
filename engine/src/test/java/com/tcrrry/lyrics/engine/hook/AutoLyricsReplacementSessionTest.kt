@@ -15,6 +15,48 @@ import org.junit.Test
 class AutoLyricsReplacementSessionTest {
     @org.junit.Before fun attachPlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.attach() }
     @org.junit.After fun closePlugin() { com.tcrrry.lyrics.plugin.TestPluginContext.current.close() }
+    @Test fun initialEmptyLookupReportsCompletionAndStaleWorkDoesNot() {
+        val queue=QueuedExecutor()
+        val finished=mutableListOf<Pair<Long,Boolean>>()
+        val session=AutoLyricsReplacementSession(
+            fetchCandidate={ null },cache=MemoryCache(),parseTtml={ Pointer() },
+            isAlive={ it is Pointer && it.live },verifyPtr={ it is Pointer && it.live },
+            readAdamId={ (it as Pointer).adamId },bindAdamId={ p,id -> (p as Pointer).adamId=id;true },
+            executor=queue,logger={},onLookupFinished={ id,content -> finished+=id to content })
+        session.onSongChanged(1);session.ensureRequested(1)
+        assertTrue(finished.isEmpty())
+        queue.runAll()
+        assertEquals(listOf(1L to false),finished)
+        session.refreshCurrent(1)
+        session.onSongChanged(2);session.ensureRequested(2)
+        queue.runAll()
+        assertEquals(listOf(1L to false,2L to false),finished)
+        session.onSongChanged(null)
+    }
+    @Test fun cancelledQueuedRefreshesDoNotRejectTheLatestSource() {
+        val worker=java.util.concurrent.ThreadPoolExecutor(1,1,0,java.util.concurrent.TimeUnit.MILLISECONDS,
+            java.util.concurrent.ArrayBlockingQueue<Runnable>(1))
+        val blocked=java.util.concurrent.CountDownLatch(1)
+        val release=java.util.concurrent.CountDownLatch(1)
+        val published=java.util.concurrent.CountDownLatch(1)
+        val completions=java.util.concurrent.CopyOnWriteArrayList<Pair<Boolean,Long?>>()
+        worker.execute { blocked.countDown();release.await(5,java.util.concurrent.TimeUnit.SECONDS) }
+        try {
+            assertTrue(blocked.await(2,java.util.concurrent.TimeUnit.SECONDS))
+            val session=AutoLyricsReplacementSession(
+                fetchCandidate={ AutoLyricsCandidate("desktop-lyrics:QQ音乐",WORD_TTML) },cache=MemoryCache(),
+                parseTtml={ Pointer() },isAlive={ (it as Pointer).live },verifyPtr={ (it as Pointer).live },
+                readAdamId={ (it as Pointer).adamId },bindAdamId={ p,id -> (p as Pointer).adamId=id;true },
+                executor=worker,logger={},onReplacementPublished={ published.countDown() },
+                onTaggedRefreshFinished={ _,success,tag -> completions+=success to tag })
+            session.onSongChanged(42);session.ensureRequested(42)
+            repeat(8) { session.refreshCurrent(42,it.toLong()) }
+            release.countDown()
+            assertTrue(published.await(3,java.util.concurrent.TimeUnit.SECONDS))
+            worker.shutdown();assertTrue(worker.awaitTermination(3,java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(listOf(true to 7L),completions.toList())
+        } finally { release.countDown();worker.shutdownNow() }
+    }
     @Test fun scriptDisplayToggleReparsesTheSameSourceAndKeepsOriginalCacheReversible() {
         var simplified = false
         val seen = mutableListOf<String>()

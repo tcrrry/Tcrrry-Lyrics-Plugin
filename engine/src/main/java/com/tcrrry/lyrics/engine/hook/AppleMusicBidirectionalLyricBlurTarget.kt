@@ -60,8 +60,9 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
             )
         }
 
-        val followRecovery = if ((fragmentResolution as? TargetResolution.Found)?.profileId ==
-            "apple-music-7.0.0-beta-1609") NativeLyricsPresentationRecovery.resolve(fragmentClass) else null
+        val followRecovery = if ((fragmentResolution as? TargetResolution.Found)?.profileId in
+            setOf("apple-music-7.0.0-beta-1609", "apple-music-7.0.0-beta-1613"))
+            NativeLyricsPresentationRecovery.resolve(fragmentClass) else null
         val targetAccess = AppleMusicLyricBlurTargetAccess(recyclerClass, followRecovery)
         val probe = LyricHighlightProbe()
         val runtime = OpenSourceLyricBlurPort(

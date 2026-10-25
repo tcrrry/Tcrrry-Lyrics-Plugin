@@ -79,6 +79,7 @@ internal object JapanesePronunciationSupplement {
             }
             val candidates = linkedSetOf<Pair<Int, String>>()
             preferred[start].orEmpty().forEach { candidates += it.end to normalize(it.text) }
+            if (spatialVariants) candidates.addAll(JapaneseNumericReading.candidates(original, start))
             for (end in start + 1..minOf(original.length, start + 24)) {
                 val surface = original.substring(start, end)
                 tokenizer.alternatives(surface).forEach { reading ->
@@ -95,6 +96,19 @@ internal object JapanesePronunciationSupplement {
                             else->null
                         }
                         if(voiced!=null) candidates+=end to normalize(KanaRomaji.convert(voiced+reading.drop(1)))
+                    }
+                }
+                // Colloquial geminated compounds (片っ方): both sides must have
+                // dictionary readings. Never infer an arbitrary kanji reading.
+                val geminate = surface.indexOf('っ')
+                if (spatialVariants && geminate > 0 && geminate < surface.lastIndex &&
+                    surface.count { it == 'っ' } == 1 && kanji.containsMatchIn(surface.substring(geminate + 1))) {
+                    val prefixes = tokenizer.alternatives(surface.substring(0, geminate))
+                    val suffixes = tokenizer.alternatives(surface.substring(geminate + 1))
+                    for (prefix in prefixes) for (suffix in suffixes) {
+                        val roman = normalize(KanaRomaji.convert(suffix))
+                        if (roman.startsWith("h") || roman.startsWith("f"))
+                            candidates += end to normalize(KanaRomaji.convert(prefix)) + "pp" + roman.drop(1)
                     }
                 }
                 // ASCII words/digits and kana can legitimately be absent from the dictionary.

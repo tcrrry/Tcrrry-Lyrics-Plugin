@@ -4,6 +4,11 @@ import org.junit.Test;
 import static org.junit.Assert.*;
 
 public class PlaybackIntentPolicyTest {
+    @Test public void audited1613HostIsSupportedButUnknownBuildsAreNot() {
+        assertTrue(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.0-beta",1613L));
+        assertFalse(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.0-beta",1614L));
+        assertFalse(PlaybackIntentPolicy.supportsHost("another.player","7.0.0-beta",1613L));
+    }
     private boolean clear(int insertion, int repeat, boolean dynamic, boolean capable) {
         return PlaybackIntentPolicy.shouldClear(insertion, repeat, repeat, 0, 0, true, false,
                 dynamic, capable, true, true);

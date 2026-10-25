@@ -38,6 +38,7 @@ internal class LyricsResultSubmissionContract private constructor(
     val postValueMethod get() = members.method("resultPost")
     val resultValueMethod get() = members.method("resultValue")
     val fragmentResumeMethod get() = members.method("fragmentResume")
+    val finishLoadingMethod get() = runCatching { members.method("finishLoading") }.getOrNull()
     val buildIndexMethod get() = members.method("buildIndex")
     val loadLyricsMethod get() = members.method("loadLyrics")
     val systemLyricsLanguageMethod get() = members.method("systemLyricsLanguage")

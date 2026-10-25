@@ -16,9 +16,9 @@ def main():
     p.add_argument('--aapt2', type=Path, required=True)
     args = p.parse_args()
     badging = subprocess.check_output([str(args.aapt2), 'dump', 'badging', str(args.apk)], text=True)
-    version = re.search(r"versionCode='(1606|1609)' versionName='7.0.0-beta'", badging)
+    version = re.search(r"versionCode='(1606|1609|1613)' versionName='7.0.0-beta'", badging)
     if "name='com.apple.android.music'" not in badging or not version:
-        p.error('Requires original Apple Music 7.0.0-beta / 1606 or 1609')
+        p.error('Requires original Apple Music 7.0.0-beta / 1606, 1609 or 1613')
     classes = {}
     with zipfile.ZipFile(args.apk) as apk:
         for name in apk.namelist():
@@ -271,6 +271,38 @@ def main():
     method(vector, 'get(J)Ljava/lang/String;')
     method('com/apple/android/music/playback/util/LocaleUtil', 'matchToSystemLyricsScript(L'+vector+';)Ljava/lang/String;', True)
     resources = subprocess.check_output([str(args.aapt2), 'dump', 'resources', str(args.apk)], text=True)
+    if version[1] == '1613':
+        # The merged optional queue controls retain their exact named API.
+        queue = 'com/apple/android/music/playback/queue/'
+        manager, provider = queue+'LocalPlaybackQueueManager', queue+'PlaybackQueueItemProvider'
+        for name in ('addItems', 'addItemsInternal'):
+            method(manager, name+'(L'+provider+';I)V')
+        for signature in ('sendAllModeChangedMessage()V','setRepeatMode(I)V','getRepeatMode()I',
+                          'setCurrentIndex(I)V','getItemCount()I','getCurrentIndex()I',
+                          'canSetRepeatMode()Z','getQueueUUID()Ljava/util/UUID;'):
+            method(manager, signature)
+        for name, descriptor in [('repeatMode','I'),('softQueueProvider','L'+provider+';'),
+                                 ('providersById','Landroid/util/SparseArray;'),('workHandler','Landroid/os/Handler;')]:
+            field(manager,name,descriptor)
+        for signature in ('getId()I','getItemCount()I','isDynamic()Z','isMirroringRemoteQueue()Z'):
+            method(provider,signature)
+        model='com/apple/android/music/playback/model/'
+        method(manager,'getItemAtIndex(I)L'+model+'PlayerQueueItem;')
+        method(model+'PlayerQueueItem','getItem()L'+model+'PlayerMediaItem;')
+        method(model+'PlayerQueueItem','getPlaybackQueueId()J')
+        for signature in ('getDuration()J','isLiveRadio()Z','isRadioEpisode()Z','isMediaKindVideo()Z',
+                          'isFromContinuousPlayback()Z','isPlayableContent()Z','getTitle()Ljava/lang/String;'):
+            method(model+'PlayerMediaItem',signature)
+        for signature in ('isLiveRadio()Z','hasStreamItem()Z'):
+            method(queue+'BaseRadioPlaybackQueueItemProvider',signature)
+        field('q8/i8','Y','Lq8/g8;')
+        assert classes['Lq8/j8;']['super']=='Lq8/i8;'
+        for signature in ('l()V','a(Landroid/view/View;I)V','z()V'):
+            method('q8/j8',signature)
+        for name in ('id/button_off','id/button_on','drawable/nowplaying_repeat','drawable/nowplaying_repeatone',
+                     'color/white','string/repeat','string/repeat_once','string/off'):
+            checks += 1
+            assert re.search(r'resource 0x[0-9a-f]+ '+name+r'\b', resources), name
     for name in ('layout/lyrics_word_karaoke','layout/lyrics_word_karaoke_bg',
                  'layout/lyrics_translation_line_karaoke','layout/lyrics_bg_translation_line_karaoke',
                  'color/white_alpha_35','id/translations_button','id/translations_popup_menu',

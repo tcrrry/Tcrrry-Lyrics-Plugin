@@ -16,7 +16,7 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
 
     @Override public void onLoad(PluginContext context) throws Exception {
         if (!PlaybackIntentPolicy.supportsHost(context.getHostPackageName(), context.getHostVersionName(), context.getHostVersionCode()))
-            throw new PluginUnsupportedException("播放模式测试插件仅适配 Apple Music 7.0.0-beta / 1609");
+            throw new PluginUnsupportedException("播放模式优化仅适配 Apple Music 7.0.0-beta / 1609、1613");
         runtime = context;
         host = new HostContract(context.getHostClassLoader());
         coordinator = new PlaybackIntentCoordinator(host);

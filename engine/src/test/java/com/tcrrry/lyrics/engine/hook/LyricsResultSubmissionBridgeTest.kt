@@ -125,9 +125,43 @@ class LyricsResultSubmissionBridgeTest {
         return Fixture(current,model,fragment,bridge,scope,choices,originals,installed)
     }
     private fun idle() { shadowOf(Looper.getMainLooper()).idle() }
+    @Test fun emptySearchCompletesWithoutFakeDocumentAndLateLyricsRemoveEmptyState() {
+        val f=fixture()
+        val shown=mutableListOf<Pair<Long,Boolean>>()
+        f.bridge.pageContentObserver={ _,id,content -> shown+=id to content }
+        start(f);idle()
+        assertTrue(shown.isEmpty())
+        f.bridge.onLookupFinished(1);idle()
+        assertEquals(1L to false,shown.last())
+        assertEquals(0,f.model.results.writes)
+        val native=native(1)
+        f.model.results.setValue(native to null);idle()
+        assertEquals(1L to true,shown.last())
+        f.bridge.onLookupFinished(1);idle()
+        assertEquals(1L to true,shown.last())
+        f.current.publish(Item("2"),CurrentSongDetails(2));f.bridge.onSongChanged(2)
+        shown.clear()
+        f.bridge.onLookupFinished(1);idle()
+        assertTrue(shown.isEmpty())
+        f.scope.close()
+    }
     private fun native(id:Long)=Pointer(Native(id))
     private fun start(f:Fixture,id:Long=1) {
         f.model.loadLyrics(Item(id.toString()));f.bridge.attach(f.fragment)
+    }
+    @Test fun verifiedPanelCanPublishWhenNativeCallbackNeverArrives() {
+        val f=fixture();start(f);idle()
+        val replacement=Pointer(Native(1),"prepared offline pronunciation")
+        f.choices[1]=replacement;f.bridge.onReplacementPublished(1);idle()
+        assertSame(replacement,f.installed.last())
+        assertSame(replacement,f.model.indexed)
+        repeat(3) { f.bridge.onReplacementPublished(1) };idle()
+        assertEquals(1,f.model.results.writes)
+        assertFalse(f.originals.any { it === replacement })
+        val original=native(1)
+        f.choices[1]=original;f.model.results.setValue(original to null)
+        assertSame(original,f.installed.last())
+        f.scope.close()
     }
     @Test fun replacementBuildsIndexBeforeNativeObserverAndKeepsDocumentUnmodified() {
         val f=fixture();val original=native(1)
@@ -253,4 +287,66 @@ class LyricsResultSubmissionBridgeTest {
         assertEquals(writes,f.model.results.writes)
         f.scope.close();assertTrue(TestPluginContext.current.callbacks.isEmpty())
     }
+    @Test fun importedSongCapturedLibraryAliasCanRecoverBeforeAnyNativeTimedResult() {
+        val f=fixture()
+        val mediaId=4_256_633_673_805_039_800L
+        val alias=182_871_078L
+        f.current.publish(Item(mediaId.toString()),CurrentSongDetails(mediaId))
+        f.bridge.onSongChanged(mediaId)
+        f.fragment.id=alias
+        f.model.loadLyrics(Item(alias.toString()))
+        val replacement=Pointer(Native(mediaId),"<tt>imported timed lyrics</tt>")
+        f.choices[mediaId]=replacement
+        // The production callback independently checks live media/persistent/queue IDs.
+        f.bridge.pageIdentityReconciler={ page ->
+            val fragment=page as Fragment
+            if(fragment.id==alias && f.current.current()?.details?.appleMusicId==mediaId){fragment.id=mediaId;true}else false
+        }
+        f.bridge.attach(f.fragment);idle()
+        assertEquals(mediaId,f.fragment.id)
+        assertSame(replacement,f.installed.lastOrNull())
+        assertSame(replacement,f.model.indexed)
+        assertEquals(1,f.model.results.writes)
+        repeat(3){f.bridge.onReplacementPublished(mediaId)};idle()
+        assertEquals(1,f.model.results.writes)
+        f.scope.close()
+    }
+    @Test fun lateLibraryAliasRecoveryRetriesReadyResultWithoutMetadataReplay() {
+        val f=fixture();val mediaId=4_256_633_673_805_039_800L;val alias=182_871_078L
+        f.current.publish(Item(mediaId.toString()),CurrentSongDetails(mediaId));f.bridge.onSongChanged(mediaId)
+        f.fragment.id=alias;f.model.loadLyrics(Item(alias.toString()));f.bridge.attach(f.fragment);idle()
+        val replacement=Pointer(Native(mediaId),"ready before alias reconciliation")
+        f.choices[mediaId]=replacement
+        f.bridge.onReplacementPublished(mediaId);idle();assertTrue(f.installed.isEmpty())
+        f.bridge.pageIdentityReconciler={ page -> if((page as Fragment).id==alias){page.id=mediaId;true}else false }
+        f.bridge.onReplacementPublished(mediaId);idle()
+        assertSame(replacement,f.installed.lastOrNull());assertEquals(1,f.model.results.writes)
+        f.scope.close()
+    }
+    @Test fun canonicalLoadIdentityResolverKeepsSubsequentImportedRequestsOnSameMediaId() {
+        val f=fixture();val mediaId=4_256_633_673_805_039_800L;val alias=182_871_078L
+        f.current.publish(Item(mediaId.toString()),CurrentSongDetails(mediaId));f.bridge.onSongChanged(mediaId)
+        f.fragment.id=mediaId
+        f.bridge.requestIdentityResolver={ item -> if((item as Item).getId()==alias.toString())mediaId else null }
+        f.model.loadLyrics(Item(alias.toString()));f.bridge.attach(f.fragment)
+        val replacement=Pointer(Native(mediaId),"imported reload")
+        f.choices[mediaId]=replacement;f.bridge.onReplacementPublished(mediaId);idle()
+        assertSame(replacement,f.installed.lastOrNull())
+        // A genuine different request must not be relabeled by an unrelated ready wakeup.
+        f.model.loadLyrics(Item("2"));val writes=f.model.results.writes
+        f.bridge.onReplacementPublished(mediaId);idle();assertEquals(writes,f.model.results.writes)
+        f.scope.close()
+    }
+    @Test fun unverifiedPageAliasAndResolverFailuresRetainOriginalRequestGuard() {
+        val f=fixture();val mediaId=4_256_633_673_805_039_800L
+        f.current.publish(Item(mediaId.toString()),CurrentSongDetails(mediaId));f.bridge.onSongChanged(mediaId)
+        f.fragment.id=182_871_078L
+        f.bridge.pageIdentityReconciler={false};f.bridge.requestIdentityResolver={throw IllegalStateException("unavailable live identity")}
+        f.model.loadLyrics(Item(f.fragment.id.toString()));f.bridge.attach(f.fragment)
+        f.choices[mediaId]=Pointer(Native(mediaId),"must not install")
+        f.bridge.onReplacementPublished(mediaId);idle()
+        assertTrue(f.installed.isEmpty());assertEquals(0,f.model.results.writes)
+        f.scope.close()
+    }
+
 }

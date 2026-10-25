@@ -8,14 +8,20 @@ internal object JapaneseReadingMatch {
     private val aliases = listOf(
         // Providers may expand contracted kana (じゃ -> ji a, しょ -> xi yo).
         // Match the complete known syllable; do not drop arbitrary letters.
-        "sha" to listOf("sya", "shiya", "xiya"),
+        "sha" to listOf("sya", "shiya", "xiya", "xia"),
         "shu" to listOf("syu", "shiyu", "xiyu"),
         "sho" to listOf("syo", "shiyo", "xiyo"),
         "ja" to listOf("jya", "jia", "zya"),
         "ju" to listOf("jyu", "jiu", "zyu"),
         "jo" to listOf("jyo", "jio", "zyo"),
         "tsu" to listOf("cu", "tu"), "shi" to listOf("xi", "si"),
-        "chi" to listOf("ci", "ti"), "ji" to listOf("zi"), "fu" to listOf("hu")
+        "chi" to listOf("ci", "ti", "qi"), "ji" to listOf("zi"), "fu" to listOf("hu"),
+        "kya" to listOf("kiya"), "kyu" to listOf("kiyu"), "kyo" to listOf("kiyo"),
+        "gya" to listOf("giya"), "gyu" to listOf("giyu"), "gyo" to listOf("giyo"),
+        // Some provider romanizations omit the written geminate or long vowel.
+        // Match a complete known phonetic sequence; never skip arbitrary letters.
+        "tchi" to listOf("chi", "qi", "ci", "ti"),
+        "ou" to listOf("o"), "oo" to listOf("o"), "uu" to listOf("u")
     )
 
     fun ends(canonical: String, supplied: String, offset: Int): List<Int> {
@@ -29,6 +35,8 @@ internal object JapaneseReadingMatch {
             if (index == canonical.length) { ends += position; return }
             if (position >= supplied.length) return
             if (canonical[index] == supplied[position]) match(index + 1, position + 1)
+            if (canonical[index] !in "aeioun" && canonical.getOrNull(index + 1) == canonical[index])
+                match(index + 1, position)
             for ((from, alternatives) in aliases) {
                 if (!canonical.startsWith(from, index)) continue
                 for (to in alternatives) if (supplied.startsWith(to, position))

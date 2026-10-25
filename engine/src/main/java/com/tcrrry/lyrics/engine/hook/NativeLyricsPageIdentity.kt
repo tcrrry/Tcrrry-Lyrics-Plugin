@@ -27,6 +27,16 @@ internal class NativeLyricsPageIdentity(
         return expected.id > 0 && expected.id == snapshot.details.appleMusicId && live == expected
     }
 
+    /** Resolve a library-enriched load argument only against the page's live queue identity. */
+    fun canonicalIdForItem(page: Any, snapshot: TargetCurrentSong, item: Any): Long? {
+        if (!isAuthoritative(page, snapshot)) return null
+        val expected = snapshot.nativeMetadata?.let(metadataIdentity) ?: return null
+        val actual = itemIdentity(item) ?: return null
+        if (actual.id <= 0L || expected.persistentId == 0L || expected.queueId == 0L ||
+            actual.persistentId != expected.persistentId || actual.queueId != expected.queueId) return null
+        return expected.id
+    }
+
     fun restoreLibraryAlias(page: Any, snapshot: TargetCurrentSong): Boolean {
         if (!isAuthoritative(page, snapshot)) return false
         val metadata = snapshot.nativeMetadata ?: return false

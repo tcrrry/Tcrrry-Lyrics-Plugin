@@ -10,7 +10,7 @@ internal class NativeTimedLyricsPage private constructor(private val type: Class
     private fun field(name: String) = type.lyricsDeclaredField(name).apply { isAccessible = true }
     private val pointer = field("h1")
     private val adapter = field("p0")
-    private val adapterPointer = adapter.type.getMethod("y")
+    private val adapterPointer = adapter.type.lyricsMethod("y")
     private val binding = field("n0")
     private val recycler = binding.type.lyricsDeclaredField("f0").apply { isAccessible = true }
     private val loading = binding.type.lyricsDeclaredField("e0").apply { isAccessible = true }

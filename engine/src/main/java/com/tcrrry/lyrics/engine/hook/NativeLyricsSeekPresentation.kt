@@ -14,7 +14,7 @@ internal class NativeLyricsSeekPresentation private constructor(private val type
     private fun field(name: String) = type.lyricsDeclaredField(name).apply { isAccessible = true }
     private val adapter = field("p0")
     private val karaoke = type.classLoader!!.lyricsClass("com.apple.android.music.player.A")
-    private val update = adapter.type.getMethod("O", List::class.java, Int::class.javaPrimitiveType,
+    private val update = adapter.type.lyricsMethod("O", List::class.java, Int::class.javaPrimitiveType,
         java.lang.reflect.Array.newInstance(Pair::class.java, 0).javaClass)
     private val keyType = type.classLoader!!.loadClass(adapter.type.name + "\$a")
     private fun key(name: String) = keyType.getField(name).get(null)
@@ -27,7 +27,7 @@ internal class NativeLyricsSeekPresentation private constructor(private val type
     }.getOrNull()
     private val whenFinished = runCatching { animator?.type?.getMethod("h", finished!!) }.getOrNull()
     private val endAnimations = runCatching { animator?.type?.getMethod("f") }.getOrNull()
-    private val cancelGap = runCatching { karaoke.getMethod("v") }.getOrNull()
+    private val cancelGap = runCatching { karaoke.lyricsMethod("v") }.getOrNull()
     private val scope = HookRegistrationScope()
     private var active = WeakReference<Any>(null)
     private var blocked = false
@@ -36,7 +36,7 @@ internal class NativeLyricsSeekPresentation private constructor(private val type
     internal var mediaPosition: (() -> Long?)? = null
 
     init {
-        val implementation = runCatching { karaoke.getMethod("O", *update.parameterTypes) }.getOrDefault(update)
+        val implementation = runCatching { karaoke.lyricsMethod("O", *update.parameterTypes) }.getOrDefault(update)
         ModernXposedRuntime.hookMethod(implementation, object : ModernMethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
                 if (param.thisObject !== active.get() || owned.get() != 0) return

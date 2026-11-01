@@ -29,7 +29,7 @@ internal object PlaybackModeOptimization {
     }
     private fun prepare() {
         val context = runtime ?: return
-        if (controls != null || context.hostVersionCode !in setOf(1609L,1613L)) return
+        if (controls != null || context.hostVersionCode !in setOf(1609L,1613L,1614L)) return
         val candidate = PlaybackIntentPlugin()
         try {
             candidate.onLoad(context)

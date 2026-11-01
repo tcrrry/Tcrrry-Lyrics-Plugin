@@ -16,15 +16,15 @@ def main():
     p.add_argument('--aapt2', type=Path, required=True)
     args = p.parse_args()
     badging = subprocess.check_output([str(args.aapt2), 'dump', 'badging', str(args.apk)], text=True)
-    version = re.search(r"versionCode='(1606|1609|1613)' versionName='7.0.0-beta'", badging)
-    if "name='com.apple.android.music'" not in badging or not version:
+    version = re.search(r"versionCode='(1606|1609|1613|1614)' versionName='(7.0.0(?:-beta)?)'", badging)
+    if "name='com.apple.android.music'" not in badging or not version or (version[1] == '1614') != (version[2] == '7.0.0'):
         p.error('Requires original Apple Music 7.0.0-beta / 1606, 1609 or 1613')
     classes = {}
     with zipfile.ZipFile(args.apk) as apk:
         for name in apk.namelist():
             if re.fullmatch(r'classes\d*\.dex', name):
                 classes.update(host.dex_classes(apk.read(name)))
-    profile = json.loads((Path(__file__).resolve().parents[1]/'assets/host-profiles'/f'7.0.0-beta-{version[1]}.json').read_text(encoding='utf8'))
+    profile = json.loads((Path(__file__).resolve().parents[1]/'assets/host-profiles'/f'{version[2]}-{version[1]}.json').read_text(encoding='utf8'))
     contract = profile.get('pluginLyricsCompatibility', {})
     renames = {k.replace('.', '/'):v.replace('.', '/') for k,v in contract.get('classes', {}).items()}
     def owner_name(name): return renames.get(name, name)
@@ -37,6 +37,18 @@ def main():
         nonlocal checks
         checks += 1
         owner, descriptor = owner_name(owner), descriptor_name(descriptor)
+        if version[1] == '1614':
+            common = {'w':'x', 'y':'z', 'E':'F', 'N':'O', 'P':'Q', 'O':'P', 'v':'w', 'B':'C', 'C':'D'}
+            adapter = {'k':'l', 'l':'m'}
+            word = {'o0':'p0', 'F':'G', 'i0':'j0', 't0':'u0', 'c0':'d0', 'd0':'e0', 'U':'V', 'b0':'c0', 'W':'X'}
+            aliases = dict(common)
+            if owner in ('com/apple/android/music/player/x', 'com/apple/android/music/player/S0'):
+                aliases.update(adapter)
+            if owner == 'com/apple/android/music/player/x': aliases.update(word)
+            elif owner == 'com/apple/android/music/player/S0': aliases['U'] = 'V'
+            if owner in ('com/apple/android/music/player/g1', 'com/apple/android/music/player/x', 'com/apple/android/music/player/S0'):
+                method_name, rest = descriptor.split('(', 1)
+                descriptor = aliases.get(method_name, method_name)+'('+rest
         c = classes['L'+owner+';']
         if descriptor not in c['methods'] or bool(c['method_access'][descriptor] & 8) != static:
             raise RuntimeError(f'Wrong method contract: {owner}.{descriptor}')
@@ -270,8 +282,8 @@ def main():
     method(vector, 'size()J')
     method(vector, 'get(J)Ljava/lang/String;')
     method('com/apple/android/music/playback/util/LocaleUtil', 'matchToSystemLyricsScript(L'+vector+';)Ljava/lang/String;', True)
-    resources = subprocess.check_output([str(args.aapt2), 'dump', 'resources', str(args.apk)], text=True)
-    if version[1] == '1613':
+    resources = subprocess.check_output([str(args.aapt2), 'dump', 'resources', str(args.apk)], text=True, encoding='utf-8', errors='replace')
+    if version[1] in ('1613', '1614'):
         # The merged optional queue controls retain their exact named API.
         queue = 'com/apple/android/music/playback/queue/'
         manager, provider = queue+'LocalPlaybackQueueManager', queue+'PlaybackQueueItemProvider'

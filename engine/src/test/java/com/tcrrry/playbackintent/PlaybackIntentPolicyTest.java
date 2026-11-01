@@ -6,6 +6,8 @@ import static org.junit.Assert.*;
 public class PlaybackIntentPolicyTest {
     @Test public void audited1613HostIsSupportedButUnknownBuildsAreNot() {
         assertTrue(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.0-beta",1613L));
+        assertTrue(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.0",1614L));
+        assertTrue(PlaybackIntentPolicy.supportsHost("com.tcrrry.ampplyrics.coexist","7.0.0",1614L));
         assertFalse(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.0-beta",1614L));
         assertFalse(PlaybackIntentPolicy.supportsHost("another.player","7.0.0-beta",1613L));
     }

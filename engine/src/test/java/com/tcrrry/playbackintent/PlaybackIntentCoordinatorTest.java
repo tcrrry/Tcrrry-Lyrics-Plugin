@@ -18,7 +18,7 @@ public class PlaybackIntentCoordinatorTest {
         public void clearAtNativePublication(Object m) { ((Manager)m).repeat = 0; ((Manager)m).clears++; }
     });
     @Before public void start() { coordinator.start(); }
-    private void request(int type) throws Exception { coordinator.requested(manager, provider, type); }
+    private void request(int type) throws Exception { coordinator.requested(manager, provider, type, true); }
     private boolean commit(int type) throws Exception {
         coordinator.beginCommit(manager, provider, type);
         try { return coordinator.beforeNativePublication(manager); }
@@ -27,6 +27,21 @@ public class PlaybackIntentCoordinatorTest {
     @Test public void clearsAtPublicationNotAtRequest() throws Exception {
         request(1); assertEquals(1,manager.repeat);
         manager.provider=provider; assertTrue(commit(1)); assertEquals(0,manager.repeat);
+    }
+    @Test public void ordinaryTrackClickCannotClearRepeatEvenWhenItReplacesQueue() throws Exception {
+        coordinator.requested(manager, provider, 1, false);
+        manager.provider=provider;
+        assertFalse(commit(1)); assertEquals(1,manager.repeat);
+    }
+    @Test public void laterSongClickCancelsAnAlreadyPreparedButtonRequest() throws Exception {
+        request(1); coordinator.newUserAction(); manager.provider=provider;
+        assertFalse(commit(1)); assertEquals(1,manager.repeat);
+    }
+    @Test public void laterSongClickAlsoCancelsARequestAlreadyInsideCommit() throws Exception {
+        request(1); manager.provider=provider; coordinator.beginCommit(manager,provider,1);
+        try { coordinator.newUserAction(); assertFalse(coordinator.beforeNativePublication(manager)); }
+        finally { coordinator.endCommit(); }
+        assertEquals(1,manager.repeat);
     }
     @Test public void providerNotInstalledDoesNotChangeMode() throws Exception { request(1); assertFalse(commit(1)); }
     @Test public void emptyOrRejectedProviderDoesNotChangeMode() throws Exception {

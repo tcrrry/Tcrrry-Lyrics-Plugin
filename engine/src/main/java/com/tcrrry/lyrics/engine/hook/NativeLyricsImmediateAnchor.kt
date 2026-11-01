@@ -16,14 +16,14 @@ internal class NativeLyricsImmediateAnchor private constructor(private val fragm
     private val adapter = field("p0")
     private val follow = field("V0").also { require(it.type == Boolean::class.javaPrimitiveType) }
     private val callback = field("Z0")
-    private val highlighted = adapter.type.getDeclaredMethod("w").also { require(it.returnType == java.util.TreeSet::class.java) }
+    private val highlighted = adapter.type.lyricsDeclaredMethod("w").also { require(it.returnType == java.util.TreeSet::class.java) }
     private val scroll = callback.type.getDeclaredMethod("b", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType)
     private val view = fragmentClass.getMethod("getView")
     private val hidden = fragmentClass.getMethod("isHidden")
 
-    private val unlock = adapter.type.getDeclaredMethod("N")
-    private val nativeFollow = adapter.type.getDeclaredMethod("P", Boolean::class.javaPrimitiveType)
-    private val rebind = adapter.type.getMethod("g")
+    private val unlock = adapter.type.lyricsDeclaredMethod("N")
+    private val nativeFollow = adapter.type.lyricsDeclaredMethod("P", Boolean::class.javaPrimitiveType)
+    private val rebind = adapter.type.lyricsMethod("g")
     private val processor = field("b1")
     private val callbacks = listOf("c1", "d1", "e1", "f1", "g1").map(::field)
     private val processAt = processor.type.getDeclaredMethod("c", pointer.type, Long::class.javaPrimitiveType, *callbacks.map { it.type }.toTypedArray())

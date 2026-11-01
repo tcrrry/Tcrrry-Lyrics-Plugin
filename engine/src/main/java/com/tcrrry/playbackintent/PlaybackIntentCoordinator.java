@@ -18,10 +18,10 @@ final class PlaybackIntentCoordinator {
     private static final class Request {
         final WeakReference<Object> manager;
         final int insertion, repeat;
-        final long revision;
-        Request(Object manager, int insertion, int repeat, long revision) {
+        final long revision, userAction;
+        Request(Object manager, int insertion, int repeat, long revision, long userAction) {
             this.manager = new WeakReference<>(manager);
-            this.insertion = insertion; this.repeat = repeat; this.revision = revision;
+            this.insertion = insertion; this.repeat = repeat; this.revision = revision; this.userAction = userAction;
         }
     }
     private static final class Frame {
@@ -39,6 +39,7 @@ final class PlaybackIntentCoordinator {
     private boolean active;
     private boolean normalEnabled = true, stationEnabled = true;
     private int corrections;
+    private long userAction;
 
     PlaybackIntentCoordinator(QueueAccess queue) { this.queue = queue; }
     synchronized void start() { active = true; }
@@ -47,16 +48,17 @@ final class PlaybackIntentCoordinator {
         normalEnabled = normal; stationEnabled = station; requests.clear();
     }
     synchronized int corrections() { return corrections; }
+    synchronized void newUserAction() { userAction++; requests.clear(); }
     private long revision(Object manager) { Long value = revisions.get(manager); return value == null ? 0L : value; }
 
     // Callers take the manager monitor first, consistently with the native commit path.
-    synchronized void requested(Object manager, Object provider, int insertion) throws Exception {
+    synchronized void requested(Object manager, Object provider, int insertion, boolean explicitButton) throws Exception {
         if (provider == null) return;
         requests.remove(provider);
-        if (!active || !PlaybackIntentPolicy.replacesQueue(insertion)) return;
+        if (!active || !explicitButton || !PlaybackIntentPolicy.replacesQueue(insertion)) return;
         int repeat = queue.repeat(manager);
         if (repeat != 1 && repeat != 2) return;
-        requests.put(provider, new Request(manager, insertion, repeat, revision(manager)));
+        requests.put(provider, new Request(manager, insertion, repeat, revision(manager), userAction));
     }
     synchronized void requestFailed(Object provider) { requests.remove(provider); }
     synchronized void modeCommand(Object manager) {
@@ -81,7 +83,7 @@ final class PlaybackIntentCoordinator {
         Frame frame = stack.peek();
         Request request = frame.request;
         Object provider = frame.provider.get();
-        if (frame.manager.get() != manager || provider == null || request == null || frame.corrected) return false;
+        if (frame.manager.get() != manager || provider == null || request == null || frame.corrected || request.userAction != userAction) return false;
         if (!queue.committed(manager, provider)) return false;
         if (!PlaybackIntentPolicy.shouldClear(request.insertion, request.repeat, queue.repeat(manager),
                 request.revision, revision(manager), true,

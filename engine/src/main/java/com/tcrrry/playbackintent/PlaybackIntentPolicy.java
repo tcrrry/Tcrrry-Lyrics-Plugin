@@ -2,7 +2,7 @@ package com.tcrrry.playbackintent;
 
 final class PlaybackIntentPolicy {
     static boolean supportsHost(String pkg, String version, long code) {
-        return (code == 1609L || code == 1613L) && "7.0.0-beta".equals(version)
+        return ((code == 1609L || code == 1613L) && "7.0.0-beta".equals(version) || code == 1614L && "7.0.0".equals(version))
                 && ("com.apple.android.music".equals(pkg) || "com.tcrrry.ampplyrics.coexist".equals(pkg));
     }
     static boolean replacesQueue(int insertion) {

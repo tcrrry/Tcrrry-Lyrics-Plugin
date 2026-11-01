@@ -20,8 +20,8 @@ class LyricsPlugin : AmppPlugin() {
     private val settingsViews=java.util.Collections.newSetFromMap(java.util.WeakHashMap<View,Boolean>())
     private val dialogs=java.util.Collections.newSetFromMap(java.util.WeakHashMap<android.app.Dialog,Boolean>())
     override fun onLoad(context: PluginContext) {
-        if(context.hostPackageName !in setOf("com.apple.android.music","com.tcrrry.ampplyrics.coexist") || context.hostVersionCode !in setOf(1606L,1609L,1613L) || context.hostVersionName!="7.0.0-beta")
-            throw PluginUnsupportedException("歌词插件仅适配 Apple Music 7.0.0-beta / 1606、1609、1613")
+        if(context.hostPackageName !in setOf("com.apple.android.music","com.tcrrry.ampplyrics.coexist") || !((context.hostVersionCode in setOf(1606L,1609L,1613L) && context.hostVersionName=="7.0.0-beta") || (context.hostVersionCode==1614L && context.hostVersionName=="7.0.0")))
+            throw PluginUnsupportedException("歌词插件仅适配 Apple Music 7.0.0-beta / 1606、1609、1613 和 7.0.0 / 1614")
         runtime=context;PluginLifetime.attach(context)
         NativeLyricsHostContract.verify(context.hostClassLoader)
         context.claimResource("com.tcrrry.lyrics.settings",true)
@@ -39,7 +39,7 @@ class LyricsPlugin : AmppPlugin() {
         requireActive("曲目信息",AppleMusicCurrentSongIdentityTarget(resolver,currentSong).install())
         NativeLyricsSourceMenu.install(context.hostClassLoader,{currentSong.current()?.details?.appleMusicId},::openSettings,build)
         requireActive("歌词匹配",AppleMusicCustomLyricsTarget(context.application,config,resolver,currentSong,automatic).install())
-        requireActive("辉光",AppleMusicCjkKaraokeAnimationTarget(resolver,if(context.hostVersionCode in setOf(1609L,1613L)) "X" else "U",true,config::settings).install())
+        requireActive("辉光",AppleMusicCjkKaraokeAnimationTarget(resolver,if(context.hostVersionCode in setOf(1609L,1613L,1614L)) "X" else "U",true,config::settings).install())
         requireActive("聚焦恢复",AppleMusicBidirectionalLyricBlurTarget(resolver).install())
         // Preserve English word boundaries and the real source timing.
         val parser=context.hostClassLoader.loadClass("com.apple.android.music.ttml.javanative.TTMLParser\$TTMLParserNative")

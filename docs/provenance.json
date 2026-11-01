@@ -9,7 +9,7 @@
     "assets/host-profiles/6.5.2-1586.json": "e8c149d9adc4c3304fa73170dd89942656ba0873b23c67fe26c12d27497fe65a",
     "assets/host-profiles/6.5.3-1599.json": "1ccd87e7ae6224b11b14e81fd8f997c81c9b967e370c3e61bf1111a1d4ec6d2e",
     "assets/host-profiles/7.0.0-beta-1606.json": "54f0450b098e95f637035fd35b4f3993e2ef4620357c5879cee4fbca913bc78e",
-    "assets/host-profiles/index.json": "dc86e2dcc42bf8a76b192b98816a51f61bf89c205a0efc48c077a5fd3dcdf4d9",
+    "assets/host-profiles/index.json": "8338d488bcfea426053988649c8b4e8aad1c91d7fd1c2e34b924cbc589a22995",
     "assets/kuromoji/characterDefinitions.bin": "01c110da81135a32205da569b0378cab327b804c82341651bc55bd54b9d13370",
     "assets/kuromoji/connectionCosts.bin": "e5901a20a644adb0b1cc6b19029af47492aa51e8221547dbf3b500ce86206929",
     "assets/kuromoji/doubleArrayTrie.bin": "80d1c8ce6000d261351f4798e9bd38bc207b3c3c2a59b6caee63b42629dcb26c",
@@ -27,7 +27,8 @@
     "assets/licenses/kuromoji-LICENSE.md": "76b21bab0528f2bb16cd6ce93388d2cc50e5b30ace75d18562f3f0d79270a5bb",
     "assets/licenses/kuromoji-NOTICE.md": "c408a3e8e875434560dbb9ab8d4a78b6e3abc90bd3a57d12d0b41cac99d287bf",
     "assets/host-profiles/7.0.0-beta-1609.json": "71bd68837d58619719c49671d6fb00017434f4becf7774a708f98e95f18191aa",
-    "assets/host-profiles/7.0.0-beta-1613.json": "b573eb6edaa2d7316de29f846cd368dd95c59ecea07f90a505a874059c632898"
+    "assets/host-profiles/7.0.0-beta-1613.json": "b573eb6edaa2d7316de29f846cd368dd95c59ecea07f90a505a874059c632898",
+    "assets/host-profiles/7.0.0-1614.json": "44b44de612027ed46f0ae2d0cbaf7c2daecb5069adda0d956fe8fcad5f79952a"
   },
   "authorAcceptanceSource": {
     "PluginPackages.kt": "17c15ba029df85d3d041259a02b7b02e10a913911c1a80f053016e8f7d138a6f",

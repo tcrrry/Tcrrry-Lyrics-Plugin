@@ -105,13 +105,37 @@ class NativeLyricsPhoneticPresentationTest {
         // The input remains the restoration source; switching back renders it afresh.
         assertEquals("ki mi", TtmlSubtitleTrack.subtitleValues(NativeLyricsPhoneticPresentation.render(word, false), true)[0])
     }
-    @Test fun absentReadingsAndMultiAgentVocalsKeepTheirNativeDocument() {
+    @Test fun absentReadingsAndBackgroundVocalsKeepTheirNativeDocument() {
         val empty = "<tt><body><p begin=\"1s\" end=\"2s\">君</p></body></tt>"
         assertEquals(empty, NativeLyricsPhoneticPresentation.render(empty, true))
         val background = word.replace("<p itunes:key", "<p ttm:role=\"x-bg\" itunes:key")
         assertEquals(background, NativeLyricsPhoneticPresentation.render(background, true))
         assertTrue(DesktopLyricsPresentation.fromTtml(NativeLyricsPhoneticPresentation.render(
             word.replace("<p itunes:key", "<p ttm:agent=\"v1\" itunes:key"), true))!!.primaryPronunciation)
+    }
+    @Test fun separateSingerRowsKeepTheirAgentAndAlignmentWhenEmphasizingReadings() {
+        val input = word.replace(">ki mi</text>", ">kimi yo</text><text for=\"L2\">kimi yo</text>")
+            .replace("<p itunes:key", "<p ttm:agent=\"v1\" itunes:key")
+            .replace("</body>", "<p ttm:agent=\"v2\" tts:textAlign=\"end\" itunes:key=\"L2\" begin=\"4s\" end=\"6s\"><span begin=\"4s\" end=\"5s\">君</span><span begin=\"5s\" end=\"6s\">よ</span></p></body>")
+        val normal = NativeLyricsPhoneticPresentation.render(input, false)
+        assertTrue(DesktopLyricsPresentation.fromTtml(normal)!!.pronunciation)
+        val primary = NativeLyricsPhoneticPresentation.render(input, true)
+        assertTrue(DesktopLyricsPresentation.fromTtml(primary)!!.primaryPronunciation)
+        assertTrue(primary.contains("ttm:agent=\"v1\""))
+        assertTrue(primary.contains("ttm:agent=\"v2\" tts:textAlign=\"end\""))
+        assertTrue(primary.contains("begin=\"0:04.000\" end=\"0:05.000\">kimi</span>"))
+        assertEquals(mapOf(0 to "君よ", 1 to "君よ"), TtmlSubtitleTrack.subtitleValues(primary, true))
+        assertEquals("你", TtmlSubtitleTrack.subtitleValues(primary)[0])
+    }
+    @Test fun backgroundRowDoesNotDisableSeparateMainVocalsOrLoseItsOwnReading() {
+        val background = "<p ttm:role=\"x-bg\" itunes:key=\"L2\" begin=\"4s\" end=\"6s\"><span begin=\"4s\" end=\"6s\">君</span></p>"
+        val input = word.replace(">ki mi</text>", ">kimi yo</text><text for=\"L2\">kimi</text>")
+            .replace("</body>", "$background</body>")
+        val rendered = NativeLyricsPhoneticPresentation.render(input, true)
+        assertTrue(DesktopLyricsPresentation.fromTtml(rendered)!!.primaryPronunciation)
+        assertTrue(rendered.contains(background))
+        assertEquals("kimi", TtmlSubtitleTrack.subtitleValues(rendered, true)[1])
+        assertEquals("君よ", TtmlSubtitleTrack.subtitleValues(rendered, true)[0])
     }
     @Test fun escapedReadingsAndOriginalsAreDecodedOnceWhenSwappingTracks() {
         val escaped = word.replace(">ki mi</text>", ">ki &amp; &#x6d;i</text>").replace(">君</span>", ">君&amp;</span>")

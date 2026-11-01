@@ -988,7 +988,7 @@ internal object TcrrryLyricsSettingsUi {
             addView(body)
         }
         val glass = runCatching {
-            check(com.tcrrry.lyrics.plugin.PluginLifetime.context.hostVersionCode in setOf(1609L,1613L))
+            check(com.tcrrry.lyrics.plugin.PluginLifetime.context.hostVersionCode in setOf(1609L,1613L,1614L))
             check(Build.VERSION.SDK_INT >= 33)
             val plate = SettingsFrostedView(activity)
             val backdrop: SettingsPanelBackdrop = hostSurface?.let(::SettingsHostBackdrop) ?: SettingsGlassBackdrop(activity, plate)
@@ -1264,7 +1264,7 @@ internal object TcrrryLyricsSettingsUi {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(activity, 18), dp(activity, 18), dp(activity, 18), dp(activity, 18))
         val colors = SettingsUiTheme.colors(activity)
-        val glass = com.tcrrry.lyrics.plugin.PluginLifetime.context.hostVersionCode in setOf(1609L,1613L)
+        val glass = com.tcrrry.lyrics.plugin.PluginLifetime.context.hostVersionCode in setOf(1609L,1613L,1614L)
         val surface = if (glass) colors.surface and 0x00FFFFFF or (0xA6 shl 24) else colors.surface
         background = shape(activity, surface, 18, colors.outline)
         SettingsGlassMaterial.mark(this, SettingsGlassKind.Card)

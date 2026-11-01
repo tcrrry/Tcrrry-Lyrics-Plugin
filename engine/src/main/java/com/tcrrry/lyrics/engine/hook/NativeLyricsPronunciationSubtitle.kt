@@ -60,6 +60,7 @@ internal object NativeLyricsPronunciationSubtitle {
     internal fun renderTranslation(container: ViewGroup, view: TextView) {
         if (!PronunciationHeaderLayout.supports(container)) return
         stylePronunciation(view)
+        NativeAuxiliaryAlignment.sync(container, view)
         PronunciationHeaderLayout.moveBelow(container, view)
     }
 
@@ -79,6 +80,7 @@ internal object NativeLyricsPronunciationSubtitle {
             check(container.childCount == count + 1) { "Native subtitle did not append one view" }
             val view = container.getChildAt(count) as? TextView ?: error("Native subtitle is not a TextView")
             stylePronunciation(view)
+            NativeAuxiliaryAlignment.sync(container, view)
             PronunciationHeaderLayout.moveAbove(container, view)
         } catch (error: Exception) {
             // Native DataBinding may attach before rejecting a mismatched binding.
@@ -100,6 +102,7 @@ internal object NativeLyricsPronunciationSubtitle {
             }
             if (current != null && current.text.toString() == text) {
                 stylePronunciation(current)
+                NativeAuxiliaryAlignment.sync(container, current)
                 current.visibility = View.VISIBLE
                 return
             }
@@ -168,7 +171,7 @@ internal object NativeLyricsPronunciationSubtitle {
 
     fun install(loader: ClassLoader, build: TargetBuild = TargetBuild.UNKNOWN) {
         installPronunciationStyleGuard()
-        val modern = build.versionName == "7.0.0-beta" && build.versionCode in setOf(1606L, 1609L, 1613L)
+        val modern = ((build.versionName == "7.0.0-beta" && build.versionCode in setOf(1606L, 1609L, 1613L)) || (build.versionName == "7.0.0" && build.versionCode == 1614L))
         if (modern) NativeLineLyricsPresentation.install(loader)
         runCatching {
             val adapter = loader.lyricsClass("com.apple.android.music.player.A")
@@ -176,7 +179,7 @@ internal object NativeLyricsPronunciationSubtitle {
             val holder = loader.lyricsClass("androidx.recyclerview.widget.RecyclerView\$D")
             val line = loader.lyricsClass("com.apple.android.music.ttml.javanative.model.LyricsLine\$LyricsLineNative")
             val flexbox = loader.lyricsClass("com.apple.android.music.common.views.FullWidthAlphaGradientFlexboxLayout")
-            val subtitle = adapter.getDeclaredMethod(if (modern) "U" else "Z", String::class.java, flexbox,
+            val subtitle = adapter.lyricsDeclaredMethod(if (modern) "U" else "Z", String::class.java, flexbox,
                 Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType)
             // Native AM documents can bypass managed-pointer enrichment. Sanitize
             // only serialized timing markup at the final subtitle inflation entry.
@@ -185,11 +188,11 @@ internal object NativeLyricsPronunciationSubtitle {
                     (param.args[0] as? String)?.let { param.args[0] = LyricsAuxiliaryText.forNative(it) }
                 }
             })
-            val rebuild = adapter.declaredMethods.single { it.name == (if (modern) "b0" else "g0") && it.parameterTypes.size == 7 }
+            val rebuild = adapter.declaredMethods.single { it.name == NativeLyricsHostContract.methodName(adapter.name, if (modern) "b0" else "g0") && it.parameterTypes.size == 7 }
             val rowView = holder.lyricsDeclaredField("a").apply { isAccessible = true }
-            val pointer = adapter.getMethod(if (modern) "y" else "D")
-            val type = adapter.getMethod(if (modern) "f" else "k", Int::class.javaPrimitiveType)
-            val index = adapter.getMethod(if (modern) "E" else "J", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+            val pointer = adapter.lyricsMethod(if (modern) "y" else "D")
+            val type = adapter.lyricsMethod(if (modern) "f" else "k", Int::class.javaPrimitiveType)
+            val index = adapter.lyricsMethod(if (modern) "E" else "J", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
             val processor = adapter.lyricsDeclaredField("p").apply { isAccessible = true }
             val lineAt = processor.type.getMethod("a", Int::class.javaPrimitiveType)
             val dereference = lineAt.returnType.getMethod("get")
@@ -219,8 +222,8 @@ internal object NativeLyricsPronunciationSubtitle {
             }
             val translationFlag = base.lyricsDeclaredField("d").apply { isAccessible = true }
             val pronunciationFlag = base.lyricsDeclaredField("e").apply { isAccessible = true }
-            val fullBind = adapter.getDeclaredMethod(if (modern) "k" else "p", holder, Int::class.javaPrimitiveType).apply { isAccessible = true }
-            val partialBind = adapter.getDeclaredMethod(if (modern) "l" else "q", holder, Int::class.javaPrimitiveType, List::class.java).apply { isAccessible = true }
+            val fullBind = adapter.lyricsDeclaredMethod(if (modern) "k" else "p", holder, Int::class.javaPrimitiveType).apply { isAccessible = true }
+            val partialBind = adapter.lyricsDeclaredMethod(if (modern) "l" else "q", holder, Int::class.javaPrimitiveType, List::class.java).apply { isAccessible = true }
             val pending = loader.lyricsClass(if (modern) "com.apple.android.music.player.n1\$b" else "com.apple.android.music.player.i1\$b").lyricsDeclaredField("y").apply { isAccessible = true }
             val cachedText = loader.lyricsClass(if (modern) "com.apple.android.music.player.n1\$b" else "com.apple.android.music.player.i1\$b").lyricsDeclaredField("v").apply { isAccessible = true }
             val payloads = listOf("h", "i").map { base.lyricsDeclaredField(it).apply { isAccessible = true }.get(null) }
@@ -261,7 +264,7 @@ internal object NativeLyricsPronunciationSubtitle {
                 }
             }
             // Main karaoke words always remain the original lyrics for these pointers.
-            ModernXposedRuntime.hookMethod(base.getDeclaredMethod(if (modern) "B" else "G"), object : ModernMethodHook() {
+            ModernXposedRuntime.hookMethod(base.lyricsDeclaredMethod(if (modern) "B" else "G"), object : ModernMethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     if (param.throwable == null && runCatching { adapter.isInstance(param.thisObject) && owns(param.thisObject) }.getOrDefault(false)) {
                         param.result = true

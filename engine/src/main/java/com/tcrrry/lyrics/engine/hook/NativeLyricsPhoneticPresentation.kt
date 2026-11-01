@@ -8,7 +8,6 @@ internal object NativeLyricsPhoneticPresentation {
     private val paragraphs = Regex("(?is)<p\\b([^>]*)>(.*?)</p\\s*>")
     private val body = Regex("(?is)<body\\b[^>]*>.*?</body\\s*>")
     private val roles = Regex("(?is)\\b(?:ttm:role|itunes:role)\\s*=")
-    private val agent = Regex("(?is)\\bttm:agent\\s*=\\s*([\"'])(.*?)\\1")
     private val begin = Regex("(?is)\\bbegin\\s*=\\s*([\"'])(.*?)\\1")
     private val end = Regex("(?is)\\bend\\s*=\\s*([\"'])(.*?)\\1")
     private val alignment = Regex("<!--native-phonetic-v2 words=(\\d+) lines=(\\d+)-->")
@@ -53,27 +52,31 @@ internal object NativeLyricsPhoneticPresentation {
         val readings = TtmlSubtitleTrack.subtitleValues(ttml, pronunciation = true)
         if (readings.isEmpty()) return ttml
         val original = body.find(ttml) ?: return ttml
-        // Multi-agent/background vocals need their own reading alignment; keep their native presentation.
-        if (roles.containsMatchIn(original.value) || agent.findAll(original.value).map { it.groupValues[2] }.distinct().count() > 1) return ttml
         val rows = paragraphs.findAll(original.value).toList()
-        if (readings.keys.any { index -> rows.getOrNull(index)?.groupValues?.get(1)?.let {
-                begin.find(it) == null || end.find(it) == null
-            } != false }) return ttml
+        // Preserve complex background rows locally; their presence must not
+        // disable separate, fully timed main-vocal rows in the same document.
+        val supported = readings.filterKeys { index ->
+            rows.getOrNull(index)?.let {
+                !roles.containsMatchIn(it.value) && begin.find(it.groupValues[1]) != null && end.find(it.groupValues[1]) != null
+            } == true
+        }
+        if (supported.isEmpty()) return ttml
         var rendered = ttml
         var alignmentMarker = ""
         if (primary) {
-            val originals = mutableMapOf<Int, String>()
-            val parsed = readings.mapValues { (row, _) -> NativeLyricsTimedWords.parse(rows[row].groupValues[2]) }
-            val mapped = if (TtmlTimingPolicy.isWord(ttml)) readings.mapValues { (row, reading) ->
+            val originals = readings.mapValues { decode(it.value) }.toMutableMap()
+            val parsed = supported.mapValues { (row, _) -> NativeLyricsTimedWords.parse(rows[row].groupValues[2]) }
+            val mapped = if (TtmlTimingPolicy.isWord(ttml)) supported.mapValues { (row, reading) ->
                 parsed[row]?.words?.let { timedReading(it, decode(reading), smoothShortUnits) }
             } else emptyMap()
-            val wordTimed = mapped.values.any { it != null }
+            val wordTimed = mapped.values.any { it != null } || (TtmlTimingPolicy.isWord(ttml) &&
+                rows.indices.any { it !in supported && NativeLyricsTimedWords.parse(rows[it].groupValues[2])?.words?.isNotEmpty() == true })
             val wordRows = mapped.values.count { it != null }
-            alignmentMarker = "<!--native-phonetic-v2 words=$wordRows lines=${readings.size - wordRows}-->"
+            alignmentMarker = "<!--native-phonetic-v2 words=$wordRows lines=${supported.size - wordRows}-->"
             var index = 0
             val displayed = paragraphs.replace(original.value) { match ->
                 val row = index++
-                val reading = readings[row] ?: return@replace match.value
+                val reading = supported[row] ?: return@replace match.value
                 originals[row] = parsed[row]?.text ?: decode(Regex("<[^>]+>").replace(match.groupValues[2], ""))
                 val value = mapped[row] ?: if (wordTimed) {
                     val a = begin.find(match.groupValues[1])!!.groupValues[2]

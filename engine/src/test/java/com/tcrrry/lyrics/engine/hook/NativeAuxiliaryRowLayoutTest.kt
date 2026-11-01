@@ -45,6 +45,28 @@ class NativeAuxiliaryRowLayoutTest {
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
         root.layout(0, 0, width, root.measuredHeight)
     }
+    @Test fun reusedAuxiliariesFollowNativeSingerAlignmentInBothDirections() {
+        words.justifyContent = 1
+        render("kimi no koe", "你的声音")
+        layout(360)
+        val header = PronunciationHeaderLayout.auxiliary(words, true) as TextView
+        val footer = PronunciationHeaderLayout.auxiliary(words, false) as TextView
+        for (view in listOf(header, footer)) {
+            assertEquals(android.view.Gravity.END, view.gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK)
+            assertEquals(View.TEXT_ALIGNMENT_GRAVITY, view.textAlignment)
+            assertTrue(view.layout.getLineLeft(0) > 0)
+        }
+        words.justifyContent = 0
+        render("kimi no koe", "你的声音")
+        layout(360)
+        assertSame(footer, PronunciationHeaderLayout.auxiliary(words, false))
+        assertEquals(android.view.Gravity.START, footer.gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK)
+        assertEquals(0f, footer.layout.getLineLeft(0), .01f)
+        words.flexDirection = 1
+        render("kimi no koe", "你的声音")
+        assertEquals(words.layoutDirection, footer.layoutDirection)
+        assertEquals(android.view.Gravity.END, footer.gravity and android.view.Gravity.RELATIVE_HORIZONTAL_GRAVITY_MASK)
+    }
     @Test fun multilineAuxiliariesReserveMeasuredHeightWithoutPaddingOrWordIndexChanges() {
         val originalChildren = (0 until words.childCount).map(words::getChildAt)
         render("boku ni mo son na ka ko na ra a ru shi", "毕竟我也曾有那样的过去，一起走过的漫长时光")

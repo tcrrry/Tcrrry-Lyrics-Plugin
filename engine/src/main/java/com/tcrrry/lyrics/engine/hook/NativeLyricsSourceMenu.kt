@@ -68,7 +68,7 @@ internal object NativeLyricsSourceMenu {
         NativeLyricsPronunciation.install(loader)
         NativeLyricsPronunciationSubtitle.install(loader, build)
         val fragment = loader.lyricsClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
-        val boundButton: ((Any) -> View?)? = if (build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") {
+        val boundButton: ((Any) -> View?)? = if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0"))) {
             runCatching {
                 val binding = fragment.lyricsDeclaredField("n0").apply { isAccessible = true }
                 val button = binding.type.getDeclaredField("o0").apply { isAccessible = true }
@@ -116,7 +116,7 @@ internal object NativeLyricsSourceMenu {
                     }
                 })
         }
-        if (build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") {
+        if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0"))) {
             runCatching { installBindingAnchorHooks(loader.loadClass("q8.X4")) }
                 .onFailure { ModernXposedRuntime.log("early lyrics menu anchor unavailable", it) }
         }
@@ -331,21 +331,10 @@ internal object NativeLyricsSourceMenu {
         })
         row.setOnTouchListener { _, event -> detector.onTouchEvent(event); true }
         menu.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        val displayPrefs = app.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
-        val canEmphasize = CurrentLyricsSourceStatus.canEmphasizePronunciation(app, songId) && NativeLyricsEmphasisVisibility.visible(app)
-        val pronunciationPrimary = canEmphasize && displayPrefs.getBoolean("primary", false)
-        menu.addView(NativeLyricsMenuRowLayout(context, if (pronunciationPrimary) "突出：发音" else "突出：歌词", autoSizeLabel = false, labelSizePx = labelSizePx).apply {
+        menu.addView(NativeLyricsMenuRowLayout(context, "突出：歌词", autoSizeLabel = false, labelSizePx = labelSizePx).apply {
             tag = EMPHASIS_TAG
-            isEnabled = canEmphasize
-            alpha = if (canEmphasize) 1f else 0.35f
-            contentDescription = "${if (pronunciationPrimary) "突出发音" else "突出歌词"}，点击切换"
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                if (!canEmphasize || !valid()) return@setOnClickListener
-                displayPrefs.edit().putBoolean("primary", !pronunciationPrimary).apply()
-                CurrentLyricsSourceStatus.refreshSilently(songId)
-                toast(if (pronunciationPrimary) "突出歌词" else "突出发音")
+            NativeLyricsEmphasisControl.bind(this, app, songId, ::valid) { primary ->
+                toast(if (primary) "突出发音" else "突出歌词")
                 popupRef.get()?.dismiss()
             }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))

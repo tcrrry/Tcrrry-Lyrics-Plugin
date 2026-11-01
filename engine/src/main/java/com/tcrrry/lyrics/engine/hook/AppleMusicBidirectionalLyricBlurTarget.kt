@@ -61,7 +61,7 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
         }
 
         val followRecovery = if ((fragmentResolution as? TargetResolution.Found)?.profileId in
-            setOf("apple-music-7.0.0-beta-1609", "apple-music-7.0.0-beta-1613"))
+            setOf("apple-music-7.0.0-beta-1609", "apple-music-7.0.0-beta-1613", "apple-music-7.0.0-1614"))
             NativeLyricsPresentationRecovery.resolve(fragmentClass) else null
         val targetAccess = AppleMusicLyricBlurTargetAccess(recyclerClass, followRecovery)
         val probe = LyricHighlightProbe()
@@ -138,13 +138,13 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
             RubyGradientBounds.installNative(adapter)
             NativeTerminalGradientFix.install(adapter)
             NativeLyricsLineTiming.install(fragmentClass.classLoader)
-            val leaving = adapter.getDeclaredMethod("o0", Int::class.javaPrimitiveType)
+            val leaving = adapter.lyricsDeclaredMethod("o0", Int::class.javaPrimitiveType)
             require(leaving.returnType == Boolean::class.javaPrimitiveType)
-            val pointer = adapter.getDeclaredMethod("y")
+            val pointer = adapter.lyricsDeclaredMethod("y")
             val holder = lyricsClassForName("com.apple.android.music.player.A\$a", false, fragmentClass.classLoader)
             val position = holder.getMethod("d")
-            val lineForPosition = adapter.getDeclaredMethod("E", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
-            val highlighted = adapter.getMethod("w")
+            val lineForPosition = adapter.lyricsDeclaredMethod("E", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+            val highlighted = adapter.lyricsMethod("w")
             val wordBindings = holder.lyricsDeclaredField("G").apply { isAccessible = true }
             val wordLine = lyricsClassForName("com.apple.android.music.player.viewmodel.PlayerLyricsViewModel\$e",
                 false, fragmentClass.classLoader).lyricsDeclaredField("a").apply { isAccessible = true }
@@ -164,7 +164,7 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
             }
             // O's notifyItemChanged ultimately enters k, not i0. k owns word-view
             // rebuilding and mask initialization even when i0 is never called.
-            val fullBind = adapter.getDeclaredMethod("k",
+            val fullBind = adapter.lyricsDeclaredMethod("k",
                 lyricsClassForName("androidx.recyclerview.widget.RecyclerView\$D", false, fragmentClass.classLoader),
                 Int::class.javaPrimitiveType)
             val nativeBindInstalled = ModernXposedRuntime.hookMethod(fullBind, object : XC_MethodHook() {
@@ -186,8 +186,8 @@ internal class AppleMusicBidirectionalLyricBlurTarget(
                 }
             }
             for (name in listOf("F", "i0", "t0")) runCatching {
-                val method = if (name == "F") adapter.getDeclaredMethod(name, lyricsClassForName("androidx.recyclerview.widget.RecyclerView\$D", false, fragmentClass.classLoader))
-                    else adapter.getDeclaredMethod(name, holder, Int::class.javaPrimitiveType)
+                val method = if (name == "F") adapter.lyricsDeclaredMethod(name, lyricsClassForName("androidx.recyclerview.widget.RecyclerView\$D", false, fragmentClass.classLoader))
+                    else adapter.lyricsDeclaredMethod(name, holder, Int::class.javaPrimitiveType)
                 val registered = ModernXposedRuntime.hookMethod(method, object : XC_MethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
                         runCatching {

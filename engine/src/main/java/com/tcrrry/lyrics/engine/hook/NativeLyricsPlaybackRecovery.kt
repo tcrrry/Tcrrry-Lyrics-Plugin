@@ -18,8 +18,8 @@ internal class NativeLyricsPlaybackRecovery private constructor(
     private val hidden = type.getMethod("isHidden")
     private val pointer = field("h1")
     private val adapter = field("p0")
-    private val unlock = adapter.type.getMethod("N")
-    private val enable = adapter.type.getMethod("P", Boolean::class.javaPrimitiveType)
+    private val unlock = adapter.type.lyricsMethod("N")
+    private val enable = adapter.type.lyricsMethod("P", Boolean::class.javaPrimitiveType)
     private val follow = field("V0")
     private val binding = field("n0")
     private val recycler = binding.type.lyricsDeclaredField("f0").apply { isAccessible = true }

@@ -10,11 +10,12 @@ import java.util.WeakHashMap
 internal object NativeLineLyricsPresentation {
     private val names = listOf("topToTop", "topToBottom", "bottomToTop", "bottomToBottom")
     private data class Style(val colors: ColorStateList, val alpha: Float)
-    private data class Saved(val view: WeakReference<TextView>, val anchors: List<Int>, val style: Style?)
+    private data class Saved(val view: WeakReference<TextView>, val anchors: List<Int>, val style: Style?,
+        val gravity: Int, val alignment: Int, val direction: Int)
     private val rows = WeakHashMap<View, List<Saved>>()
 
     internal fun clear(root: View) {
-        for (saved in rows.remove(root).orEmpty()) {
+        for ((index, saved) in rows.remove(root).orEmpty().withIndex()) {
             val view = saved.view.get() ?: continue
             RubyPronunciationRows.clear(view)
             // Primary and translation styles belong to native binding/animation.
@@ -27,6 +28,11 @@ internal object NativeLineLyricsPresentation {
             val params = view.layoutParams
             names.zip(saved.anchors).forEach { (name, value) -> PronunciationHeaderLayout.field(params.javaClass, name).setInt(params, value) }
             view.layoutParams = params
+            if (index > 0) {
+                view.gravity = saved.gravity
+                view.textAlignment = saved.alignment
+                view.layoutDirection = saved.direction
+            }
         }
     }
 
@@ -35,7 +41,8 @@ internal object NativeLineLyricsPresentation {
         if (!rows.containsKey(root)) {
             rows[root] = listOf(original, pronunciation, translation).map { view ->
                 Saved(WeakReference(view), names.map { PronunciationHeaderLayout.field(view.layoutParams.javaClass, it).getInt(view.layoutParams) },
-                    if (view === pronunciation) Style(view.textColors, view.alpha) else null)
+                    if (view === pronunciation) Style(view.textColors, view.alpha) else null,
+                    view.gravity, view.textAlignment, view.layoutDirection)
             }
         }
         fun anchors(view: TextView, values: List<Int>) {
@@ -50,6 +57,11 @@ internal object NativeLineLyricsPresentation {
         anchors(pronunciation, listOf(oldTop[0], oldTop[1], original.id, -1))
         anchors(original, listOf(-1, pronunciation.id, translation.id, -1))
         anchors(translation, listOf(-1, original.id, oldBottom[2], oldBottom[3]))
+        for (view in listOf(pronunciation, translation)) {
+            view.gravity = original.gravity
+            view.textAlignment = original.textAlignment
+            view.layoutDirection = original.layoutDirection
+        }
         NativeLyricsPronunciationSubtitle.stylePronunciation(pronunciation)
     }
 
@@ -80,9 +92,9 @@ internal object NativeLineLyricsPresentation {
             val original = nativeBinding.lyricsField("b0")
             val pronunciation = nativeBinding.lyricsField("Z")
             val translation = nativeBinding.lyricsField("a0")
-            val pointer = adapter.getMethod("y")
-            val type = adapter.getMethod("f", Int::class.javaPrimitiveType)
-            val index = adapter.getMethod("E", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
+            val pointer = adapter.lyricsMethod("y")
+            val type = adapter.lyricsMethod("f", Int::class.javaPrimitiveType)
+            val index = adapter.lyricsMethod("E", Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType)
             val processor = adapter.lyricsDeclaredField("m").apply { isAccessible = true }
             val lineAt = processor.type.getMethod("a", Int::class.javaPrimitiveType)
             val dereference = lineAt.returnType.getMethod("get")
@@ -92,8 +104,8 @@ internal object NativeLineLyricsPresentation {
             val nativeTranslation = nativeLine.getMethod("getHtmlTranslationLineText")
             val pronounced = base.lyricsDeclaredField("e").apply { isAccessible = true }
             val translated = base.lyricsDeclaredField("d").apply { isAccessible = true }
-            val full = adapter.getDeclaredMethod("k", holder, Int::class.javaPrimitiveType)
-            val partial = adapter.getDeclaredMethod("l", holder, Int::class.javaPrimitiveType, List::class.java)
+            val full = adapter.lyricsDeclaredMethod("k", holder, Int::class.javaPrimitiveType)
+            val partial = adapter.lyricsDeclaredMethod("l", holder, Int::class.javaPrimitiveType, List::class.java)
             var enabled = false
             fun owns(owner: Any?): Boolean = enabled && owner != null && NativeLyricsPronunciationSubtitle.isManagedLine(pointer.invoke(owner))
             fun update(param: ModernMethodHook.MethodHookParam) {
@@ -105,7 +117,7 @@ internal object NativeLineLyricsPresentation {
                 apply(root, original.get(views) as TextView, pronunciation.get(views) as TextView, translation.get(views) as TextView,
                     NativeLyricsPronunciationSubtitle.isPronunciationPrimary(pointer.invoke(param.thisObject)))
             }
-            ModernXposedRuntime.hookMethod(base.getDeclaredMethod("B"), object : ModernMethodHook() {
+            ModernXposedRuntime.hookMethod(base.lyricsDeclaredMethod("B"), object : ModernMethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     if (param.throwable == null && adapter.isInstance(param.thisObject) && owns(param.thisObject)) param.result = true
                 }

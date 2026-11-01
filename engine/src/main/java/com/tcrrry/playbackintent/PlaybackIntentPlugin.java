@@ -12,11 +12,13 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
     private NativeRepeatButtonBridge nativeRepeat;
     private RepeatCommand repeatCommand;
     private final RadioRepeatExperiment radio=new RadioRepeatExperiment();
+    private final PlaybackIntentClickGate clickGate=new PlaybackIntentClickGate(android.os.SystemClock::uptimeMillis, 3000L);
+    private final PlaybackIntentClickObserver clickObserver=new PlaybackIntentClickObserver(clickGate, () -> { if (coordinator != null) coordinator.newUserAction(); });
     private final ThreadLocal<Boolean> readingRadio=new ThreadLocal<>();
 
     @Override public void onLoad(PluginContext context) throws Exception {
         if (!PlaybackIntentPolicy.supportsHost(context.getHostPackageName(), context.getHostVersionName(), context.getHostVersionCode()))
-            throw new PluginUnsupportedException("播放模式优化仅适配 Apple Music 7.0.0-beta / 1609、1613");
+            throw new PluginUnsupportedException("播放模式优化仅适配 Apple Music 7.0.0-beta / 1609、1613 和 7.0.0 / 1614");
         runtime = context;
         host = new HostContract(context.getHostClassLoader());
         coordinator = new PlaybackIntentCoordinator(host);
@@ -24,11 +26,14 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
         nativeRepeat = new NativeRepeatButtonBridge(context,host,radio,repeatCommand);
         registrations.add(context.claimResource("com.tcrrry.playbackintent.queue-modes", true));
         nativeRepeat.register(registrations);
+        registrations.add(clickObserver.register(context));
         registrations.add(context.getHooks().observe(host.addItems, new PluginObserver() {
             @Override public void before(PluginObservation call) throws Exception {
                 synchronized (call.getReceiver()) {
                     Object[] args = call.getArguments();
-                    coordinator.requested(call.getReceiver(), args[0], (Integer) args[1]);
+                    int insertion = (Integer) args[1];
+                    boolean explicit = PlaybackIntentPolicy.replacesQueue(insertion) && clickGate.consume();
+                    coordinator.requested(call.getReceiver(), args[0], insertion, explicit);
                 }
             }
             @Override public void after(PluginObservation call) {
@@ -83,7 +88,7 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
         }));
         context.onClose(this::onStop);
     }
-    @Override public void onStart() { coordinator.start(); radio.start(); nativeRepeat.start(); }
+    @Override public void onStart() { coordinator.start(); clickObserver.start(); radio.start(); nativeRepeat.start(); }
     public Object observedQueue() { return radio.latest(); }
     public void resumeObservedQueue(Object manager) throws Exception {
         if(manager!=null && host.getRepeat.getDeclaringClass().isInstance(manager)) {
@@ -96,6 +101,7 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
     }
     @Override public void onStop() {
         Object manager=radio.latest();
+        clickObserver.stop();
         radio.stop();
         if(nativeRepeat!=null) nativeRepeat.stop();
         if (coordinator != null) coordinator.stop();

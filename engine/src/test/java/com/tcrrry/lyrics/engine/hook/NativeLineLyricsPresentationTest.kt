@@ -40,6 +40,20 @@ class NativeLineLyricsPresentationTest {
     }
     private fun apply() = NativeLineLyricsPresentation.apply(root, original, pronunciation, translation)
 
+    @Test fun auxiliaryAlignmentFollowsNativeLineAndRestoresOnRelease() {
+        val before = translation.gravity
+        original.gravity = android.view.Gravity.END
+        original.textAlignment = View.TEXT_ALIGNMENT_GRAVITY
+        apply()
+        assertEquals(original.gravity, translation.gravity)
+        assertEquals(original.gravity, pronunciation.gravity)
+        original.gravity = android.view.Gravity.START
+        apply()
+        assertEquals(original.gravity, translation.gravity)
+        NativeLineLyricsPresentation.clear(root)
+        assertEquals(before, translation.gravity)
+    }
+
     @Test fun emphasisPlacesSmallOriginalAboveLargePhoneticsAndTranslation() {
         NativeLineLyricsPresentation.apply(root, original, pronunciation, translation, primaryPronunciation = true)
         assertEquals(0, params(pronunciation).topToTop)

@@ -13,8 +13,8 @@ internal fun terminalGradientNeedsCompensation(text: CharSequence): Boolean = co
 internal object NativeTerminalGradientFix {
     private val terminal = ThreadLocal<Boolean>()
     fun install(adapter: Class<*>): Boolean = runCatching {
-        val build = adapter.declaredMethods.single { it.name == "d0" && it.parameterCount == 9 }
-        val margin = adapter.declaredMethods.single { it.name == "c0" && Modifier.isStatic(it.modifiers) && it.parameterCount == 6 }
+        val build = adapter.declaredMethods.single { it.name == NativeLyricsHostContract.methodName(adapter.name, "d0") && it.parameterCount == 9 }
+        val margin = adapter.declaredMethods.single { it.name == NativeLyricsHostContract.methodName(adapter.name, "c0") && Modifier.isStatic(it.modifiers) && it.parameterCount == 6 }
         val index = adapter.lyricsDeclaredField("p").apply { isAccessible = true }
         val entry = build.parameterTypes[2]
         val text = entry.lyricsDeclaredField("c").apply { isAccessible = true }

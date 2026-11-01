@@ -183,7 +183,7 @@ internal class RubyGradientBounds private constructor(type: Class<*>) {
          * constructs a timed sweep; never change a duration or fill a future row.
          */
         fun installNative(adapter: Class<*>): Boolean = runCatching {
-            val build=adapter.declaredMethods.single { it.name=="d0" && it.parameterCount==9 }
+            val build=adapter.declaredMethods.single { it.name==NativeLyricsHostContract.methodName(adapter.name, "d0") && it.parameterCount==9 }
             val type=build.parameterTypes[4]
             require(type.name=="com.apple.android.music.common.views.FullWidthAlphaGradientFlexboxLayout")
             val sync=port(type) ?: return false
@@ -214,7 +214,7 @@ internal class RubyGradientBounds private constructor(type: Class<*>) {
                 }
             })
             // Static completion/reset callbacks also read the same cached key.
-            adapter.declaredMethods.singleOrNull { it.name=="W" && it.parameterCount==7 }?.let { reset ->
+            adapter.declaredMethods.singleOrNull { it.name==NativeLyricsHostContract.methodName(adapter.name, "W") && it.parameterCount==7 }?.let { reset ->
                 ModernXposedRuntime.hookMethod(reset,object:ModernMethodHook() {
                     override fun beforeHookedMethod(param:MethodHookParam) {
                         runCatching {

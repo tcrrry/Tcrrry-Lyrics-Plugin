@@ -31,7 +31,7 @@ internal data class DesktopLyricsPresentation(
         private val marker = Regex("""<!--tcrrry-lyrics-v1 source=(QQ音乐|网易云音乐|LRCLIB|未知) word=(true|false) platform=(true|false) api=(true|false) offline=(true|false) roma=(true|false)(?: nativeRoma=(true|false) offlineRoma=(true|false)(?: primaryRoma=(true|false))?)?(?: romaLangs=([a-z,]*))?-->""")
 
         fun fromTtml(ttml: String): DesktopLyricsPresentation? {
-            val values = marker.find(ttml.take(1024))?.groupValues ?: return null
+            val values = marker.find(ttml.take(2048))?.groupValues ?: return null
             return DesktopLyricsPresentation(values[1], values[2].toBoolean(), values[3].toBoolean(),
                 values[4].toBoolean(), values[5].toBoolean(), values[6].toBoolean(),
                 values[7].takeIf(String::isNotEmpty)?.toBoolean() ?: values[6].toBoolean(),

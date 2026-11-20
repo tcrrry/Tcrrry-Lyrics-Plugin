@@ -15,7 +15,9 @@ internal object CurrentLyricsSourceStatus {
 
     @Synchronized fun beginSourceCycle(context: Context, id: Long): String? {
         if (id <= 0L) return null
-        val order = LyricsSourceMenuPolicy.cycleOrder(appliedSource(context, id), selectedSource(context, id))
+        val preferredOrder = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(context)
+            ?: LyricsSourceMenuPolicy.sources
+        val order = LyricsSourceMenuPolicy.cycleOrder(appliedSource(context, id), selectedSource(context, id), preferredOrder)
         val first = order.first()
         selectSource(context, id, first)
         sourceCycle = SourceCycle(id, cycleSequence.incrementAndGet(), first, order.drop(1))
@@ -45,6 +47,7 @@ internal object CurrentLyricsSourceStatus {
     }
 
     @Volatile private var refreshHandler: ((Long, Boolean) -> Boolean)? = null
+    @Volatile private var auxiliaryReloadHandler: ((Long) -> Boolean)? = null
 
     @Volatile private var pageHandler: ((Any) -> Unit)? = null
     @Volatile private var identityPageHandler: ((Any) -> Unit)? = null
@@ -61,6 +64,8 @@ internal object CurrentLyricsSourceStatus {
     fun installRefreshHandler(handler: (Long, Boolean) -> Boolean) { refreshHandler = handler }
     fun refresh(id: Long): Boolean = refreshHandler?.invoke(id, true) ?: false
     fun refreshSilently(id: Long): Boolean = refreshHandler?.invoke(id, false) ?: false
+    fun installAuxiliaryReloadHandler(handler: (Long) -> Boolean) { auxiliaryReloadHandler = handler }
+    fun reloadAuxiliaries(id: Long): Boolean = auxiliaryReloadHandler?.invoke(id) ?: false
 
     fun rememberMatchInput(context: Context, track: DesktopLyricsTrack) {
         context.pluginPreferences(PREFS, Context.MODE_PRIVATE).edit()

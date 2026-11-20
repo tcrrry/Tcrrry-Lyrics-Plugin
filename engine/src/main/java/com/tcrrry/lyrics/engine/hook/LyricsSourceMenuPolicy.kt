@@ -12,13 +12,15 @@ internal object LyricsSourceMenuPolicy {
         else -> applied?.takeIf { it.startsWith("desktop-lyrics:") }
             ?.substringAfter(':')?.takeIf { it in thirdPartySources }
     }
-    fun next(applied: String?, selected: String?): String {
-        val current = selected?.takeIf { it in sources } ?: provider(applied)
-        return sources[(sources.indexOf(current) + 1) % sources.size]
+    fun next(applied: String?, selected: String?, order: List<String> = sources): String {
+        val list = if (order.isEmpty()) sources else order
+        val current = selected?.takeIf { it in list } ?: provider(applied)?.takeIf { it in list }
+        return list[(list.indexOf(current) + 1) % list.size]
     }
-    fun cycleOrder(applied: String?, selected: String?): List<String> {
-        val first = sources.indexOf(next(applied, selected))
-        return sources.drop(first) + sources.take(first)
+    fun cycleOrder(applied: String?, selected: String?, order: List<String> = sources): List<String> {
+        val list = if (order.isEmpty()) sources else order
+        val first = list.indexOf(next(applied, selected, list))
+        return list.drop(first) + list.take(first)
     }
     fun caption(applied: String?): String = provider(applied) ?: when (applied) {
         "manual" -> "手动歌词"

@@ -13,6 +13,7 @@ internal object NativeLyricsAuxiliaryControls {
     private val nativeRows = WeakHashMap<LinearLayout, List<View>>()
     private val PRONUNCIATION = "tcrrry_auxiliary_pronunciation"
     private val TRANSLATION = "tcrrry_auxiliary_translation"
+    @Volatile internal var documentFallback: ((Any) -> String?)? = null
 
     internal class State(private val model: Any, val lookup: NativeSubtitleLookup, private val context: Context? = null) {
         private fun live(pronunciation: Boolean, available: Boolean): Any {
@@ -59,11 +60,17 @@ internal object NativeLyricsAuxiliaryControls {
         val type = page.javaClass
         val pointer = pointerOverride ?: type.declaredFields.single { it.type.name == "com.apple.android.music.ttml.javanative.model.SongInfo\$SongInfoPtr" }
             .apply { isAccessible = true }.get(page)
-        val lookup = NativeLyricsPronunciationSubtitle.subtitleLookup(pointer)
-            ?: if (nativeMenu) NativeSubtitleLookup("<tt/>") else return null
+        var lookup = NativeLyricsPronunciationSubtitle.subtitleLookup(pointer)
+        if (lookup == null && pointer != null) {
+            documentFallback?.invoke(pointer)?.let { doc ->
+                NativeLyricsPronunciationSubtitle.remember(pointer, doc)
+                lookup = NativeLyricsPronunciationSubtitle.subtitleLookup(pointer)
+            }
+        }
+        val resolvedLookup = lookup ?: if (nativeMenu) NativeSubtitleLookup("<tt/>") else return null
         val model = type.declaredFields.single { it.type.name == "com.apple.android.music.player.viewmodel.PlayerLyricsViewModel" }
             .apply { isAccessible = true }.get(page) ?: return null
-        State(model, lookup, PluginLifetime.context.application)
+        State(model, resolvedLookup, if (PluginLifetime.alive) PluginLifetime.context.application else null)
     }.getOrNull()
 
     internal fun restorePronunciation(context: Context, model: Any) {
@@ -85,6 +92,15 @@ internal object NativeLyricsAuxiliaryControls {
 
     fun synchronize(page: Any) {
         runCatching { state(page)?.synchronize() }.onFailure { ModernXposedRuntime.log("auxiliary availability synchronization failed", it) }
+    }
+
+    fun forceRebindVisiblePage(page: Any) {
+        synchronize(page)
+        runCatching {
+            val adapterField = page.javaClass.lyricsDeclaredField("p0").apply { isAccessible = true }
+            val adapter = adapterField.get(page) ?: return@runCatching
+            adapter.javaClass.lyricsMethod("g").invoke(adapter)
+        }.onFailure { ModernXposedRuntime.log("auxiliary adapter refresh skipped", it) }
     }
 
     fun install(loader: ClassLoader) {

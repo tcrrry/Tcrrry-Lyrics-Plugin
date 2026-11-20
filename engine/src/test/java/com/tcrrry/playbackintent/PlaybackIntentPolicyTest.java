@@ -8,6 +8,9 @@ public class PlaybackIntentPolicyTest {
         assertTrue(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.0-beta",1613L));
         assertTrue(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.0",1614L));
         assertTrue(PlaybackIntentPolicy.supportsHost("com.tcrrry.ampplyrics.coexist","7.0.0",1614L));
+        assertTrue(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.1",1622L));
+        assertTrue(PlaybackIntentPolicy.supportsHost("com.tcrrry.ampplyrics.coexist","7.0.1",1622L));
+        assertFalse(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.0",1622L));
         assertFalse(PlaybackIntentPolicy.supportsHost("com.apple.android.music","7.0.0-beta",1614L));
         assertFalse(PlaybackIntentPolicy.supportsHost("another.player","7.0.0-beta",1613L));
     }

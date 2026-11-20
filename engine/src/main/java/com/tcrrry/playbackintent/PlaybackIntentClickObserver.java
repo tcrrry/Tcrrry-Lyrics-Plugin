@@ -16,16 +16,25 @@ final class PlaybackIntentClickObserver {
     PlaybackIntentClickObserver(PlaybackIntentClickGate gate, Runnable onUserAction) { this.gate = gate; this.onUserAction = onUserAction; }
     void start() { active = true; }
     void stop() { active = false; gate.clear(); calls.remove(); }
-    PluginRegistration register(PluginContext context) throws Exception {
-        return context.getHooks().observe(View.class.getDeclaredMethod("performClick"), new PluginObserver() {
+    void register(PluginContext context, java.util.List<PluginRegistration> registrations) throws Exception {
+        PluginObserver observer = new PluginObserver() {
             @Override public void before(PluginObservation call) {
                 if (!active || !(call.getReceiver() instanceof View)) return;
                 View view = (View) call.getReceiver();
                 java.util.ArrayDeque<Long> stack = calls.get();
                 if (stack == null) { stack = new java.util.ArrayDeque<>(); calls.set(stack); }
-                // Nested native clicks belong to the same top-level user action.
+                String name = resourceName(view);
+                boolean target = isTarget(view);
                 long id = 0L;
-                if (stack.isEmpty()) { onUserAction.run(); id = gate.click(isTarget(view)); }
+                // An outer click can delegate to the real collection button via callOnClick.
+                // If an ancestor already authorized this action, never arm it a second time.
+                if (target && stack.stream().noneMatch(token -> token != 0L)) {
+                    onUserAction.run();
+                    id = gate.click(true);
+                } else if (stack.isEmpty() && !isNonPlaybackControl(name)) {
+                    onUserAction.run();
+                    gate.click(false);
+                }
                 stack.push(id);
             }
             @Override public void after(PluginObservation call) {
@@ -35,8 +44,21 @@ final class PlaybackIntentClickObserver {
                 if (id != 0 && (call.getThrowable() != null || Boolean.FALSE.equals(call.getResult()))) gate.cancel(id);
                 if (stack.isEmpty()) calls.remove();
             }
-        });
+        };
+        registrations.add(context.getHooks().observe(View.class.getDeclaredMethod("performClick"), observer));
+        registrations.add(context.getHooks().observe(View.class.getDeclaredMethod("callOnClick"), observer));
     }
+
+    long authorizeAlbumCommand() {
+        if (!active) return 0L;
+        onUserAction.run();
+        return gate.click(true);
+    }
+
+    static boolean isNonPlaybackControl(String name) {
+        return "btn_back".equals(name) || "player_queue".equals(name) || "player_lyrics".equals(name);
+    }
+
     private static String resourceName(View view) {
         if (view.getId() == View.NO_ID) return "";
         try {

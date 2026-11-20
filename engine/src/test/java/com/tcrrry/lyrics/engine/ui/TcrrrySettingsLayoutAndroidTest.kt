@@ -44,6 +44,19 @@ class TcrrrySettingsLayoutAndroidTest {
         assertTrue(row.performClick())
     }
 
+    @Test fun sourceOrderEditorOpensFromLyricsPreferencesWithoutPluginResources() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        openMenu(page(activity), "歌词偏好")
+        openMenu(ShadowAlertDialog.getLatestAlertDialog().window!!.decorView, "自动匹配来源顺序")
+
+        val editor = ShadowAlertDialog.getLatestAlertDialog().window!!.decorView
+        val order = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.sourceOrder(activity)
+        val labels = texts(editor).map { it.text.toString() }
+        assertEquals(order, labels.filter { it in order })
+        assertTrue("保存顺序" in labels)
+        assertTrue("恢复默认" in labels)
+    }
+
     @Test fun translationUsesInlineLiquidSegmentsAndNoManualSourceLanguage() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         activity.pluginPreferences("supplement_translation", Context.MODE_PRIVATE).edit()

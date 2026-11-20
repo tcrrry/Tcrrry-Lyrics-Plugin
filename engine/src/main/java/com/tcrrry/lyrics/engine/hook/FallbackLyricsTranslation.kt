@@ -27,7 +27,15 @@ internal class FallbackLyricsTranslation(private val context: Context,
     private val readings = ConcurrentHashMap<String, AutoLyricsCandidate>()
     private val platformRepository by lazy { com.tcrrry.lyrics.sources.DirectLyricsRepository() }
     private val working = ConcurrentHashMap.newKeySet<String>()
-    private fun present(candidate: AutoLyricsCandidate): AutoLyricsCandidate {
+
+    fun invalidate(appleMusicId: Long) {
+        val prefix = "$appleMusicId|"
+        readings.keys.filter { it.startsWith(prefix) }.forEach(readings::remove)
+        completed.keys.filter { it.startsWith(prefix) }.forEach(completed::remove)
+        working.filter { it.startsWith(prefix) }.forEach(working::remove)
+    }
+
+    private fun present(candidate: AutoLyricsCandidate, complete: Boolean = true): AutoLyricsCandidate {
         val primary = context.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
             .getBoolean("primary", false) && NativeLyricsEmphasisVisibility.visible(context)
         val tracked = if (TtmlAuxiliaryOrigins.read(candidate.ttml) == null &&
@@ -36,7 +44,8 @@ internal class FallbackLyricsTranslation(private val context: Context,
         val rendered = if (candidate.source in setOf("APPLE_NATIVE", com.tcrrry.lyrics.engine.model.CustomLyricsSources.AM_LYRICS))
             NativeLyricsPhoneticPresentation.render(tracked, primary,
                 com.tcrrry.lyrics.engine.lyrics.LyricsPreference.smoothShortUnits(context)) else tracked
-        return if (rendered == candidate.ttml) candidate else candidate.copy(ttml = rendered)
+        val stamped = AutoLyricsCachePolicy.stampEnrichmentComplete(rendered, complete)
+        return if (stamped == candidate.ttml) candidate else candidate.copy(ttml = stamped)
     }
     private val executor = com.tcrrry.lyrics.plugin.PluginExecutors.pool(2, 2, 0L, TimeUnit.MILLISECONDS,
         ArrayBlockingQueue(2), { task -> Thread(task, "ampp-fallback-translation").apply { isDaemon = true } },
@@ -100,7 +109,9 @@ internal class FallbackLyricsTranslation(private val context: Context,
             "${pronunciationPrefs.getBoolean("enabled", true)}|${pronunciationPrefs.getBoolean("korean_enabled", true)}|${pronunciationPrefs.getBoolean("cantonese_$id", false)}|" +
             "${prefs.getString("active_api_profile", "")}|auto-v2|$identity"
         val cached = completed[key]
-        if (cached != null && now() < cached.retryAt) return present(cached.candidate)
+        if (cached != null && now() < cached.retryAt) {
+            return present(cached.candidate, complete = !working.contains(key) && !(quality && track == null))
+        }
         if (working.add(key)) {
             val progress = AuxiliaryEnrichmentProgress(candidate, mode)
             val state = Any()
@@ -194,7 +205,10 @@ internal class FallbackLyricsTranslation(private val context: Context,
         }
         // An inline/fast completion may happen before the first candidate is published.
         // Re-read the cache instead of returning the snapshot taken before enqueueing.
-        return present(completed[key]?.candidate ?: cached?.candidate ?: candidate)
+        return present(
+            completed[key]?.candidate ?: cached?.candidate ?: candidate,
+            complete = !working.contains(key) && !(quality && track == null),
+        )
     }
 }
 

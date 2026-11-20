@@ -39,6 +39,7 @@ class AutoLyricsSourceResolver(
     private val desktopLyrics: ((DesktopLyricsTrack) -> AutoLyricsCandidate?)? = null,
     private val fallbackTranslation: ((Long, AutoLyricsCandidate) -> AutoLyricsCandidate)? = null,
     private val qualityFirst: () -> Boolean = { false },
+    private val sourceOrder: () -> List<String> = { emptyList() },
 ) {
     fun fetch(appleMusicId: Long, track: DesktopLyricsTrack? = null, selectedRepository: String? = null): AutoLyricsCandidate? {
         if (appleMusicId <= 0L || Thread.currentThread().isInterrupted) return null
@@ -68,6 +69,76 @@ class AutoLyricsSourceResolver(
         if (track?.explicitSource == true) return desktop()
         val quality = qualityFirst()
         val author = sources.firstOrNull { it.name == CustomLyricsSources.AM_LYRICS }
+        val customOrder = sourceOrder()
+        if (track != null && customOrder.isNotEmpty()) {
+            val authorIndex = customOrder.indexOf(com.tcrrry.lyrics.engine.hook.LyricsSourceMenuPolicy.AUTHOR)
+                .let { if (it < 0) Int.MAX_VALUE else it }
+            val minDesktopIndex = com.tcrrry.lyrics.engine.hook.LyricsSourceMenuPolicy.thirdPartySources
+                .minOfOrNull { customOrder.indexOf(it).let { idx -> if (idx < 0) Int.MAX_VALUE else idx } } ?: Int.MAX_VALUE
+            fun rankOf(candidate: AutoLyricsCandidate?): Int = candidate?.let {
+                when (it.source) {
+                    CustomLyricsSources.AM_LYRICS -> authorIndex
+                    else -> com.tcrrry.lyrics.engine.hook.LyricsSourceMenuPolicy.provider(it.source)
+                        ?.let { p -> customOrder.indexOf(p).takeIf { idx -> idx >= 0 } } ?: Int.MAX_VALUE
+                }
+            } ?: Int.MAX_VALUE
+            fun hasWord(candidate: AutoLyricsCandidate?): Boolean =
+                candidate?.ttml?.let(com.tcrrry.lyrics.engine.hook.TtmlTimingPolicy::hasTimedWords) == true
+
+            if (quality) {
+                var authorCandidate: AutoLyricsCandidate? = null
+                var platformCandidate: AutoLyricsCandidate? = null
+                if (authorIndex < minDesktopIndex) {
+                    authorCandidate = author?.let(::fetchSource)
+                    if (authorCandidate != null) return enrich(authorCandidate)
+                    if (Thread.currentThread().isInterrupted) return null
+                    platformCandidate = desktop()
+                    if (platformCandidate != null) return platformCandidate
+                } else {
+                    platformCandidate = desktop()
+                    if (Thread.currentThread().isInterrupted) return null
+                    if (platformCandidate != null && rankOf(platformCandidate) <= authorIndex) return platformCandidate
+                    authorCandidate = author?.let(::fetchSource)
+                    if (authorCandidate != null) return enrich(authorCandidate)
+                    if (platformCandidate != null) return platformCandidate
+                }
+                return sources.asSequence().filter { it !== author }.mapNotNull(::fetchSource).firstOrNull()?.let(::enrich)
+            }
+            var authorCandidate: AutoLyricsCandidate? = null
+            var platformCandidate: AutoLyricsCandidate? = null
+            if (authorIndex < minDesktopIndex) {
+                authorCandidate = author?.let(::fetchSource)
+                if (Thread.currentThread().isInterrupted) return null
+                if (hasWord(authorCandidate)) return enrich(authorCandidate!!)
+                platformCandidate = desktop()
+                if (Thread.currentThread().isInterrupted) return null
+                if (hasWord(platformCandidate)) return platformCandidate
+            } else {
+                platformCandidate = desktop()
+                if (Thread.currentThread().isInterrupted) return null
+                if (hasWord(platformCandidate) && rankOf(platformCandidate) <= authorIndex) return platformCandidate
+                authorCandidate = author?.let(::fetchSource)
+                if (Thread.currentThread().isInterrupted) return null
+                if (hasWord(authorCandidate) && (!hasWord(platformCandidate) || authorIndex < rankOf(platformCandidate))) {
+                    return enrich(authorCandidate!!)
+                }
+                if (hasWord(platformCandidate)) return platformCandidate
+            }
+            var otherLine: AutoLyricsCandidate? = null
+            for (source in sources) {
+                if (Thread.currentThread().isInterrupted) return null
+                if (source === author) continue
+                val candidate = fetchSource(source) ?: continue
+                if (hasWord(candidate)) return enrich(candidate)
+                if (otherLine == null) otherLine = candidate
+            }
+            return when {
+                authorCandidate != null && (platformCandidate == null || authorIndex <= rankOf(platformCandidate)) ->
+                    enrich(authorCandidate)
+                platformCandidate != null -> platformCandidate
+                else -> otherLine?.let(::enrich)
+            }
+        }
         if (quality) {
             author?.let(::fetchSource)?.let { return enrich(it) }
             desktop()?.let { return it }
@@ -106,6 +177,7 @@ class AutoLyricsSourceResolver(
             desktopLyrics: ((DesktopLyricsTrack) -> AutoLyricsCandidate?)? = null,
             fallbackTranslation: ((Long, AutoLyricsCandidate) -> AutoLyricsCandidate)? = null,
             qualityFirst: () -> Boolean = { false },
+            sourceOrder: () -> List<String> = { emptyList() },
         ): AutoLyricsSourceResolver = AutoLyricsSourceResolver(
             listOf(
                 AutoLyricsSource(CustomLyricsSources.AMLL) { raw ->
@@ -117,6 +189,7 @@ class AutoLyricsSourceResolver(
             desktopLyrics,
             fallbackTranslation,
             qualityFirst,
+            sourceOrder,
         )
     }
 }

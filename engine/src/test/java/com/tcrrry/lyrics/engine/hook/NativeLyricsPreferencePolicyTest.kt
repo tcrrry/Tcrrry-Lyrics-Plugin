@@ -61,4 +61,31 @@ class NativeLyricsPreferencePolicyTest {
         assertFalse(NativeLyricsPreferencePolicy.useNativeLineFallback(LyricsSourceMenuPolicy.AUTHOR, line, line))
     }
 
+    @Test fun customSourceOrderControlsNativePriorityInQualityAndWordModes() {
+        val word = """<tt itunes:timing="Word"><body><p><span begin="1s" end="2s">君</span></p></body></tt>"""
+        val line = "<tt><body><p>君</p></body></tt>"
+        val neteaseFirstOrder = listOf("网易云音乐", LyricsSourceMenuPolicy.NATIVE, LyricsSourceMenuPolicy.AUTHOR, "QQ音乐", "LRCLIB")
+        val nativeFirstOrder = listOf(LyricsSourceMenuPolicy.NATIVE, "网易云音乐", LyricsSourceMenuPolicy.AUTHOR, "QQ音乐", "LRCLIB")
+
+        assertFalse(NativeLyricsPreferencePolicy.preferNativeBeforeSearch(true, null, word, false, neteaseFirstOrder))
+        assertTrue(NativeLyricsPreferencePolicy.preferNativeBeforeSearch(true, null, word, false, nativeFirstOrder))
+        assertTrue(NativeLyricsPreferencePolicy.preferNativeBeforeSearch(false, null, word, false, nativeFirstOrder))
+        assertFalse(NativeLyricsPreferencePolicy.preferNativeBeforeSearch(false, null, line, false, nativeFirstOrder))
+
+        // Quality mode: higher ranked NetEase beats native; higher ranked QQ beats native? Wait: in neteaseFirstOrder, native is rank 1 and QQ is rank 3!
+        assertFalse(NativeLyricsPreferencePolicy.nativeBeatsCandidate(true, null, word, "desktop-lyrics:网易云音乐", line, false, neteaseFirstOrder))
+        assertTrue(NativeLyricsPreferencePolicy.nativeBeatsCandidate(true, null, word, "desktop-lyrics:QQ音乐", word, false, neteaseFirstOrder))
+
+        // Word mode: native word beats NetEase line even if NetEase is ordered first; NetEase word beats native word.
+        assertTrue(NativeLyricsPreferencePolicy.nativeBeatsCandidate(false, null, word, "desktop-lyrics:网易云音乐", line, false, neteaseFirstOrder))
+        assertFalse(NativeLyricsPreferencePolicy.nativeBeatsCandidate(false, null, word, "desktop-lyrics:网易云音乐", word, false, neteaseFirstOrder))
+
+        // Already prepared/cached enriched APPLE_NATIVE never triggers a cache-deleting refreshCurrent.
+        assertFalse(NativeLyricsPreferencePolicy.refreshForNativeDocument(
+            true, null, line, false, "APPLE_NATIVE", TtmlTimingMode.NON_WORD, false, nativeFirstOrder))
+        // Higher-ranked cached NetEase in quality mode is not displaced by late native arrival.
+        assertFalse(NativeLyricsPreferencePolicy.refreshForNativeDocument(
+            true, null, word, false, "desktop-lyrics:网易云音乐", TtmlTimingMode.WORD, false, neteaseFirstOrder))
+    }
+
 }

@@ -18,7 +18,7 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
 
     @Override public void onLoad(PluginContext context) throws Exception {
         if (!PlaybackIntentPolicy.supportsHost(context.getHostPackageName(), context.getHostVersionName(), context.getHostVersionCode()))
-            throw new PluginUnsupportedException("播放模式优化仅适配 Apple Music 7.0.0-beta / 1609、1613 和 7.0.0 / 1614");
+            throw new PluginUnsupportedException("播放模式优化仅适配 Apple Music 7.0.0-beta / 1609、1613，7.0.0 / 1614 和 7.0.1 / 1622");
         runtime = context;
         host = new HostContract(context.getHostClassLoader());
         coordinator = new PlaybackIntentCoordinator(host);
@@ -26,7 +26,14 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
         nativeRepeat = new NativeRepeatButtonBridge(context,host,radio,repeatCommand);
         registrations.add(context.claimResource("com.tcrrry.playbackintent.queue-modes", true));
         nativeRepeat.register(registrations);
-        registrations.add(clickObserver.register(context));
+        clickObserver.register(context, registrations);
+        if (context.getHostVersionCode() == 1622L) {
+            try {
+                new AlbumComposePlaybackBridge(clickObserver, clickGate).register(context, registrations);
+            } catch (Exception error) {
+                context.log("1622 album Compose playback unavailable", error);
+            }
+        }
         registrations.add(context.getHooks().observe(host.addItems, new PluginObserver() {
             @Override public void before(PluginObservation call) throws Exception {
                 synchronized (call.getReceiver()) {
@@ -88,7 +95,9 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
         }));
         context.onClose(this::onStop);
     }
-    @Override public void onStart() { coordinator.start(); clickObserver.start(); radio.start(); nativeRepeat.start(); }
+    @Override public void onStart() {
+        coordinator.start(); clickObserver.start(); radio.start(); nativeRepeat.start();
+    }
     public Object observedQueue() { return radio.latest(); }
     public void resumeObservedQueue(Object manager) throws Exception {
         if(manager!=null && host.getRepeat.getDeclaringClass().isInstance(manager)) {

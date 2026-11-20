@@ -14,8 +14,16 @@ internal class RubyFlexItem private constructor(
             if (type.name == "com.google.android.flexbox.FlexboxLayout\$a") {
                 val wrap=type.getDeclaredField("k").apply { require(this.type == Boolean::class.javaPrimitiveType);isAccessible=true }
                 val shrink=type.getDeclaredField("c").apply { require(this.type == Float::class.javaPrimitiveType);isAccessible=true }
-                require(type.getMethod("M").returnType == Boolean::class.javaPrimitiveType)
-                require(type.getMethod("x").returnType == Float::class.javaPrimitiveType)
+                // 1606..1614 expose M()Z / x()F; 1622 exposes K()Z / y()F on the same FlexItem fields.
+                val hasLegacyGetters = runCatching {
+                    type.getMethod("M").returnType == Boolean::class.javaPrimitiveType &&
+                        type.getMethod("x").returnType == Float::class.javaPrimitiveType
+                }.getOrDefault(false)
+                val has1622Getters = runCatching {
+                    type.getMethod("K").returnType == Boolean::class.javaPrimitiveType &&
+                        type.getMethod("y").returnType == Float::class.javaPrimitiveType
+                }.getOrDefault(false)
+                require(hasLegacyGetters || has1622Getters) { "Unexpected FlexboxLayout\$a FlexItem getters" }
                 return RubyFlexItem(wrap::getBoolean,shrink::getFloat,wrap::setBoolean,shrink::setFloat)
             }
             val getWrap=type.getMethod("isWrapBefore")

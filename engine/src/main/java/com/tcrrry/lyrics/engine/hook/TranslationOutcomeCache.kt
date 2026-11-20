@@ -22,6 +22,6 @@ internal class TranslationOutcomeCache(private val now: () -> Long = System::cur
     companion object {
         fun marker(complete: Boolean) = "<!--supplement-translation-complete=$complete-->"
         fun canReuse(ttml: String, translationEnabled: Boolean): Boolean =
-            !translationEnabled || !ttml.take(1024).contains(marker(false))
+            !translationEnabled || !ttml.take(2048).contains(marker(false))
     }
 }

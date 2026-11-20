@@ -57,13 +57,15 @@ internal fun createAutoLyricsRuntime(
         cache = FileLunabeatCatalogCache(File(root, "lunabeat")),
     )
     val desktopLyrics = DesktopLyricsSource(application)
+    val fallbackTranslation = FallbackLyricsTranslation(application)
     val resolver = AutoLyricsSourceResolver.fixed(
         amll = AmllTtmlClient(lyricTransport),
         amLyrics = AmLyricsClient(lyricTransport),
         lunabeat = lunabeat,
         desktopLyrics = desktopLyrics::fetch,
-        fallbackTranslation = FallbackLyricsTranslation(application)::enrich,
+        fallbackTranslation = fallbackTranslation::enrich,
         qualityFirst = { com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application) },
+        sourceOrder = { com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(application).orEmpty() },
     )
     val diskCache = FileAutoLyricsCache(root)
     fun cachePolicy(id: Long): AutoLyricsCachePolicy {
@@ -75,11 +77,18 @@ internal fun createAutoLyricsRuntime(
                 .put(CurrentLyricsSourceStatus.excludedRecords(application, id, source).sorted().toString())
                 .put(CurrentLyricsSourceStatus.offsetMs(application, id, source))
         }
-        for (name in listOf("supplement_translation", "japanese_pronunciation")) {
-            val values = application.pluginPreferences(name, Context.MODE_PRIVATE).all.toSortedMap()
-            options.put(org.json.JSONObject().apply { values.forEach { (key, value) -> put(key, value) } })
-        }
-        options.put(NativeLyricsEmphasisVisibility.visible(application))
+        val translationValues = application.pluginPreferences("supplement_translation", Context.MODE_PRIVATE).all.toSortedMap()
+        options.put(org.json.JSONObject().apply { translationValues.forEach { (key, value) -> put(key, value) } })
+        val pronunciationPrefs = application.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
+        val effectivePrimary = pronunciationPrefs.getBoolean("primary", false) &&
+            NativeLyricsEmphasisVisibility.visible(application)
+        options.put(org.json.JSONObject().apply {
+            put("enabled", pronunciationPrefs.getBoolean("enabled", true))
+            put("korean_enabled", pronunciationPrefs.getBoolean("korean_enabled", true))
+            put("cantonese_$id", pronunciationPrefs.getBoolean("cantonese_$id", false))
+            put("effective_primary", effectivePrimary)
+        })
+        options.put(com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(application).orEmpty().joinToString(">"))
         options.put(com.tcrrry.lyrics.engine.lyrics.LyricsPreference.hideOpeningCredits(application))
             options.put("opening-credits-raw-text-2")
         options.put("qq-completeness-1")
@@ -101,6 +110,7 @@ internal fun createAutoLyricsRuntime(
             requests.set(request)
             if (LyricsCacheStorage.limitMb(application) == 0) return null
             return diskCache.read(appleMusicId)?.let { cached ->
+                if (AutoLyricsCachePolicy.isEnrichmentIncomplete(cached)) return null
                 if (!cachePolicy(appleMusicId).matches(cached)) return null
                 val translationMode = application.pluginPreferences("supplement_translation", Context.MODE_PRIVATE).getString("mode", "off")
                 if (!TranslationOutcomeCache.canReuse(cached, translationMode in setOf("api", "offline"))) return null
@@ -109,8 +119,8 @@ internal fun createAutoLyricsRuntime(
                 if (!com.tcrrry.lyrics.engine.lyrics.JapanesePronunciationSupplement.cacheMatches(cached, pronunciationEnabled,
                     application.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE).getBoolean("primary", false) &&
                         NativeLyricsEmphasisVisibility.visible(application))) return null
-                if (cached.take(1024).contains("<!--tcrrry-lyrics-v1 ") &&
-                    !cached.take(1024).contains(com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.marker(application, appleMusicId))) return null
+                if (cached.take(2048).contains("<!--tcrrry-lyrics-v1 ") &&
+                    !cached.take(2048).contains(com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.marker(application, appleMusicId))) return null
                 TtmlSubtitleTrack.cleanChineseSubtitles(cached).also { cleaned ->
                     if (cleaned != cached) LyricsCacheStorage.store(application, request.second) { diskCache.write(appleMusicId, cleaned) }
                 }
@@ -135,6 +145,10 @@ internal fun createAutoLyricsRuntime(
         publisher = null,
         suppressedIds = suppressedIds,
         invalidateSearch = desktopLyrics::invalidate,
+        invalidateAuxiliaries = { id ->
+            desktopLyrics.invalidateAuxiliaries(id)
+            fallbackTranslation.invalidate(id)
+        },
     )
 }
 
@@ -181,6 +195,7 @@ data class AutoLyricsRuntime(
     val publisher: AutoLyricsPublisher? = null,
     val suppressedIds: Set<Long> = emptySet(),
     val invalidateSearch: (Long) -> Unit = {},
+    val invalidateAuxiliaries: (Long) -> Unit = {},
 )
 
 /**
@@ -336,6 +351,8 @@ class AutoLyricsReplacementSession(
     private val onTaggedRefreshFinished: ((Long, Boolean, Long?) -> Unit)? = null,
     private val presentationKey: () -> String = { "" },
     private val onLookupFinished: ((Long, Boolean) -> Unit)? = null,
+    private val upgradeLineCache: Boolean = true,
+    private val shouldCacheSource: (String) -> Boolean = { it.startsWith(CustomLyricsSources.DESKTOP_LYRICS) },
 ) {
     private val pointers = object : LinkedHashMap<Long, Any>(CACHE_CAPACITY, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Any>?): Boolean =
@@ -517,9 +534,10 @@ class AutoLyricsReplacementSession(
             val cached = runCatching { cache.read(appleMusicId) }.getOrNull()
             logger("automatic lyrics cache id=$appleMusicId hit=${cached != null}")
             if (cached != null && isCurrentRequest(appleMusicId, requestGeneration)) {
-                val candidate = AutoLyricsCandidate(CustomLyricsSources.AUTO_CACHE, cached)
+                val restoredSource = AutoLyricsCachePolicy.readSource(cached) ?: CustomLyricsSources.AUTO_CACHE
+                val candidate = AutoLyricsCandidate(restoredSource, cached)
                 logger(
-                    "automatic lyrics cache parse begin id=$appleMusicId bytes=${cached.length} " +
+                    "automatic lyrics cache parse begin id=$appleMusicId source=$restoredSource bytes=${cached.length} " +
                         "translation=${"<translations>" in cached}",
                 )
                 preparedPointer = preparePointer(
@@ -532,7 +550,7 @@ class AutoLyricsReplacementSession(
                 published = preparedPointer != null
                 if (published) preparedCandidate = candidate
             }
-            val upgradeCache = published && cached != null &&
+            val upgradeCache = upgradeLineCache && published && cached != null &&
                 TtmlTimingPolicy.metadataOf(cached).timingMode == TtmlTimingMode.NON_WORD
             if (upgradeCache && isCurrentRequest(appleMusicId, requestGeneration)) {
                 onCandidatePrepared?.invoke(appleMusicId, preparedCandidate!!)
@@ -555,9 +573,12 @@ class AutoLyricsReplacementSession(
                         published = true
                         preparedCandidate = candidate
                         logger("automatic lyrics prepared source=${candidate.source} id=$appleMusicId")
-                        if (candidate.source.startsWith(CustomLyricsSources.DESKTOP_LYRICS) &&
+                        if (shouldCacheSource(candidate.source) &&
+                            !AutoLyricsCachePolicy.isEnrichmentIncomplete(candidate.ttml) &&
                             isCurrentRequest(appleMusicId, requestGeneration)) {
-                            runCatching { cache.write(appleMusicId, candidate.ttml) }
+                            runCatching {
+                                cache.write(appleMusicId, AutoLyricsCachePolicy.stampSource(candidate.ttml, candidate.source))
+                            }
                         }
                     }
                 }

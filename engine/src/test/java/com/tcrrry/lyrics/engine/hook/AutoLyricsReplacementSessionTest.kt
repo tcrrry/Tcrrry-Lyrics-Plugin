@@ -227,7 +227,8 @@ class AutoLyricsReplacementSessionTest {
         queued.runAll()
         assertEquals(listOf(line, word), displayed)
         assertSame(word, lyrics.readyReplacementFor(42L))
-        assertEquals(WORD_TTML, cache.values[42L])
+        assertEquals(WORD_TTML, AutoLyricsCachePolicy.readSource(cache.values[42L]!!)?.let { cache.values[42L]!!.replace("<!--tcrrry-cache-source:$it-->", "") })
+        assertEquals("desktop-lyrics:QQ音乐", AutoLyricsCachePolicy.readSource(cache.values[42L]!!))
     }
 
     @Test
@@ -273,7 +274,8 @@ class AutoLyricsReplacementSessionTest {
         assertNull(session.replacementFor(42L))
         queued.runAll()
 
-        assertEquals(WORD_TTML, cache.values[42L])
+        assertEquals(WORD_TTML, AutoLyricsCachePolicy.readSource(cache.values[42L]!!)?.let { cache.values[42L]!!.replace("<!--tcrrry-cache-source:$it-->", "") })
+        assertEquals("desktop-lyrics:QQ音乐", AutoLyricsCachePolicy.readSource(cache.values[42L]!!))
     }
 
     @Test
@@ -532,6 +534,61 @@ class AutoLyricsReplacementSessionTest {
         session.refreshCurrent(42L, 66L)
         assertEquals(listOf(66L to false), finished)
         assertSame(pointer, session.readyReplacementFor(42L))
+    }
+
+    @Test
+    fun `disabled line upgrade reuses cached line lyrics across playbacks and restores source`() {
+        val queued = QueuedExecutor()
+        val cache = MemoryCache()
+        var fetches = 0
+        var lastSource: String? = null
+        val firstSession = AutoLyricsReplacementSession(
+            fetchCandidate = {
+                fetches += 1
+                AutoLyricsCandidate("APPLE_NATIVE", LINE_TTML)
+            },
+            cache = cache,
+            parseTtml = { Pointer() },
+            isAlive = { it is Pointer && it.live },
+            verifyPtr = { it is Pointer && it.live },
+            readAdamId = { (it as Pointer).adamId },
+            bindAdamId = { value, id -> (value as Pointer).adamId = id; true },
+            onCandidatePrepared = { _, candidate -> lastSource = candidate.source },
+            executor = queued,
+            logger = {},
+            upgradeLineCache = false,
+            shouldCacheSource = { it == "APPLE_NATIVE" },
+        )
+        firstSession.onSongChanged(42L)
+        firstSession.ensureRequested(42L)
+        queued.runAll()
+        assertEquals(1, fetches)
+        assertEquals("APPLE_NATIVE", lastSource)
+        assertEquals("APPLE_NATIVE", AutoLyricsCachePolicy.readSource(requireNotNull(cache.values[42L])))
+
+        lastSource = null
+        val secondSession = AutoLyricsReplacementSession(
+            fetchCandidate = {
+                fetches += 1
+                AutoLyricsCandidate("APPLE_NATIVE", WORD_TTML)
+            },
+            cache = cache,
+            parseTtml = { Pointer() },
+            isAlive = { it is Pointer && it.live },
+            verifyPtr = { it is Pointer && it.live },
+            readAdamId = { (it as Pointer).adamId },
+            bindAdamId = { value, id -> (value as Pointer).adamId = id; true },
+            onCandidatePrepared = { _, candidate -> lastSource = candidate.source },
+            executor = queued,
+            logger = {},
+            upgradeLineCache = false,
+            shouldCacheSource = { it == "APPLE_NATIVE" },
+        )
+        secondSession.onSongChanged(42L)
+        secondSession.ensureRequested(42L)
+        queued.runAll()
+        assertEquals(1, fetches)
+        assertEquals("APPLE_NATIVE", lastSource)
     }
 
     private fun session(

@@ -129,6 +129,7 @@ internal object RubyPronunciationRows {
         rows.remove(target)?.let { ruby -> ruby.restore(); (ruby.parent as? ViewGroup)?.removeView(ruby) }
     }
     fun refreshMode(enabled: Boolean) { if (!enabled) (rows.keys.toList() + pending.keys.toList()).distinct().forEach(::clear) }
+    fun clearCache() { synchronized(cache) { cache.clear() } }
     fun close() {
         workerEpoch++
         rows.keys.toList().forEach(::clear)

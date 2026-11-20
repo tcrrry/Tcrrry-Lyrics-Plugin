@@ -36,15 +36,16 @@ final class NativeRepeatButtonBridge {
             RepeatCommand command) throws Exception {
         this.runtime=runtime; this.host=host; this.radio=radio; this.command=command;
         ClassLoader loader=runtime.getHostClassLoader();
-        Class<?> owner=loader.loadClass("q8.j8"), base=loader.loadClass("q8.i8");
+        boolean is1622=runtime.getHostVersionCode()==1622L && "7.0.1".equals(runtime.getHostVersionName());
+        Class<?> owner=loader.loadClass(is1622 ? "q8.i8" : "q8.j8"), base=loader.loadClass(is1622 ? "q8.h8" : "q8.i8");
         repeatBinding=base.getDeclaredField("Y");
-        if(repeatBinding.getType()!=loader.loadClass("q8.g8") || owner.getSuperclass()!=base)
+        if(repeatBinding.getType()!=loader.loadClass(is1622 ? "q8.f8" : "q8.g8") || owner.getSuperclass()!=base)
             throw new IllegalStateException("Unexpected queue binding");
         root=loader.loadClass("androidx.databinding.ViewDataBinding").getDeclaredField("d");
         if(root.getType()!=View.class) throw new IllegalStateException("Unexpected binding root");
         repeatBinding.setAccessible(true); root.setAccessible(true);
         render=owner.getDeclaredMethod("l"); click=owner.getDeclaredMethod("a",View.class,int.class);
-        invalidate=owner.getDeclaredMethod("z");
+        invalidate=owner.getDeclaredMethod(is1622 ? "x" : "z");
         setMask=loader.loadClass("com.apple.android.music.common.views.MaskingView").getDeclaredMethod("setMask",int.class);
         for(Method method:new Method[]{render,click,invalidate,setMask}) {
             if(method.getReturnType()!=void.class) throw new IllegalStateException("Unexpected native method");

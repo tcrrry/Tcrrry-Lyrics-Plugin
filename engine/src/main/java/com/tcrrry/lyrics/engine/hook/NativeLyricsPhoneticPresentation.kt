@@ -11,7 +11,7 @@ internal object NativeLyricsPhoneticPresentation {
     private val begin = Regex("(?is)\\bbegin\\s*=\\s*([\"'])(.*?)\\1")
     private val end = Regex("(?is)\\bend\\s*=\\s*([\"'])(.*?)\\1")
     private val alignment = Regex("<!--native-phonetic-v2 words=(\\d+) lines=(\\d+)-->")
-    fun alignmentDetail(ttml: String): String? = alignment.find(ttml.take(1024))?.let {
+    fun alignmentDetail(ttml: String): String? = alignment.find(ttml.take(2048))?.let {
         val words = it.groupValues[1].toIntOrNull() ?: return@let null
         val lines = it.groupValues[2].toIntOrNull() ?: return@let null
         when {

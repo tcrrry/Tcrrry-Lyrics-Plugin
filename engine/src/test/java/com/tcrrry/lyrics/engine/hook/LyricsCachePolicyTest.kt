@@ -2,6 +2,7 @@ package com.tcrrry.lyrics.engine.hook
 
 import com.tcrrry.lyrics.engine.lyrics.LyricsPreference
 import com.tcrrry.lyrics.plugin.PluginStorage.pluginFilesDir
+import com.tcrrry.lyrics.plugin.PluginStorage.pluginPreferences
 import com.tcrrry.lyrics.plugin.TestPluginContext
 import org.junit.Assert.*
 import org.junit.Test
@@ -76,5 +77,29 @@ class LyricsCachePolicyTest {
             assertEquals(60L, LyricsCacheStorage.evict(listOf(newest, oldest), 100))
             assertFalse(oldest.exists()); assertTrue(newest.exists())
         } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun unrelatedSongCantoneseAndNonPrimaryVisibilityDoNotInvalidateCacheButSourceOrderDoes() {
+        val application = RuntimeEnvironment.getApplication()
+        val cache = createAutoLyricsRuntime(application).cache
+        assertNull(cache.read(42L))
+        assertTrue(cache.write(42L, AutoLyricsCachePolicy.stampEnrichmentComplete(document, true)))
+        assertNotNull(cache.read(42L))
+
+        val jpPrefs = application.pluginPreferences("japanese_pronunciation", android.content.Context.MODE_PRIVATE)
+        jpPrefs.edit().putBoolean("cantonese_999", true).apply()
+        assertNotNull(cache.read(42L))
+
+        NativeLyricsEmphasisVisibility.choose(application, false) {}
+        assertNotNull(cache.read(42L))
+
+        val incomplete = AutoLyricsCachePolicy.stampEnrichmentComplete(document, false)
+        assertTrue(AutoLyricsCachePolicy.isEnrichmentIncomplete(incomplete))
+        assertNull(cache.read(43L))
+        assertTrue(cache.write(43L, incomplete))
+        assertNull(cache.read(43L))
+
+        LyricsPreference.updateSourceOrder(application, listOf("网易云音乐", LyricsSourceMenuPolicy.NATIVE, LyricsSourceMenuPolicy.AUTHOR, "QQ音乐", "LRCLIB"))
+        assertNull(cache.read(42L))
     }
 }

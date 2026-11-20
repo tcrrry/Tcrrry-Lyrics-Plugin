@@ -170,4 +170,39 @@ class NativeLyricsAuxiliaryControlsTest {
         assertEquals(false,NativeLyricsEmphasisVisibility.saved(app))
         NativeLyricsAuxiliaryControls.restoreMenu(menu)
     }
+    @Test fun mutableAddressWrapperResetDoesNotLoseRememberedSubtitlesOrDocumentFallback() {
+        class AddressPtr(var address: Long) {
+            override fun hashCode(): Int = (address xor (address ushr 32)).toInt()
+            override fun equals(other: Any?): Boolean = other is AddressPtr && other.address == address
+        }
+        val ptr = AddressPtr(0x1234L)
+        NativeLyricsPronunciationSubtitle.rememberForSong(777L, ptr, ttml())
+        assertTrue(NativeLyricsPronunciationSubtitle.isManaged(ptr))
+        ptr.address = 0L
+        assertTrue(NativeLyricsPronunciationSubtitle.isManaged(ptr))
+        assertNotNull(NativeLyricsPronunciationSubtitle.subtitleLookup(ptr))
+
+        val cloneSameAddress = AddressPtr(0x1234L)
+        val ptrBeforeZero = AddressPtr(0x5555L)
+        NativeLyricsPronunciationSubtitle.rememberForSong(778L, ptrBeforeZero, ttml())
+        assertTrue(NativeLyricsPronunciationSubtitle.isManaged(AddressPtr(0x5555L)))
+        NativeLyricsPronunciationSubtitle.clearCachedSong(778L)
+
+        NativeLyricsAuxiliaryControls.documentFallback = { p -> if (p === pageFallbackToken()) ttml() else null }
+        try {
+            val page = PlayerLyricsViewFragment()
+            val fresh = AddressPtr(0x9999L)
+            val origToken = pageFallbackToken
+            pageFallbackToken = fresh
+            val resolved = NativeLyricsAuxiliaryControls.state(page, pointerOverride = fresh)
+            pageFallbackToken = origToken
+            assertNotNull(resolved)
+            assertTrue(resolved!!.available(true))
+            assertTrue(resolved.available(false))
+        } finally {
+            NativeLyricsAuxiliaryControls.documentFallback = null
+        }
+    }
 }
+private var pageFallbackToken: Any? = null
+private fun pageFallbackToken(): Any? = pageFallbackToken

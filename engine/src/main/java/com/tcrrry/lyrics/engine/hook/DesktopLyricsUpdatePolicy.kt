@@ -6,15 +6,15 @@ import com.tcrrry.lyrics.engine.lyrics.DesktopLyricsTtmlConverter
 /** Keep the first credible display unless the completed search actually improves it. */
 internal object DesktopLyricsUpdatePolicy {
     fun choose(first: DirectLyricsRepository.Result?, final: DirectLyricsRepository.Result,
-               durationMs: Long, wordFirst: Boolean = false): DirectLyricsRepository.Result {
+               durationMs: Long, wordFirst: Boolean = false, sourceOrder: List<String> = emptyList()): DirectLyricsRepository.Result {
         if (first == null || first.lyrics.isBlank()) return final
         if (final.lyrics.isBlank()) return first
         val before = DesktopLyricsTtmlConverter.convert(first, durationMs)
         val after = DesktopLyricsTtmlConverter.convert(final, durationMs)
         if (before == after) return first
         if (first.score >= 95 && final.score < 95) return first
-        if (wordFirst) return if (DirectLyricsRepository.qualityRank(final, true) >
-            DirectLyricsRepository.qualityRank(first, true)) final else first
+        if (wordFirst || sourceOrder.isNotEmpty()) return if (DirectLyricsRepository.qualityRank(final, wordFirst, sourceOrder) >
+            DirectLyricsRepository.qualityRank(first, wordFirst, sourceOrder)) final else first
         val confidenceUpgrade = (final.score >= 95 && first.score < 95) || final.score >= first.score + 20
         val wordUpgrade = first.wordLyrics.isBlank() && final.wordLyrics.isNotBlank()
         val translationUpgrade = before?.contains("<translations>") != true &&

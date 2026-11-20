@@ -5,13 +5,60 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.tcrrry.lyrics.engine.lyrics.DesktopLyricsPresentation
+import com.tcrrry.lyrics.metadata.amprovider.xposed.internal.WeakIdentityMap
+import java.lang.reflect.Field
 import java.util.Collections
+import java.util.LinkedHashMap
 import java.util.WeakHashMap
 
 /** Auxiliary tracks belong to the native row, outside its word-gradient children. */
 internal object NativeLyricsPronunciationSubtitle {
     private data class Managed(val word: Boolean, val pronunciation: Boolean, val primaryPronunciation: Boolean, val subtitles: NativeSubtitleLookup)
-    private val managed = Collections.synchronizedMap(WeakHashMap<Any, Managed>())
+    private val managedLock = Any()
+    private val managed = WeakIdentityMap<Any, Managed>()
+    private val managedByAddress = object : LinkedHashMap<Long, Managed>(32, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Managed>?) = size > 32
+    }
+    private val managedBySongId = object : LinkedHashMap<Long, Pair<Long, Managed>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Pair<Long, Managed>>?) = size > 16
+    }
+    private val addressFields = WeakIdentityMap<Class<*>, OptionalField>()
+    private class OptionalField(val field: Field?)
+
+    private fun pointerAddress(pointer: Any?): Long {
+        if (pointer == null) return 0L
+        val type = pointer.javaClass
+        val cached = addressFields[type] ?: run {
+            val found = generateSequence(type as Class<*>?) { it.superclass }
+                .mapNotNull { runCatching { it.getDeclaredField("address") }.getOrNull() }
+                .firstOrNull { it.type == Long::class.javaPrimitiveType }
+                ?.apply { isAccessible = true }
+            OptionalField(found).also { addressFields[type] = it }
+        }
+        return cached.field?.let { runCatching { it.getLong(pointer) }.getOrDefault(0L) } ?: 0L
+    }
+
+    private fun lookupManaged(pointer: Any?, songId: Long? = null): Managed? {
+        if (pointer == null) return null
+        val address = pointerAddress(pointer)
+        synchronized(managedLock) {
+            managed[pointer]?.let { return it }
+            if (address != 0L) managedByAddress[address]?.let { entry ->
+                managed[pointer] = entry
+                return entry
+            }
+            if (songId != null && songId > 0L) {
+                managedBySongId[songId]?.let { (storedAddress, entry) ->
+                    if (address != 0L && storedAddress == address) {
+                        managed[pointer] = entry
+                        managedByAddress[address] = entry
+                        return entry
+                    }
+                }
+            }
+            return null
+        }
+    }
     internal data class Selection(val owner: Any, val lineId: Int, val pronunciation: Boolean, val translation: Boolean) {
         companion object {
             fun resolve(owner: Any, lineId: Int, pronunciation: Boolean, translation: Boolean, parent: Selection?): Selection {
@@ -130,7 +177,9 @@ internal object NativeLyricsPronunciationSubtitle {
     private val nativeLine = ThreadLocal<Any?>()
     private val selection = ThreadLocal<Selection?>()
 
-    fun remember(pointer: Any, ttml: String) {
+    fun remember(pointer: Any, ttml: String) = rememberForSong(0L, pointer, ttml)
+
+    fun rememberForSong(songId: Long, pointer: Any, ttml: String) {
         val presentation = DesktopLyricsPresentation.fromTtml(ttml)
         val subtitles = NativeSubtitleLookup(ttml)
         // Imported/cached platform TTML can bypass the cross-source enrichment pass.
@@ -149,29 +198,47 @@ internal object NativeLyricsPronunciationSubtitle {
                 }
             }
         }
-        if (presentation != null || subtitles.hasPronunciation || subtitles.hasTranslation) {
-            managed[pointer] = Managed(TtmlTimingPolicy.isWord(ttml), subtitles.hasPronunciation,
+        val entry = if (presentation != null || subtitles.hasPronunciation || subtitles.hasTranslation) {
+            Managed(TtmlTimingPolicy.isWord(ttml), subtitles.hasPronunciation,
                 presentation?.primaryPronunciation == true, subtitles)
-        } else managed.remove(pointer)
+        } else null
+        val address = pointerAddress(pointer)
+        synchronized(managedLock) {
+            if (entry != null) {
+                managed[pointer] = entry
+                if (address != 0L) managedByAddress[address] = entry
+                if (songId > 0L) managedBySongId[songId] = address to entry
+            } else {
+                managed.remove(pointer)
+                if (address != 0L) managedByAddress.remove(address)
+                if (songId > 0L) managedBySongId.remove(songId)
+            }
+        }
     }
 
-    internal fun subtitleLookup(pointer: Any?): NativeSubtitleLookup? = managed[pointer]?.subtitles
+    internal fun clearCachedSong(songId: Long) {
+        if (songId <= 0L) return
+        synchronized(managedLock) { managedBySongId.remove(songId) }
+    }
+
+    internal fun subtitleLookup(pointer: Any?, songId: Long? = null): NativeSubtitleLookup? =
+        lookupManaged(pointer, songId)?.subtitles
 
     internal fun lineSubtitles(pointer: Any?, original: String): NativeSubtitleLookup.Tracks? =
-        managed[pointer]?.subtitles?.forOriginal(original)
+        lookupManaged(pointer)?.subtitles?.forOriginal(original)
 
-    internal fun isManaged(pointer: Any?): Boolean = pointer != null && managed.containsKey(pointer)
+    internal fun isManaged(pointer: Any?): Boolean = lookupManaged(pointer) != null
 
-    internal fun isManagedWord(pointer: Any?): Boolean = pointer != null && managed[pointer]?.word == true
-    internal fun isManagedLine(pointer: Any?): Boolean = pointer != null && managed[pointer]?.word == false
+    internal fun isManagedWord(pointer: Any?): Boolean = lookupManaged(pointer)?.word == true
+    internal fun isManagedLine(pointer: Any?): Boolean = lookupManaged(pointer)?.word == false
 
-    internal fun isPronunciationPrimary(pointer: Any?): Boolean = pointer != null && managed[pointer]?.primaryPronunciation == true
+    internal fun isPronunciationPrimary(pointer: Any?): Boolean = lookupManaged(pointer)?.primaryPronunciation == true
 
-    internal fun hasManagedPronunciation(pointer: Any?): Boolean = pointer != null && managed[pointer]?.pronunciation == true
+    internal fun hasManagedPronunciation(pointer: Any?): Boolean = lookupManaged(pointer)?.pronunciation == true
 
     fun install(loader: ClassLoader, build: TargetBuild = TargetBuild.UNKNOWN) {
         installPronunciationStyleGuard()
-        val modern = ((build.versionName == "7.0.0-beta" && build.versionCode in setOf(1606L, 1609L, 1613L)) || (build.versionName == "7.0.0" && build.versionCode == 1614L))
+        val modern = ((build.versionName == "7.0.0-beta" && build.versionCode in setOf(1606L, 1609L, 1613L)) || (build.versionName == "7.0.0" && build.versionCode == 1614L) || (build.versionName == "7.0.1" && build.versionCode == 1622L))
         if (modern) NativeLineLyricsPresentation.install(loader)
         runCatching {
             val adapter = loader.lyricsClass("com.apple.android.music.player.A")
@@ -241,7 +308,7 @@ internal object NativeLyricsPronunciationSubtitle {
                 }
             })
             fun repair(target: Any, row: Any, value: Any, selected: Selection) {
-                val data = managed[pointer.invoke(target)] ?: return
+                val data = lookupManaged(pointer.invoke(target)) ?: return
                 val primary = original.invoke(value) as? String ?: ""
                 for ((container, background) in containers(row)) {
                     if (!PronunciationHeaderLayout.supports(container)) continue

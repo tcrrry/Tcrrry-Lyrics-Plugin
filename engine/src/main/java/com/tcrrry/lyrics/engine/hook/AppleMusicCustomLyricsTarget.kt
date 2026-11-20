@@ -91,23 +91,28 @@ internal class AppleMusicCustomLyricsTarget(
                     com.tcrrry.lyrics.engine.lyrics.LyricsPreference.simplifiedChinese(application)))
             } finally { parsingReplacement.remove() }
         }
-        val nativeText = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Any, String>())
+        val nativeText = com.tcrrry.lyrics.metadata.amprovider.xposed.internal.WeakIdentityMap<Any, String>()
         val preparedSource = java.util.concurrent.ConcurrentHashMap<Long, String>()
         val importedNativeText = java.util.concurrent.ConcurrentHashMap<Long, String>()
-        registration.onClose { importedNativeText.clear() }
+        NativeLyricsAuxiliaryControls.documentFallback = { ptr -> parser.documentOf(ptr) ?: nativeText[ptr] }
+        registration.onClose {
+            importedNativeText.clear()
+            NativeLyricsAuxiliaryControls.documentFallback = null
+        }
         val nativeEnrichment = FallbackLyricsTranslation(application,
             isCurrent = { id -> registration.isActive && currentSong.current()?.details?.appleMusicId == id })
-        val nativePointers = java.util.Collections.synchronizedMap(java.util.WeakHashMap<Any, Boolean>())
+        val nativePointers = com.tcrrry.lyrics.metadata.amprovider.xposed.internal.WeakIdentityMap<Any, Boolean>()
         val nativeById = java.util.Collections.synchronizedMap(object : java.util.LinkedHashMap<Long, Any>() {
             override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, Any>?) = size > 8
         })
         fun hasImportedLyrics(id: Long): Boolean = importedNativeText.containsKey(id) ||
             currentSong.current()?.takeIf { it.details.appleMusicId == id }?.item
                 ?.let { itemString(it, "customLyrics") } != null
-        fun preferNative(id: Long): Boolean = NativeLyricsPreferencePolicy.preferNative(
+        fun preferNative(id: Long): Boolean = NativeLyricsPreferencePolicy.preferNativeBeforeSearch(
             com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
             CurrentLyricsSourceStatus.selectedSource(application, id),
-            nativeById[id]?.let(nativeText::get), hasImportedLyrics(id))
+            nativeById[id]?.let(nativeText::get), hasImportedLyrics(id),
+            com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(application).orEmpty())
 
         val fileReader = CustomLyricsFileReader { fileId ->
             config.openFile(fileId)?.let { input ->
@@ -211,8 +216,11 @@ internal class AppleMusicCustomLyricsTarget(
                         else -> runtime.resolver.fetch(appleMusicId, track)
                     }
                     val latestNativeDocument = nativeById[appleMusicId]?.let(nativeText::get) ?: nativeDocument
-                    val resolved = if (NativeLyricsPreferencePolicy.useNativeLineFallback(selected, latestNativeDocument,
-                            searched?.ttml, hasImportedLyrics(appleMusicId)))
+                    val resolved = if (NativeLyricsPreferencePolicy.nativeBeatsCandidate(
+                            com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
+                            selected, latestNativeDocument, searched?.source, searched?.ttml,
+                            hasImportedLyrics(appleMusicId),
+                            com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(application).orEmpty()))
                         nativeEnrichment.enrichWithTrack(appleMusicId, AutoLyricsCandidate("APPLE_NATIVE", latestNativeDocument!!), track)
                     else searched
                     if (policyRevision != com.tcrrry.lyrics.engine.lyrics.LyricsPreference.revision(application)) return@fetch null
@@ -280,6 +288,14 @@ internal class AppleMusicCustomLyricsTarget(
                         session.readyReplacementFor(appleMusicId) == null
                 },
                 executor = runtime.executor,
+                upgradeLineCache = false,
+                shouldCacheSource = { source ->
+                    source == "APPLE_NATIVE" ||
+                        source == CustomLyricsSources.AM_LYRICS ||
+                        source == CustomLyricsSources.AMLL ||
+                        source == CustomLyricsSources.LUNABEAT ||
+                        source.startsWith(CustomLyricsSources.DESKTOP_LYRICS)
+                },
                 logger = { message ->
                     ModernXposedRuntime.log(message)
                     if (message.startsWith("automatic lyrics pointer") || message.startsWith("automatic lyrics native parse failed") ||
@@ -302,6 +318,27 @@ internal class AppleMusicCustomLyricsTarget(
         }
         val isTracking: (Long) -> Boolean = { appleMusicId ->
             session.isTracking(appleMusicId) || autoSession?.isTracking(appleMusicId) == true
+        }
+        val reloadAuxiliaries: (Long) -> Boolean = { id ->
+            if (registration.isActive && currentSong.current()?.details?.appleMusicId == id && id > 0L) {
+                nativeEnrichment.invalidate(id)
+                autoLyricsRuntime?.invalidateAuxiliaries?.invoke(id)
+                RubyPronunciationRows.clearCache()
+                NativeLyricsPronunciationSubtitle.clearCachedSong(id)
+                autoLyricsRuntime?.cache?.delete(id)
+                if (session.isMapped(id)) {
+                    session.ensureRequested(id)
+                    publishToPage(id)
+                } else {
+                    autoSession?.refreshCurrent(id)
+                }
+                mainHandler.post {
+                    if (registration.isActive && currentSong.current()?.details?.appleMusicId == id) {
+                        activeFragment?.get()?.let(NativeLyricsAuxiliaryControls::forceRebindVisiblePage)
+                    }
+                }
+                true
+            } else false
         }
         // Only profiles with a complete, audited result contract use this path.
         // Older hosts retain their existing installer adapter, never both at once.
@@ -337,10 +374,13 @@ internal class AppleMusicCustomLyricsTarget(
                     if (changed) mainHandler.post {
                         val prepared = autoSession?.readyReplacementFor(id)
                         if (registration.isActive && currentSong.current()?.details?.appleMusicId == id &&
-                            NativeLyricsPreferencePolicy.refreshForNativeDocument(preferNative(id),
+                            NativeLyricsPreferencePolicy.refreshForNativeDocument(
+                                com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
                                 CurrentLyricsSourceStatus.selectedSource(application, id),
+                                nativeText[original], hasImportedLyrics(id), preparedSource[id],
                                 prepared?.let { timingObservations.metadataOf(parser.unwrap(it))?.timingMode },
-                                prepared == null && autoSession?.isTracking(id) == true)) autoSession?.refreshCurrent(id)
+                                prepared == null && autoSession?.isTracking(id) == true,
+                                com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(application).orEmpty())) autoSession?.refreshCurrent(id)
                     }
                 }
                 val manual = session.replacementFor(id)
@@ -442,8 +482,15 @@ internal class AppleMusicCustomLyricsTarget(
                 override fun afterHookedMethod(param: MethodHookParam) {
                     if (param.throwable != null) return
                     param.thisObject?.let { fragment ->
-                        resultBridge.onInstalled(fragment, param.args.firstOrNull())
+                        val installed = param.args.firstOrNull()
+                        val id = seam.currentItemAdamIdOf(fragment) ?: 0L
+                        if (installed != null && id > 0L) {
+                            val doc = parser.documentOf(installed) ?: nativeText[installed]
+                            if (doc != null) NativeLyricsPronunciationSubtitle.rememberForSong(id, installed, doc)
+                        }
+                        resultBridge.onInstalled(fragment, installed)
                         syncResultStatus(fragment)
+                        NativeLyricsAuxiliaryControls.synchronize(fragment)
                     }
                 }
             })) return TargetCapabilityInstall.Degraded("Native lyric result installer observation unavailable")
@@ -452,7 +499,15 @@ internal class AppleMusicCustomLyricsTarget(
                     activeFragment = WeakReference(fragment)
                     resultBridge.attach(fragment)
                     seam.currentItemAdamIdOf(fragment)?.takeIf { currentSong.current()?.details?.appleMusicId == it }?.let { id ->
-                        session.ensureRequested(id); autoSession?.ensureRequested(id); publishToPage(id)
+                        session.ensureRequested(id)
+                        val alreadyInstalled = installedPointer?.get(fragment)
+                        val ready = session.readyReplacementFor(id) ?: autoSession?.readyReplacementFor(id)
+                        if (ready == null) autoSession?.ensureRequested(id)
+                        if (alreadyInstalled != null && alreadyInstalled === parser.unwrap(ready)) {
+                            NativeLyricsAuxiliaryControls.synchronize(fragment)
+                        } else {
+                            publishToPage(id)
+                        }
                     }
                 }
             }
@@ -488,6 +543,7 @@ internal class AppleMusicCustomLyricsTarget(
                     true
                 } else false
             }
+            CurrentLyricsSourceStatus.installAuxiliaryReloadHandler(reloadAuxiliaries)
             val subscription = currentSong.addListener { current ->
                 val id = current?.details?.appleMusicId
                 CurrentLyricsSourceStatus.cancelSourceCycleUnless(id)
@@ -745,10 +801,13 @@ internal class AppleMusicCustomLyricsTarget(
                             if (changed) mainHandler.post {
                                 val prepared = autoSession?.readyReplacementFor(adamId)
                                 if (registration.isActive && currentSong.current()?.details?.appleMusicId == adamId &&
-                                    NativeLyricsPreferencePolicy.refreshForNativeDocument(preferNative(adamId),
+                                    NativeLyricsPreferencePolicy.refreshForNativeDocument(
+                                        com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
                                         CurrentLyricsSourceStatus.selectedSource(application, adamId),
+                                        nativeText[original], hasImportedLyrics(adamId), preparedSource[adamId],
                                         prepared?.let { timingObservations.metadataOf(parser.unwrap(it))?.timingMode },
-                                        prepared == null && autoSession?.isTracking(adamId) == true)) {
+                                        prepared == null && autoSession?.isTracking(adamId) == true,
+                                        com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(application).orEmpty())) {
                                     autoSession?.refreshCurrent(adamId)
                                 }
                             }
@@ -820,9 +879,18 @@ internal class AppleMusicCustomLyricsTarget(
                     }
                     if (param.thisObject !== activeFragment?.get()) return
                     runCatching {
+                        val fragment = param.thisObject
+                        if (fragment != null) {
+                            val installed = param.args.firstOrNull()
+                            val id = seam.currentItemAdamIdOf(fragment) ?: 0L
+                            if (installed != null && id > 0L) {
+                                val doc = parser.documentOf(installed) ?: nativeText[installed]
+                                if (doc != null) NativeLyricsPronunciationSubtitle.rememberForSong(id, installed, doc)
+                            }
+                            NativeLyricsAuxiliaryControls.synchronize(fragment)
+                        }
                         param.thisObject?.let(::repairTimedPage)
                         param.thisObject?.let(seam::currentItemAdamIdOf)?.let(::syncAppliedStatus)
-                        val fragment = param.thisObject
                         if (fragment != null && installedPointer?.get(fragment) !== param.extras["anchor-previous-pointer"]) {
                             immediateAnchor?.schedule(fragment)
                         }
@@ -968,6 +1036,7 @@ internal class AppleMusicCustomLyricsTarget(
                 true
             } else false
         }
+        CurrentLyricsSourceStatus.installAuxiliaryReloadHandler(reloadAuxiliaries)
         val identitySubscription = currentSong.addListener { current ->
             activeFragment?.get()?.let { metadataRefresh?.schedule(it) }
             val appleMusicId = current?.details?.appleMusicId

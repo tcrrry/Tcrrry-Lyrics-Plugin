@@ -17,9 +17,12 @@ import org.robolectric.annotation.Config
 class NativeLyricsHostContractTest {
     @Before fun setup() { TestPluginContext.attach() }
     @After fun cleanup() { TestPluginContext.current.close() }
-    private fun host(code: Long) {
+    private fun host(code: Long, versionName: String = "7.0.0-beta") {
         val original = TestPluginContext.current
-        val context = object: PluginContext by original { override fun getHostVersionCode() = code }
+        val context = object: PluginContext by original {
+            override fun getHostVersionCode() = code
+            override fun getHostVersionName() = versionName
+        }
         PluginLifetime::class.java.getDeclaredField("context").apply { isAccessible=true }.set(null,context)
     }
     @Test fun originalHostKeepsAllPreviouslyAcceptedNames() {
@@ -75,6 +78,32 @@ class NativeLyricsHostContractTest {
         assertEquals("o0", map(1614, "7.0.0", "other.Owner", "o0"))
         val profile=AppleMusicProfiles.match(TargetBuild("com.apple.android.music", "7.0.0", 1614))!!
         assertEquals("com.apple.android.music.player.x", profile.methodContracts.getValue("cjk-karaoke-animation-method").owner)
+    }
+    @Test fun host1622AliasesAndProfileContractsResolveExactly() {
+        host(1622, "7.0.1")
+        assertEquals("com.apple.android.music.player.A", NativeLyricsHostContract.className("com.apple.android.music.player.A"))
+        assertEquals("com.apple.android.music.player.i1", NativeLyricsHostContract.className("com.apple.android.music.player.n1"))
+        assertEquals("com.apple.android.music.player.V0", NativeLyricsHostContract.className("com.apple.android.music.player.Y0"))
+        assertEquals("com.apple.android.music.player.fragment.Z", NativeLyricsHostContract.className("com.apple.android.music.player.fragment.b0"))
+        assertEquals("mc.z", NativeLyricsHostContract.className("lc.A"))
+        assertEquals("q8.o9", NativeLyricsHostContract.className("q8.p9"))
+        assertEquals("q8.k9", NativeLyricsHostContract.className("q8.l9"))
+        assertEquals("m0", NativeLyricsHostContract.fieldName("com.apple.android.music.player.fragment.PlayerLyricsViewFragment", "n0"))
+        assertEquals("p0", NativeLyricsHostContract.fieldName("q8.X4", "o0"))
+        assertEquals("W", NativeLyricsHostContract.fieldName("com.apple.android.music.player.fragment.m", "X"))
+        val map = NativeLyricsHostContract::methodNameForBuild
+        assertEquals("p0", map(1622, "7.0.1", "com.apple.android.music.player.A", "o0"))
+        assertEquals("z", map(1622, "7.0.1", "com.apple.android.music.player.A", "y"))
+        assertEquals("l", map(1622, "7.0.1", "com.apple.android.music.player.A", "k"))
+        assertEquals("m", map(1622, "7.0.1", "com.apple.android.music.player.V0", "l"))
+        assertEquals("V", map(1622, "7.0.1", "com.apple.android.music.player.V0", "U"))
+        assertEquals("Q", map(1622, "7.0.1", "com.apple.android.music.player.i1", "P"))
+        assertEquals("p0", map(1622, "7.0.1", "q8.X4", "q0"))
+        assertEquals("o0", map(1622, "7.0.1", "q8.X4", "p0"))
+        assertEquals("q0", map(1614, "7.0.0", "q8.X4", "q0"))
+        val profile = AppleMusicProfiles.match(TargetBuild("com.apple.android.music", "7.0.1", 1622))!!
+        assertEquals("com.apple.android.music.player.A", profile.methodContracts.getValue("cjk-karaoke-animation-method").owner)
+        assertEquals(listOf("z3.y"), profile.methodContracts.getValue("metadata-to-playback-item-method").parameters)
     }
     @Test fun bothProfilesResolveTheirOwnCompleteMetadataContracts() {
         val original=AppleMusicProfiles.match(TargetBuild("com.apple.android.music","7.0.0-beta",1606))!!

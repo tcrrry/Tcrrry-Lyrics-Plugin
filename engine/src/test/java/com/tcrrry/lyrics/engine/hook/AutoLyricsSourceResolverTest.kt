@@ -150,6 +150,25 @@ class AutoLyricsSourceResolverTest {
         assertEquals("enriched", resolver.fetch(42L, DesktopLyricsTrack("song", "artist"))?.displayName)
     }
 
+    @Test fun customSourceOrderAppliesToBothQualityAndWordModes() {
+        val neteaseFirst = listOf("网易云音乐", LyricsSourceMenuPolicy.AUTHOR, LyricsSourceMenuPolicy.NATIVE, "QQ音乐", "LRCLIB")
+        val qualityResolver = AutoLyricsSourceResolver(
+            listOf(AutoLyricsSource("am-lyrics") { WORD_TTML }),
+            desktopLyrics = { AutoLyricsCandidate("desktop-lyrics:网易云音乐", LINE_TTML) },
+            qualityFirst = { true },
+            sourceOrder = { neteaseFirst },
+        )
+        assertEquals("desktop-lyrics:网易云音乐", qualityResolver.fetch(42L, DesktopLyricsTrack("song", "artist"))?.source)
+
+        val wordResolver = AutoLyricsSourceResolver(
+            listOf(AutoLyricsSource("am-lyrics") { WORD_TTML }),
+            desktopLyrics = { AutoLyricsCandidate("desktop-lyrics:网易云音乐", LINE_TTML) },
+            qualityFirst = { false },
+            sourceOrder = { neteaseFirst },
+        )
+        assertEquals("am-lyrics", wordResolver.fetch(42L, DesktopLyricsTrack("song", "artist"))?.source)
+    }
+
     private companion object {
         const val WORD_TTML =
             "<tt xmlns:itunes=\"urn\" itunes:timing=\"Word\"><body>" +

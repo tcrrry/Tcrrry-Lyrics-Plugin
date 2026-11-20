@@ -16,9 +16,10 @@ def main():
     p.add_argument('--aapt2', type=Path, required=True)
     args = p.parse_args()
     badging = subprocess.check_output([str(args.aapt2), 'dump', 'badging', str(args.apk)], text=True)
-    version = re.search(r"versionCode='(1606|1609|1613|1614)' versionName='(7.0.0(?:-beta)?)'", badging)
-    if "name='com.apple.android.music'" not in badging or not version or (version[1] == '1614') != (version[2] == '7.0.0'):
-        p.error('Requires original Apple Music 7.0.0-beta / 1606, 1609 or 1613')
+    version = re.search(r"versionCode='(1606|1609|1613|1614|1622)' versionName='(7\.0\.(?:0(?:-beta)?|1))'", badging)
+    expected_name = {'1606': '7.0.0-beta', '1609': '7.0.0-beta', '1613': '7.0.0-beta', '1614': '7.0.0', '1622': '7.0.1'}
+    if "name='com.apple.android.music'" not in badging or not version or expected_name.get(version[1]) != version[2]:
+        p.error('Requires original Apple Music 7.0.0-beta / 1606, 1609, 1613, 7.0.0 / 1614, or 7.0.1 / 1622')
     classes = {}
     with zipfile.ZipFile(args.apk) as apk:
         for name in apk.namelist():
@@ -37,18 +38,25 @@ def main():
         nonlocal checks
         checks += 1
         owner, descriptor = owner_name(owner), descriptor_name(descriptor)
-        if version[1] == '1614':
+        if version[1] in ('1614', '1622'):
             common = {'w':'x', 'y':'z', 'E':'F', 'N':'O', 'P':'Q', 'O':'P', 'v':'w', 'B':'C', 'C':'D'}
             adapter = {'k':'l', 'l':'m'}
             word = {'o0':'p0', 'F':'G', 'i0':'j0', 't0':'u0', 'c0':'d0', 'd0':'e0', 'U':'V', 'b0':'c0', 'W':'X'}
+            base_owner = owner_name('com/apple/android/music/player/n1')
+            word_owner = owner_name('com/apple/android/music/player/A')
+            line_owner = owner_name('com/apple/android/music/player/Y0')
             aliases = dict(common)
-            if owner in ('com/apple/android/music/player/x', 'com/apple/android/music/player/S0'):
+            if owner in (word_owner, line_owner):
                 aliases.update(adapter)
-            if owner == 'com/apple/android/music/player/x': aliases.update(word)
-            elif owner == 'com/apple/android/music/player/S0': aliases['U'] = 'V'
-            if owner in ('com/apple/android/music/player/g1', 'com/apple/android/music/player/x', 'com/apple/android/music/player/S0'):
+            if owner == word_owner: aliases.update(word)
+            elif owner == line_owner: aliases['U'] = 'V'
+            if owner in (base_owner, word_owner, line_owner):
                 method_name, rest = descriptor.split('(', 1)
                 descriptor = aliases.get(method_name, method_name)+'('+rest
+            elif version[1] == '1622' and owner == 'q8/X4':
+                header_aliases = {'q0': 'p0', 'p0': 'o0'}
+                method_name, rest = descriptor.split('(', 1)
+                descriptor = header_aliases.get(method_name, method_name)+'('+rest
         c = classes['L'+owner+';']
         if descriptor not in c['methods'] or bool(c['method_access'][descriptor] & 8) != static:
             raise RuntimeError(f'Wrong method contract: {owner}.{descriptor}')
@@ -163,10 +171,23 @@ def main():
         inherited_public('J4/w', descriptor)
     inherited_public(lyrics+'$u', 'h(Landroidx/recyclerview/widget/RecyclerView$k$a;)Z')
     inherited_public(lyrics+'$u', 'f()V')
+    if version[1] == '1622':
+        for callback, capture in (('com/apple/android/music/collection2/fragment/b', 'c'), ('Ba/u', 'b')):
+            method(callback, 'invoke()Ljava/lang/Object;')
+            field(callback, 'a', 'I')
+            field(callback, capture, 'Ljava/lang/Object;')
+        for command in ('N', 'K'):
+            method('com/apple/android/music/player/L0', command +
+                   '(Lcom/apple/android/music/model/CollectionItemView;LF9/a;Landroid/content/Context;ZLjava/lang/String;)V',
+                   static=True)
+        field('q8/X4', 'o0', 'Landroid/widget/ImageView;')
+        method('com/apple/android/music/player/fragment/b0', 'onClick(Landroid/view/View;)V')
+        field('com/apple/android/music/player/fragment/b0', 'a', 'Lcom/apple/android/music/player/fragment/PlayerLyricsViewFragment;')
     getter = 'getMediaBrowser()LJ4/w;'
+    resolved_getter = descriptor_name(getter)
     if inherited_public(lyrics, getter) != 'Lia/a$c;':
         raise RuntimeError('Inspect changed native playback interface getter')
-    if classes['Lia/a$c;']['method_access'][getter] & 0x400:
+    if classes['Lia/a$c;']['method_access'][resolved_getter] & 0x400:
         raise RuntimeError('Playback interface getter is no longer a default method')
     for descriptor in ('getCurrentPosition()J', 'isPlaying()Z', 'getPlaybackState()I'):
         inherited_public('J4/w', descriptor)
@@ -272,18 +293,30 @@ def main():
     constraints = 'androidx/constraintlayout/widget/ConstraintLayout$b'
     method(constraints, '<init>(Landroid/view/ViewGroup$LayoutParams;)V')
     for name in ('i','j','k','l','t','v'): field(constraints, name, 'I')
+    # Ruby word layout reads FlexboxLayout$a FlexItem fields k (wrapBefore) and c (flexShrink).
+    flex_lp = 'com/google/android/flexbox/FlexboxLayout$a'
+    field(flex_lp, 'k', 'Z')
+    field(flex_lp, 'c', 'F')
+    if version[1] == '1622':
+        method(flex_lp, 'K()Z')
+        method(flex_lp, 'y()F')
+    else:
+        method(flex_lp, 'M()Z')
+        method(flex_lp, 'x()F')
     # Research against the SHA-pinned 1606 mapper: these subtitle bindings
     # derive from the two types accepted by A.U; ruby word bindings do not.
     for concrete, parent in (('E9', 'D9'), ('c9', 'b9')):
         checks += 1
-        if classes['Lq8/'+concrete+';']['super'] != 'Lq8/'+parent+';':
+        mapped_concrete = owner_name('q8/'+concrete)
+        mapped_parent = owner_name('q8/'+parent)
+        if classes['L'+mapped_concrete+';']['super'] != 'L'+mapped_parent+';':
             raise RuntimeError('Native auxiliary subtitle binding changed: '+concrete)
     vector = 'com/apple/android/mediaservices/javanative/common/StringVector$StringVectorNative'
     method(vector, 'size()J')
     method(vector, 'get(J)Ljava/lang/String;')
     method('com/apple/android/music/playback/util/LocaleUtil', 'matchToSystemLyricsScript(L'+vector+';)Ljava/lang/String;', True)
     resources = subprocess.check_output([str(args.aapt2), 'dump', 'resources', str(args.apk)], text=True, encoding='utf-8', errors='replace')
-    if version[1] in ('1613', '1614'):
+    if version[1] in ('1613', '1614', '1622'):
         # The merged optional queue controls retain their exact named API.
         queue = 'com/apple/android/music/playback/queue/'
         manager, provider = queue+'LocalPlaybackQueueManager', queue+'PlaybackQueueItemProvider'
@@ -308,8 +341,9 @@ def main():
         for signature in ('isLiveRadio()Z','hasStreamItem()Z'):
             method(queue+'BaseRadioPlaybackQueueItemProvider',signature)
         field('q8/i8','Y','Lq8/g8;')
-        assert classes['Lq8/j8;']['super']=='Lq8/i8;'
-        for signature in ('l()V','a(Landroid/view/View;I)V','z()V'):
+        assert classes['L'+owner_name('q8/j8')+';']['super']=='L'+owner_name('q8/i8')+';'
+        invalidate_sig = 'x()V' if version[1] == '1622' else 'z()V'
+        for signature in ('l()V','a(Landroid/view/View;I)V', invalidate_sig):
             method('q8/j8',signature)
         for name in ('id/button_off','id/button_on','drawable/nowplaying_repeat','drawable/nowplaying_repeatone',
                      'color/white','string/repeat','string/repeat_once','string/off'):

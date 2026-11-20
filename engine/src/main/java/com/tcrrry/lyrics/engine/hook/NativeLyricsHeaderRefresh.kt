@@ -29,8 +29,10 @@ internal class NativeLyricsHeaderRefresh(
             if (fragment.declaredMethods.none { it.name == "w2" }) return null
             val binding = fragment.lyricsDeclaredField("n0").apply { isAccessible = true }
             val methods = binding.type.methods
-            val track = methods.single { it.name == "q0" && it.parameterTypes.singleOrNull()?.name == "com.apple.android.music.model.PlaybackItem" }
-            val context = methods.single { it.name == "p0" && it.parameterTypes.singleOrNull()?.name == "com.apple.android.music.model.CollectionItemView" }
+            val trackName = NativeLyricsHostContract.methodName(binding.type.name, "q0")
+            val contextName = NativeLyricsHostContract.methodName(binding.type.name, "p0")
+            val track = methods.single { it.name == trackName && it.parameterTypes.singleOrNull()?.name == "com.apple.android.music.model.PlaybackItem" }
+            val context = methods.single { it.name == contextName && it.parameterTypes.singleOrNull()?.name == "com.apple.android.music.model.CollectionItemView" }
             val execute = binding.type.getMethod("n")
             NativeLyricsHeaderRefresh(binding::get, seam::currentItemOf, track, context, execute)
         }.getOrNull()

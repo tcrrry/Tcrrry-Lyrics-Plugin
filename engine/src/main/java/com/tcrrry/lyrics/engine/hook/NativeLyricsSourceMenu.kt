@@ -68,10 +68,10 @@ internal object NativeLyricsSourceMenu {
         NativeLyricsPronunciation.install(loader)
         NativeLyricsPronunciationSubtitle.install(loader, build)
         val fragment = loader.lyricsClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
-        val boundButton: ((Any) -> View?)? = if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0"))) {
+        val boundButton: ((Any) -> View?)? = if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0") || (build.versionCode == 1622L && build.versionName == "7.0.1"))) {
             runCatching {
                 val binding = fragment.lyricsDeclaredField("n0").apply { isAccessible = true }
-                val button = binding.type.getDeclaredField("o0").apply { isAccessible = true }
+                val button = binding.type.lyricsDeclaredField("o0").apply { isAccessible = true }
                 require(button.type == ImageView::class.java)
                 val resolve: (Any) -> View? = { page -> binding.get(page)?.let { button.get(it) as? View } }
                 resolve
@@ -116,8 +116,8 @@ internal object NativeLyricsSourceMenu {
                     }
                 })
         }
-        if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0"))) {
-            runCatching { installBindingAnchorHooks(loader.loadClass("q8.X4")) }
+        if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0") || (build.versionCode == 1622L && build.versionName == "7.0.1"))) {
+            runCatching { installBindingAnchorHooks(loader.lyricsClass("q8.Y4")) }
                 .onFailure { ModernXposedRuntime.log("early lyrics menu anchor unavailable", it) }
         }
         ModernXposedRuntime.hookAllMethods(fragment, "onCreateView", object : ModernMethodHook() {
@@ -166,7 +166,7 @@ internal object NativeLyricsSourceMenu {
     internal fun installBindingAnchorHooks(binding: Class<*>) {
         // Register before onCreateView finishes wiring synchronous observers and
         // native availability/control transitions, rather than waiting for its return.
-        val button = binding.getDeclaredField("o0").apply { isAccessible = true }
+        val button = binding.lyricsDeclaredField("o0").apply { isAccessible = true }
         require(button.type == ImageView::class.java)
         for (constructor in binding.declaredConstructors) {
             ModernXposedRuntime.hookMethod(constructor, object : ModernMethodHook() {
@@ -232,6 +232,7 @@ internal object NativeLyricsSourceMenu {
                         anchorPages[anchor]?.get()?.let { page ->
                             NativeLyricsAuxiliaryControls.extendMenu(page, menu, popup, currentId)
                         }
+                        moveHostLyricsMenuToBottom(menu)
                     }.onFailure { ModernXposedRuntime.log("lyrics source menu extension failed open", it) }
                 }
                 override fun afterHookedMethod(param: MethodHookParam) {
@@ -248,6 +249,7 @@ internal object NativeLyricsSourceMenu {
                         anchorPages[anchor]?.get()?.let { page ->
                             NativeLyricsAuxiliaryControls.extendMenu(page, menu, popup, currentId)
                         }
+                        moveHostLyricsMenuToBottom(menu)
                     }.onFailure { ModernXposedRuntime.log("lyrics source menu ownership recovery failed", it) }
                 }
             })
@@ -338,6 +340,26 @@ internal object NativeLyricsSourceMenu {
                 popupRef.get()?.dismiss()
             }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        moveHostLyricsMenuToBottom(menu)
+    }
+
+    /** Keep AM++'s built-in lyrics menu entry at the bottom so plugin rows stay grouped under native toggles. */
+    internal fun moveHostLyricsMenuToBottom(menu: LinearLayout) {
+        val hostRows = (0 until menu.childCount)
+            .map(menu::getChildAt)
+            .filter { child ->
+                child is TextView &&
+                    child.tag != null &&
+                    child.tag.javaClass == Any::class.java &&
+                    child.tag !in setOf(ROW_TAG, EMPHASIS_TAG, DIVIDER_TAG)
+            }
+        for (hostRow in hostRows) {
+            if (menu.indexOfChild(hostRow) != menu.childCount - 1) {
+                val lp = hostRow.layoutParams
+                menu.removeView(hostRow)
+                menu.addView(hostRow, lp)
+            }
+        }
     }
 
     private fun findActivity(context: Context): Activity? {

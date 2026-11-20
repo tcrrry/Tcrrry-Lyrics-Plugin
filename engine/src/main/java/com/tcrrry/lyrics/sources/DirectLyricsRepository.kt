@@ -23,8 +23,11 @@ import java.util.concurrent.TimeUnit
  * a Lobsta/Tcrrry-owned server. MediaSession artwork remains the preferred cover;
  * QQ Music and NetEase artwork are only used when the player did not publish one.
  */
-class DirectLyricsRepository(private val wordFirst: Boolean = false) {
-    private fun rank(result: Result): Int = qualityRank(result, wordFirst)
+class DirectLyricsRepository @JvmOverloads constructor(
+    private val wordFirst: Boolean = false,
+    private val sourceOrder: () -> List<String> = { emptyList() },
+) {
+    private fun rank(result: Result): Int = qualityRank(result, wordFirst, sourceOrder())
     private val latinTransliterator by lazy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             Transliterator.getInstance("Any-Latin; NFD; [:Nonspacing Mark:] Remove; NFC")
@@ -1292,10 +1295,27 @@ class DirectLyricsRepository(private val wordFirst: Boolean = false) {
             return (timedLines(extra) * 100 / base).coerceIn(0, 100)
         }
 
-        internal fun qualityRank(result: Result, wordFirst: Boolean = false): Int {
+        @JvmOverloads
+        internal fun qualityRank(result: Result, wordFirst: Boolean = false, sourceOrder: List<String> = emptyList()): Int {
             val confidenceBand = if (result.score >= EXACT_MATCH_SCORE) 2 else 1
+            val timed = com.tcrrry.lyrics.engine.lyrics.DesktopLyricsTtmlConverter.hasWordTiming(result)
+            if (sourceOrder.isNotEmpty()) {
+                val index = sourceOrder.indexOf(result.source)
+                val orderWeight = if (index >= 0) sourceOrder.size - index else 0
+                val detailScore = (if (timed) coverage(result.lyrics, result.wordLyrics) * 1_000 else 0) +
+                    coverage(result.lyrics, result.translatedLyrics) * 200 +
+                    coverage(result.lyrics, result.romanizedLyrics) * 50 +
+                    result.score * 100 + lyricBodyScore(result.lyrics)
+                if (wordFirst) {
+                    return (if (timed) 20_000_000 else 0) + confidenceBand * 5_000_000 + orderWeight * 300_000 + detailScore
+                }
+                return confidenceBand * 10_000_000 + orderWeight * 300_000 +
+                    coverage(result.lyrics, result.translatedLyrics) * 200 +
+                    coverage(result.lyrics, result.wordLyrics) * 100 +
+                    coverage(result.lyrics, result.romanizedLyrics) * 50 +
+                    result.score * 100 + lyricBodyScore(result.lyrics)
+            }
             if (wordFirst) {
-                val timed = com.tcrrry.lyrics.engine.lyrics.DesktopLyricsTtmlConverter.hasWordTiming(result)
                 return confidenceBand * 1_000_000 + (if (timed) 200_000 else 0) +
                     (if (timed) coverage(result.lyrics, result.wordLyrics) * 1_000 else 0) +
                     coverage(result.lyrics, result.translatedLyrics) * 200 +

@@ -116,9 +116,13 @@ final class HostContract implements PlaybackIntentCoordinator.QueueAccess {
         int id = (Integer) providerId.invoke(provider);
         int count = (Integer) itemCount.invoke(manager);
         int index = (Integer) currentIndex.invoke(manager);
-        return id >= 0 && count > 0 && index >= 0 && index < count
-                && (Integer) providerCount.invoke(provider) > 0 && softProvider.get(manager) == provider
-                && ((SparseArray<?>) providers.get(manager)).get(id) == provider;
+        if (id < 0 || index < 0 || index >= count || (Integer) providerCount.invoke(provider) <= 0
+                || ((SparseArray<?>) providers.get(manager)).get(id) != provider) return false;
+        if (softProvider.get(manager) == provider) return true;
+        // Some collection queues are published without using the soft provider slot.
+        // Require the current queue item to belong to this exact registered provider.
+        Object entry = getQueueItem.invoke(manager, index);
+        return entry != null && (int)((Long) getQueueId.invoke(entry) >> 32) == id;
     }
     @Override public boolean mirrored(Object provider) throws Exception { return (Boolean) isMirrored.invoke(provider); }
     @Override public boolean dynamic(Object provider) throws Exception { return (Boolean) isDynamic.invoke(provider); }

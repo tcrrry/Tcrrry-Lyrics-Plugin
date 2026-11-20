@@ -32,7 +32,6 @@ import java.util.Locale
 
 /** Independent lyrics controls with the shared host-aware day/night palette. */
 internal object TcrrryLyricsSettingsUi {
-    private val SOURCES = listOf<String?>(null) + com.tcrrry.lyrics.engine.hook.LyricsSourceMenuPolicy.sources
     private const val GUIDE_PREFS = "lyrics_operation_guide"
     private var activeGuide: android.app.AlertDialog? = null
 
@@ -90,6 +89,10 @@ internal object TcrrryLyricsSettingsUi {
             body.addView(menuRow(activity, "选择歌词源", selected ?: "自动匹配") {
                 showSourcePicker(activity, id, selected, changed)
             }, fullMargin(activity, 16))
+            body.addView(menuRow(activity, "自动匹配来源顺序",
+                com.tcrrry.lyrics.engine.lyrics.LyricsPreference.sourceOrder(activity).joinToString(" › ")) {
+                showSourceOrderEditor(activity, id, changed)
+            }, fullMargin(activity, 10))
             val nextSource = action(activity, "下一个来源") {
                 val next = CurrentLyricsSourceStatus.beginSourceCycle(activity, id)
                 if (next != null) {
@@ -136,6 +139,7 @@ internal object TcrrryLyricsSettingsUi {
                     CurrentLyricsSourceStatus.refreshSilently(id)
                 }
             }.apply { isEnabled = slider.isEnabled; alpha = if (isEnabled) 1f else .45f }, fullMargin(activity, 8))
+            body.addView(reloadAuxiliariesAction(activity, id, changed), fullMargin(activity, 14))
         }
         redraw()
         dialog.show()
@@ -167,6 +171,13 @@ internal object TcrrryLyricsSettingsUi {
                 policy.updateHideOpeningCredits(activity, enabled)
                 CurrentLyricsSourceStatus.refreshSilently(id)
                 refreshPage()
+            }, fullMargin(activity, 14))
+            body.addView(menuRow(activity, "自动匹配来源顺序",
+                policy.sourceOrder(activity).joinToString(" › ")) {
+                showSourceOrderEditor(activity, id) {
+                    refreshPage()
+                    redraw()
+                }
             }, fullMargin(activity, 14))
         }
         redraw()
@@ -201,6 +212,7 @@ internal object TcrrryLyricsSettingsUi {
                 prefs.edit().putBoolean("cantonese_$id", enabled).apply()
                 CurrentLyricsSourceStatus.refreshSilently(id); refreshPage()
             }, fullMargin(activity, 10))
+            body.addView(reloadAuxiliariesAction(activity, id, refreshPage), fullMargin(activity, 14))
         }
         redraw()
         dialog.show()
@@ -988,7 +1000,7 @@ internal object TcrrryLyricsSettingsUi {
             addView(body)
         }
         val glass = runCatching {
-            check(com.tcrrry.lyrics.plugin.PluginLifetime.context.hostVersionCode in setOf(1609L,1613L,1614L))
+            check(com.tcrrry.lyrics.plugin.PluginLifetime.context.hostVersionCode in setOf(1609L,1613L,1614L,1622L))
             check(Build.VERSION.SDK_INT >= 33)
             val plate = SettingsFrostedView(activity)
             val backdrop: SettingsPanelBackdrop = hostSurface?.let(::SettingsHostBackdrop) ?: SettingsGlassBackdrop(activity, plate)
@@ -1207,12 +1219,23 @@ internal object TcrrryLyricsSettingsUi {
         dialog.show()
     }
 
+    private fun reloadAuxiliariesAction(activity: Activity, id: Long, refreshPage: () -> Unit): TextView =
+        action(activity, "重新装载译文和发音") {
+            val started = CurrentLyricsSourceStatus.reloadAuxiliaries(id)
+            toast(activity, if (started) "正在重新装载当前歌曲的译文和发音" else "请先播放歌曲后重试")
+            refreshPage()
+        }.apply {
+            isEnabled = id > 0L
+            alpha = if (isEnabled) 1f else .45f
+        }
+
     private fun showSourcePicker(activity: Activity, id: Long, selected: String?, refreshPage: () -> Unit) {
         val body = card(activity)
         body.addView(title(activity, "选择歌词源", 20f))
-        body.addView(label(activity, "只记住当前歌曲的选择；自动匹配仍是其他歌曲的默认方式", 12f, SettingsUiTheme.colors(activity).secondary))
+        body.addView(label(activity, "只记住当前歌曲的选择；自动匹配将按来源顺序查找", 12f, SettingsUiTheme.colors(activity).secondary))
         val dialog = bubbleDialog(activity, body, compact = true)
-        SOURCES.forEach { source ->
+        val sources = listOf<String?>(null) + com.tcrrry.lyrics.engine.lyrics.LyricsPreference.sourceOrder(activity)
+        sources.forEach { source ->
             val name = source ?: "自动匹配"
             body.addView(action(activity, name, emphasized = source == selected) {
                 CurrentLyricsSourceStatus.selectSource(activity, id, source)
@@ -1222,6 +1245,108 @@ internal object TcrrryLyricsSettingsUi {
                 refreshPage()
             }, fullMargin(activity, 9))
         }
+        dialog.show()
+    }
+
+    @android.annotation.SuppressLint("ClickableViewAccessibility")
+    private fun showSourceOrderEditor(activity: Activity, id: Long, refreshPage: () -> Unit) {
+        val policy = com.tcrrry.lyrics.engine.lyrics.LyricsPreference
+        val items = policy.sourceOrder(activity).toMutableList()
+        val colors = SettingsUiTheme.colors(activity)
+        val body = card(activity)
+        body.addView(title(activity, "自动匹配来源顺序", 20f))
+        body.addView(label(activity, "长按或拖动右侧图标调整顺序；质量优先按此顺序首选，逐字优先按此顺序先找逐字再找逐行",
+            12f, colors.secondary), fullMargin(activity, 6))
+        val dialog = bubbleDialog(activity, body, compact = true)
+
+        val rows = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+
+        fun drawRows() {
+            rows.removeAllViews()
+            items.forEachIndexed { index, source ->
+                val rank = label(activity, "${index + 1}.", 14f, colors.primary).apply {
+                    typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                    minimumWidth = dp(activity, 24)
+                }
+                val name = title(activity, source, 15f)
+                val handle = label(activity, "☰", 18f, colors.secondary).apply {
+                    gravity = Gravity.CENTER
+                    setPadding(dp(activity, 12), dp(activity, 6), dp(activity, 4), dp(activity, 6))
+                }
+                val row = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    minimumHeight = dp(activity, 48)
+                    setPadding(dp(activity, 14), dp(activity, 8), dp(activity, 12), dp(activity, 8))
+                    background = shape(activity, colors.raised, 12, colors.outline)
+                    SettingsGlassMaterial.mark(this, SettingsGlassKind.Button)
+                    addView(rank)
+                    addView(name, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginStart = dp(activity, 6)
+                    })
+                    addView(handle)
+                }
+                fun startDrag() = row.startDragAndDrop(null, View.DragShadowBuilder(row), row, 0)
+                row.setOnLongClickListener { startDrag() }
+                handle.setOnTouchListener { _, event ->
+                    event.actionMasked == android.view.MotionEvent.ACTION_DOWN && startDrag()
+                }
+                rows.addView(row, fullMargin(activity, 8))
+            }
+        }
+
+        // Plugin ZIPs ship DEX and assets without the RecyclerView Android resource table.
+        rows.setOnDragListener { _, event ->
+            val dragged = event.localState as? View
+            val from = rows.indexOfChild(dragged)
+            when (event.action) {
+                android.view.DragEvent.ACTION_DRAG_STARTED -> from >= 0
+                android.view.DragEvent.ACTION_DRAG_ENTERED,
+                android.view.DragEvent.ACTION_DRAG_LOCATION,
+                android.view.DragEvent.ACTION_DROP -> {
+                    if (from !in items.indices) return@setOnDragListener false
+                    var to = items.lastIndex
+                    for (index in items.indices) {
+                        if (event.y < rows.getChildAt(index).bottom) {
+                            to = index
+                            break
+                        }
+                    }
+                    if (event.action == android.view.DragEvent.ACTION_DROP) {
+                        if (from != to) items.add(to, items.removeAt(from))
+                        rows.post { drawRows() }
+                    } else {
+                        for (index in items.indices) {
+                            rows.getChildAt(index).alpha = if (index == to) 0.7f else 1f
+                        }
+                    }
+                    true
+                }
+                android.view.DragEvent.ACTION_DRAG_EXITED,
+                android.view.DragEvent.ACTION_DRAG_ENDED -> {
+                    for (index in 0 until rows.childCount) rows.getChildAt(index).alpha = 1f
+                    true
+                }
+                else -> false
+            }
+        }
+        drawRows()
+        body.addView(rows, fullMargin(activity, 8))
+        val reset = action(activity, "恢复默认") {
+            policy.resetSourceOrder(activity)
+            CurrentLyricsSourceStatus.refreshSilently(id)
+            dialog.dismiss()
+            toast(activity, "已恢复默认歌词源顺序")
+            refreshPage()
+        }
+        val save = action(activity, "保存顺序", emphasized = true) {
+            policy.updateSourceOrder(activity, items)
+            CurrentLyricsSourceStatus.refreshSilently(id)
+            dialog.dismiss()
+            toast(activity, "已更新歌词源顺序")
+            refreshPage()
+        }
+        body.addView(pairedActions(activity, reset, save), fullMargin(activity, 12))
         dialog.show()
     }
 
@@ -1264,7 +1389,7 @@ internal object TcrrryLyricsSettingsUi {
         orientation = LinearLayout.VERTICAL
         setPadding(dp(activity, 18), dp(activity, 18), dp(activity, 18), dp(activity, 18))
         val colors = SettingsUiTheme.colors(activity)
-        val glass = com.tcrrry.lyrics.plugin.PluginLifetime.context.hostVersionCode in setOf(1609L,1613L,1614L)
+        val glass = com.tcrrry.lyrics.plugin.PluginLifetime.context.hostVersionCode in setOf(1609L,1613L,1614L,1622L)
         val surface = if (glass) colors.surface and 0x00FFFFFF or (0xA6 shl 24) else colors.surface
         background = shape(activity, surface, 18, colors.outline)
         SettingsGlassMaterial.mark(this, SettingsGlassKind.Card)

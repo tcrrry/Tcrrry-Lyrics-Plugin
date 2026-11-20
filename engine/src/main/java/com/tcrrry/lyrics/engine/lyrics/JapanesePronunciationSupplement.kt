@@ -30,7 +30,7 @@ internal object JapanesePronunciationSupplement {
     fun cacheMarker(enabled: Boolean, primary: Boolean = false) = "<!--japanese-pronunciation-r4 enabled=$enabled primary=$primary-->"
 
     fun cacheMatches(ttml: String, enabled: Boolean, primary: Boolean = false): Boolean =
-        !ttml.take(1024).contains("<!--tcrrry-lyrics-v1 ") || ttml.take(1024).contains(cacheMarker(enabled, primary))
+        !ttml.take(2048).contains("<!--tcrrry-lyrics-v1 ") || ttml.take(2048).contains(cacheMarker(enabled, primary))
 
     fun fill(result: DirectLyricsRepository.Result): DirectLyricsRepository.Result {
         val originals = DesktopLyricsTtmlConverter.pronunciationLines(result)

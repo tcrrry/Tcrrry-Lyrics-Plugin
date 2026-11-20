@@ -25,9 +25,13 @@ data class DesktopLyricsTrack(
 /** Runs the original Desktop Lyrics provider search off the Apple Music hook thread. */
 internal class DesktopLyricsSource(
     private val context: Context,
-    private val repository: DirectLyricsRepository = DirectLyricsRepository(),
+    private val customRepository: DirectLyricsRepository? = null,
 ) {
-    private val wordRepository by lazy { DirectLyricsRepository(wordFirst = true) }
+    private val orderProvider: () -> List<String> = {
+        com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(context) ?: emptyList()
+    }
+    private val repository by lazy { customRepository ?: DirectLyricsRepository(false, orderProvider) }
+    private val wordRepository by lazy { customRepository ?: DirectLyricsRepository(true, orderProvider) }
     private val supplement = DesktopLyricsSupplement(context)
     private val completedTranslations = TranslationOutcomeCache()
     private val translationRevisions = ConcurrentHashMap<Long, Int>()
@@ -67,12 +71,21 @@ internal class DesktopLyricsSource(
         retryCounts.keys.filter { it.startsWith(prefix) }.forEach(retryCounts::remove)
     }
 
+    fun invalidateAuxiliaries(appleMusicId: Long) {
+        activeTranslationKeys.remove(appleMusicId)
+        translationRevisions.compute(appleMusicId) { _, previous -> (previous ?: 0) + 1 }
+        completedTranslations.invalidate(appleMusicId)
+        val prefix = "$appleMusicId|"
+        translating.filter { it.startsWith(prefix) }.forEach(translating::remove)
+    }
+
     fun fetch(track: DesktopLyricsTrack): AutoLyricsCandidate? {
         CurrentLyricsSourceStatus.rememberMatchInput(context, track)
         if (track.title.isBlank() || track.artist.isBlank()) return null
         val selected = CurrentLyricsSourceStatus.selectedSource(context, track.appleMusicId)
         val excluded = selected?.let { CurrentLyricsSourceStatus.excludedRecords(context, track.appleMusicId, it) }.orEmpty()
-        val key = listOf(track.appleMusicId, track.title, track.artist, track.album, track.durationMs, selected, excluded.sorted(), com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(context)).joinToString("|")
+        val customOrder = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(context).orEmpty()
+        val key = listOf(track.appleMusicId, track.title, track.artist, track.album, track.durationMs, selected, excluded.sorted(), com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(context), customOrder).joinToString("|")
         val result = if (selected == null) findAuto(track, key) else {
             val saved = TcrrryLyricsHistory.selected(context, track.appleMusicId, selected)
                 ?: TcrrryLyricsHistory.best(context, track.appleMusicId, selected, excluded,
@@ -193,7 +206,8 @@ internal class DesktopLyricsSource(
                         .forEach { TcrrryLyricsHistory.remember(context, track.appleMusicId, it) }
                     val refresh = synchronized(fresh) {
                         val previous = fresh.delivered ?: fresh.first.getNow(null)
-                        fresh.final = DesktopLyricsUpdatePolicy.choose(previous, found, track.durationMs, wordFirst)
+                        val customOrder = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(context).orEmpty()
+                        fresh.final = DesktopLyricsUpdatePolicy.choose(previous, found, track.durationMs, wordFirst, customOrder)
                         fresh.finishedAtMs = System.currentTimeMillis()
                         fresh.deliveredBeforeFinal &&
                             DesktopLyricsUpdatePolicy.changed(fresh.delivered, fresh.final!!, track.durationMs)

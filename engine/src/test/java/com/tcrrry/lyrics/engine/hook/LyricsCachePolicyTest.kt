@@ -69,6 +69,50 @@ class LyricsCachePolicyTest {
         assertEquals(1024, LyricsCacheStorage.limitMb(application))
         cache.read(42); assertTrue(cache.write(42, document))
     }
+    @Test fun translatingAnotherLanguageKeepsCachedSubtitleButChangingModeInvalidatesIt() {
+        val application = RuntimeEnvironment.getApplication()
+        val prefs = application.pluginPreferences("supplement_translation", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("mode", "offline").putString("last_language", "ja").apply()
+        val cache = createAutoLyricsRuntime(application).cache
+        val body = "<body><p itunes:key='L1' begin='0s' end='2s'>hello</p></body>"
+        val head = "<head><metadata><translations><translation><text for='L1'>你好</text></translation></translations></metadata></head>"
+        val translated = AutoLyricsCachePolicy.stampSource("<tt>$head$body</tt>", "APPLE_NATIVE")
+        val pending = AutoLyricsCachePolicy.stampEnrichmentComplete(
+            AutoLyricsCachePolicy.stampSource("<tt>$body</tt>", "APPLE_NATIVE"), false)
+        assertNull(cache.read(42L))
+        assertTrue(cache.write(42L, translated))
+
+        prefs.edit().putString("last_language", "en").apply()
+        assertEquals(mapOf(0 to "你好"), TtmlSubtitleTrack.subtitleValues(requireNotNull(cache.read(42L))))
+        assertTrue(cache.write(42L, pending))
+        assertEquals(mapOf(0 to "你好"), TtmlSubtitleTrack.subtitleValues(requireNotNull(cache.read(42L))))
+
+        prefs.edit().putString("mode", "off").apply()
+        assertNull(cache.read(42L))
+    }
+
+    @Test fun nativeLyricsWithTranslationAndPresentationMarkerSurviveRestart() {
+        val application = RuntimeEnvironment.getApplication()
+        val first = createAutoLyricsRuntime(application).cache
+        val presentation = com.tcrrry.lyrics.engine.lyrics.DesktopLyricsPresentation(
+            source = "未知", wordTimed = false, platformTranslation = true,
+            apiTranslation = false, offlineTranslation = false, pronunciation = true,
+        ).marker()
+        val ttml = "${presentation}<tt><head><metadata><translations><translation>" +
+            "<text for='L1'>你好</text></translation></translations></metadata></head>" +
+            "<body><div><p itunes:key='L1' begin='0s' end='2s'>hello</p></div></body></tt>"
+        first.read(42L)
+        assertTrue(first.write(42L, AutoLyricsCachePolicy.stampSource(ttml, "APPLE_NATIVE")))
+        first.read(43L)
+        assertTrue(first.write(43L, AutoLyricsCachePolicy.stampSource(ttml, "desktop-lyrics:QQ音乐")))
+
+        val reopened = createAutoLyricsRuntime(application).cache
+        val restored = requireNotNull(reopened.read(42L))
+        assertEquals("APPLE_NATIVE", AutoLyricsCachePolicy.readSource(restored))
+        assertEquals(mapOf(0 to "你好"), TtmlSubtitleTrack.subtitleValues(restored))
+        assertNull(reopened.read(43L))
+    }
+
     @Test fun quotaEvictsOldestPayloadFirst() {
         val directory = java.nio.file.Files.createTempDirectory("lyric-quota-test").toFile()
         try {
@@ -97,7 +141,7 @@ class LyricsCachePolicyTest {
         assertTrue(AutoLyricsCachePolicy.isEnrichmentIncomplete(incomplete))
         assertNull(cache.read(43L))
         assertTrue(cache.write(43L, incomplete))
-        assertNull(cache.read(43L))
+        assertTrue(AutoLyricsCachePolicy.isEnrichmentIncomplete(requireNotNull(cache.read(43L))))
 
         LyricsPreference.updateSourceOrder(application, listOf("网易云音乐", LyricsSourceMenuPolicy.NATIVE, LyricsSourceMenuPolicy.AUTHOR, "QQ音乐", "LRCLIB"))
         assertNull(cache.read(42L))

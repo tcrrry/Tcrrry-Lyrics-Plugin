@@ -13,11 +13,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.WeakHashMap;
 
-/** Exact 1609 queue binding; only its repeat control is adapted. */
+/** Adds experimental repeat to the native repeat control in the queue. */
 final class NativeRepeatButtonBridge {
     private final Handler main=new Handler(Looper.getMainLooper());
     private final Map<Object,RadioRepeatExperiment.Snapshot> bindings=new WeakHashMap<>();
-    private final Field repeatBinding, root;
+    private final Field root;
     private final Method render, click, invalidate, setMask;
     private final HostContract host;
     private final RadioRepeatExperiment radio;
@@ -37,13 +37,10 @@ final class NativeRepeatButtonBridge {
         this.runtime=runtime; this.host=host; this.radio=radio; this.command=command;
         ClassLoader loader=runtime.getHostClassLoader();
         boolean is1622=runtime.getHostVersionCode()==1622L && "7.0.1".equals(runtime.getHostVersionName());
-        Class<?> owner=loader.loadClass(is1622 ? "q8.i8" : "q8.j8"), base=loader.loadClass(is1622 ? "q8.h8" : "q8.i8");
-        repeatBinding=base.getDeclaredField("Y");
-        if(repeatBinding.getType()!=loader.loadClass(is1622 ? "q8.f8" : "q8.g8") || owner.getSuperclass()!=base)
-            throw new IllegalStateException("Unexpected queue binding");
+        Class<?> owner=loader.loadClass(is1622 ? "q8.i8" : "q8.j8");
         root=loader.loadClass("androidx.databinding.ViewDataBinding").getDeclaredField("d");
         if(root.getType()!=View.class) throw new IllegalStateException("Unexpected binding root");
-        repeatBinding.setAccessible(true); root.setAccessible(true);
+        root.setAccessible(true);
         render=owner.getDeclaredMethod("l"); click=owner.getDeclaredMethod("a",View.class,int.class);
         invalidate=owner.getDeclaredMethod(is1622 ? "x" : "z");
         setMask=loader.loadClass("com.apple.android.music.common.views.MaskingView").getDeclaredMethod("setMask",int.class);
@@ -66,7 +63,7 @@ final class NativeRepeatButtonBridge {
                 RadioRepeatExperiment.Snapshot displayed=bindings.get(binding);
                 if(displayed==null || !displayed.eligible) return;
                 View button=button(binding);
-                if(call.getArguments()[0]!=button || !button.isAttachedToWindow()) return;
+                if(button==null || call.getArguments()[0]!=button || !button.isAttachedToWindow()) return;
                 try {
                     if(command.change(displayed,null)) {
                         call.returnResult(null);
@@ -76,7 +73,10 @@ final class NativeRepeatButtonBridge {
             }
         }));
     }
-    private View button(Object binding) throws Exception { return (View)root.get(repeatBinding.get(binding)); }
+    private View button(Object binding) throws Exception {
+        View queue=(View)root.get(binding);
+        return queue.findViewById(resource(queue,"id","button_repeat"));
+    }
     private int resource(View view,String type,String name) {
         int id=view.getResources().getIdentifier(name,type,"com.apple.android.music");
         if(id==0) throw new IllegalStateException("Missing native resource: "+type+"/"+name);
@@ -91,6 +91,7 @@ final class NativeRepeatButtonBridge {
             return;
         }
         View button=button(binding);
+        if(button==null) return;
         ImageView off=button.findViewById(resource(button,"id","button_off"));
         View on=button.findViewById(resource(button,"id","button_on"));
         if(off==null || !setMask.getDeclaringClass().isInstance(on)) return;

@@ -324,7 +324,9 @@ def main():
             method(manager, name+'(L'+provider+';I)V')
         for signature in ('sendAllModeChangedMessage()V','setRepeatMode(I)V','getRepeatMode()I',
                           'setCurrentIndex(I)V','getItemCount()I','getCurrentIndex()I',
-                          'canSetRepeatMode()Z','getQueueUUID()Ljava/util/UUID;'):
+                          'canSetRepeatMode()Z','getQueueUUID()Ljava/util/UUID;',
+                          'setRepeatModeInternal(I)V','setShuffleModeInternal(IZ)V',
+                          'getShuffleMode()I','canSetShuffleMode()Z'):
             method(manager, signature)
         for name, descriptor in [('repeatMode','I'),('softQueueProvider','L'+provider+';'),
                                  ('providersById','Landroid/util/SparseArray;'),('workHandler','Landroid/os/Handler;')]:
@@ -340,12 +342,11 @@ def main():
             method(model+'PlayerMediaItem',signature)
         for signature in ('isLiveRadio()Z','hasStreamItem()Z'):
             method(queue+'BaseRadioPlaybackQueueItemProvider',signature)
-        field('q8/i8','Y','Lq8/g8;')
         assert classes['L'+owner_name('q8/j8')+';']['super']=='L'+owner_name('q8/i8')+';'
         invalidate_sig = 'x()V' if version[1] == '1622' else 'z()V'
         for signature in ('l()V','a(Landroid/view/View;I)V', invalidate_sig):
             method('q8/j8',signature)
-        for name in ('id/button_off','id/button_on','drawable/nowplaying_repeat','drawable/nowplaying_repeatone',
+        for name in ('id/button_repeat','id/button_off','id/button_on','drawable/nowplaying_repeat','drawable/nowplaying_repeatone',
                      'color/white','string/repeat','string/repeat_once','string/off'):
             checks += 1
             assert re.search(r'resource 0x[0-9a-f]+ '+name+r'\b', resources), name

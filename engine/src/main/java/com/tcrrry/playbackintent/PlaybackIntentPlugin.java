@@ -11,6 +11,7 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
     private HostContract host;
     private NativeRepeatButtonBridge nativeRepeat;
     private RepeatCommand repeatCommand;
+    private volatile boolean active;
     private final RadioRepeatExperiment radio=new RadioRepeatExperiment();
     private final PlaybackIntentClickGate clickGate=new PlaybackIntentClickGate(android.os.SystemClock::uptimeMillis, 3000L);
     private final PlaybackIntentClickObserver clickObserver=new PlaybackIntentClickObserver(clickGate, () -> { if (coordinator != null) coordinator.newUserAction(); });
@@ -54,6 +55,35 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
                 }
             }
         }));
+        registrations.add(context.getHooks().observe(host.applyRepeat, new PluginObserver() {
+            @Override public void before(PluginObservation call) throws Exception {
+                Object manager = call.getReceiver();
+                synchronized (manager) {
+                    int repeat = (Integer) call.getArguments()[0];
+                    if (active && PlaybackIntentPolicy.conflictsWithRepeatOne(repeat, host.shuffle(manager))
+                            && host.canRepeat(manager) && host.canShuffle(manager)) {
+                        host.applyShuffle.invoke(manager, 0, true);
+                    }
+                }
+            }
+        }));
+        registrations.add(context.getHooks().observe(host.applyShuffle, new PluginObserver() {
+            @Override public void before(PluginObservation call) throws Exception {
+                Object manager = call.getReceiver();
+                synchronized (manager) {
+                    int shuffle = (Integer) call.getArguments()[0];
+                    if (!active || shuffle <= 0 || !host.canShuffle(manager)) return;
+                    if (radio.wantsOverride(manager)) {
+                        radio.clear(manager);
+                        host.notifyModes(manager);
+                    }
+                    if (PlaybackIntentPolicy.conflictsWithRepeatOne(host.activeRepeat(manager), shuffle)
+                            && host.canRepeat(manager)) {
+                        host.applyRepeat.invoke(manager, 0);
+                    }
+                }
+            }
+        }));
         registrations.add(context.getHooks().observe(host.addItemsInternal, new PluginObserver() {
             @Override public void before(PluginObservation call) {
                 Object[] args = call.getArguments();
@@ -69,7 +99,10 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
                         runtime.log("Playback intent: stale repeat cleared at new queue commit", null);
                 }
             }
-            @Override public void after(PluginObservation call) { nativeRepeat.refresh(); }
+            @Override public void after(PluginObservation call) throws Exception {
+                nativeRepeat.refresh();
+                if (active && call.getThrowable() == null) restoreCompatibleModes(call.getReceiver());
+            }
         }));
         registrations.add(context.getHooks().observe(host.setCurrentIndex,new PluginObserver() {
             @Override public void after(PluginObservation call) {
@@ -95,8 +128,28 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
         }));
         context.onClose(this::onStop);
     }
+    // Normalize modes saved by older versions once the native queue is ready.
+    private void restoreCompatibleModes(Object manager) throws Exception {
+        synchronized (manager) {
+            if (!PlaybackIntentPolicy.conflictsWithRepeatOne(host.activeRepeat(manager), host.shuffle(manager))) return;
+        }
+        host.postQueueWork(manager, () -> {
+            synchronized (manager) {
+                if (!active || radio.latest() != manager) return;
+                try {
+                    if (PlaybackIntentPolicy.conflictsWithRepeatOne(host.activeRepeat(manager), host.shuffle(manager))
+                            && host.canRepeat(manager) && host.canShuffle(manager)) {
+                        host.applyShuffle.invoke(manager, 0, true);
+                    }
+                } catch (Exception error) {
+                    runtime.log("Saved playback modes could not be reconciled", error);
+                }
+            }
+        });
+    }
+
     @Override public void onStart() {
-        coordinator.start(); clickObserver.start(); radio.start(); nativeRepeat.start();
+        coordinator.start(); clickObserver.start(); radio.start(); nativeRepeat.start(); active = true;
     }
     public Object observedQueue() { return radio.latest(); }
     public void resumeObservedQueue(Object manager) throws Exception {
@@ -109,6 +162,7 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
         return new RadioExperimentSettings(context,radio,host,repeatCommand,runtime);
     }
     @Override public void onStop() {
+        active = false;
         Object manager=radio.latest();
         clickObserver.stop();
         radio.stop();

@@ -149,6 +149,36 @@ class LyricsResultSubmissionBridgeTest {
     private fun start(f:Fixture,id:Long=1) {
         f.model.loadLyrics(Item(id.toString()));f.bridge.attach(f.fragment)
     }
+    @Test fun cachedExternalLyricsWinTheFirstVisibleResult() {
+        val f = fixture()
+        start(f)
+        idle()
+        f.bridge.awaitingCachedReplacement = { it == 1L }
+        f.model.results.setValue(native(1) to null)
+        assertTrue(f.installed.isEmpty())
+
+        val cached = Pointer(Native(1), "cached QQ")
+        f.choices[1] = cached
+        f.bridge.onReplacementPublished(1)
+        idle()
+        shadowOf(Looper.getMainLooper()).idleFor(250, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertEquals(listOf(cached), f.installed)
+        f.scope.close()
+    }
+
+    @Test fun missingOrSlowCacheReplaysNativeOnceWithinBoundedWait() {
+        val f = fixture()
+        start(f)
+        idle()
+        f.bridge.awaitingCachedReplacement = { true }
+        val native = native(1)
+        f.model.results.setValue(native to null)
+        assertTrue(f.installed.isEmpty())
+        shadowOf(Looper.getMainLooper()).idleFor(250, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertEquals(listOf(native), f.installed)
+        f.scope.close()
+    }
+
     @Test fun verifiedPanelCanPublishWhenNativeCallbackNeverArrives() {
         val f=fixture();start(f);idle()
         val replacement=Pointer(Native(1),"prepared offline pronunciation")

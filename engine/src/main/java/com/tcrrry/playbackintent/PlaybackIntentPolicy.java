@@ -7,6 +7,10 @@ final class PlaybackIntentPolicy {
                 || code == 1622L && "7.0.1".equals(version))
                 && ("com.apple.android.music".equals(pkg) || "com.tcrrry.ampplyrics.coexist".equals(pkg));
     }
+    static boolean conflictsWithRepeatOne(int repeat, int shuffle) {
+        return repeat == 1 && shuffle > 0;
+    }
+
     static boolean replacesQueue(int insertion) {
         return insertion == 1 || insertion == 5 || insertion == 7;
     }

@@ -37,6 +37,20 @@ internal class AutoLyricsCachePolicy(qualityFirst: Boolean, smoothShortUnits: Bo
             return insertHeaderComment(clean, "<!--tcrrry-enrichment-complete=$complete-->")
         }
 
+        private val body = Regex("(?is)<body\\b[^>]*>.*?</body\\s*>")
+
+        fun keepTranslatedDocument(previous: String, incoming: String): Boolean {
+            val source = readSource(incoming) ?: return false
+            if (source != readSource(previous)) return false
+            val pending = isEnrichmentIncomplete(incoming) || !TranslationOutcomeCache.canReuse(incoming, true)
+            if (!pending) return false
+            val previousBody = body.find(previous)?.value ?: return false
+            if (previousBody != body.find(incoming)?.value) return false
+            val previousRows = TtmlSubtitleTrack.subtitleValues(previous).keys
+            val incomingRows = TtmlSubtitleTrack.subtitleValues(incoming).keys
+            return previousRows.size > incomingRows.size && previousRows.containsAll(incomingRows)
+        }
+
         fun isEnrichmentIncomplete(ttml: String): Boolean =
             enrichmentPattern.find(ttml.take(2048))?.groupValues?.get(1) == "false"
     }

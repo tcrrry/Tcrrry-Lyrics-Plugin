@@ -18,6 +18,12 @@ public class PlaybackIntentPolicyTest {
         return PlaybackIntentPolicy.shouldClear(insertion, repeat, repeat, 0, 0, true, false,
                 dynamic, capable, true, true);
     }
+    @Test public void shuffleConflictsWithRepeatOneButCanRepeatTheList() {
+        assertTrue(PlaybackIntentPolicy.conflictsWithRepeatOne(1, 1));
+        assertFalse(PlaybackIntentPolicy.conflictsWithRepeatOne(1, 0));
+        assertFalse(PlaybackIntentPolicy.conflictsWithRepeatOne(0, 1));
+        assertFalse(PlaybackIntentPolicy.conflictsWithRepeatOne(2, 1));
+    }
     @Test public void ordinaryPlayAndShuffleRequestsClearOnlyRepeatOne() {
         for (int insertion : new int[]{1, 5}) {
             assertTrue(clear(insertion, 1, false, true));

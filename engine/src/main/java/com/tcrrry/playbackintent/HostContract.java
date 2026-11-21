@@ -10,6 +10,8 @@ final class HostContract implements PlaybackIntentCoordinator.QueueAccess {
     static final String PREFIX = "com.apple.android.music.playback.";
     final Method addItems, addItemsInternal, publish, setRepeat;
     final Method getRepeat, setCurrentIndex;
+    final Method applyRepeat, applyShuffle;
+    private final Method getShuffle, canShuffle;
     private final Method itemCount, currentIndex, providerId, providerCount, isDynamic, isMirrored, canRepeat;
     private final Field repeat, softProvider, providers;
     private final Method getUuid, getQueueItem, getMediaItem, getQueueId, duration, live, episode, video, continuous, playable, title, providerLive, hasStream;
@@ -24,6 +26,10 @@ final class HostContract implements PlaybackIntentCoordinator.QueueAccess {
         publish = method(manager, "sendAllModeChangedMessage", void.class);
         setRepeat = method(manager, "setRepeatMode", void.class, int.class);
         getRepeat = method(manager, "getRepeatMode", int.class);
+        applyRepeat = method(manager, "setRepeatModeInternal", void.class, int.class);
+        applyShuffle = method(manager, "setShuffleModeInternal", void.class, int.class, boolean.class);
+        getShuffle = method(manager, "getShuffleMode", int.class);
+        canShuffle = method(manager, "canSetShuffleMode", boolean.class);
         setCurrentIndex = method(manager, "setCurrentIndex", void.class, int.class);
         itemCount = method(manager, "getItemCount", int.class);
         currentIndex = method(manager, "getCurrentIndex", int.class);
@@ -102,10 +108,17 @@ final class HostContract implements PlaybackIntentCoordinator.QueueAccess {
                 (Boolean)playable.invoke(media),(Long)duration.invoke(media),autoplay);
         }
     }
+    int activeRepeat(Object manager) throws Exception { return (Integer)getRepeat.invoke(manager); }
+    int shuffle(Object manager) throws Exception { return (Integer)getShuffle.invoke(manager); }
+    boolean canShuffle(Object manager) throws Exception { return (Boolean)canShuffle.invoke(manager); }
+
+    void postQueueWork(Object manager, Runnable action) throws Exception {
+        ((Handler)workHandler.get(manager)).post(action);
+    }
+
     void notifyModes(Object manager) throws Exception {
         if(manager==null) return;
-        Handler worker=(Handler)workHandler.get(manager);
-        worker.post(() -> {
+        postQueueWork(manager, () -> {
             synchronized(manager) {
                 try { publish.invoke(manager); }
                 catch(Exception error) { android.util.Log.w("TcrrryPlayback", "Radio mode notification failed",error); }

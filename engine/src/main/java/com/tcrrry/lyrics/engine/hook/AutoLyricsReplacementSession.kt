@@ -68,7 +68,7 @@ internal fun createAutoLyricsRuntime(
         sourceOrder = { com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(application).orEmpty() },
     )
     val diskCache = FileAutoLyricsCache(root)
-    fun cachePolicy(id: Long): AutoLyricsCachePolicy {
+    fun cachePolicy(id: Long, legacyLanguage: String? = null): AutoLyricsCachePolicy {
         val selected = CurrentLyricsSourceStatus.selectedSource(application, id)
         val sourcePrefs = application.pluginPreferences("ampp-current-lyrics-source", Context.MODE_PRIVATE)
         val options = org.json.JSONArray().put(selected)
@@ -77,8 +77,12 @@ internal fun createAutoLyricsRuntime(
                 .put(CurrentLyricsSourceStatus.excludedRecords(application, id, source).sorted().toString())
                 .put(CurrentLyricsSourceStatus.offsetMs(application, id, source))
         }
-        val translationValues = application.pluginPreferences("supplement_translation", Context.MODE_PRIVATE).all.toSortedMap()
-        options.put(org.json.JSONObject().apply { translationValues.forEach { (key, value) -> put(key, value) } })
+        val translationValues = application.pluginPreferences("supplement_translation", Context.MODE_PRIVATE).all
+            .filterKeys { it != "last_language" }.toSortedMap()
+        options.put(org.json.JSONObject().apply {
+            val keys = (translationValues.keys + listOfNotNull(legacyLanguage?.let { "last_language" })).sorted()
+            keys.forEach { key -> put(key, if (key == "last_language") legacyLanguage else translationValues[key]) }
+        })
         val pronunciationPrefs = application.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
         val effectivePrimary = pronunciationPrefs.getBoolean("primary", false) &&
             NativeLyricsEmphasisVisibility.visible(application)
@@ -103,26 +107,58 @@ internal fun createAutoLyricsRuntime(
             val request = requests.get()?.takeIf { it.first == appleMusicId } ?: return false
             val stamped = request.third.stamp(ttml)
             if (!cachePolicy(appleMusicId).matches(stamped)) return false
-            return LyricsCacheStorage.store(application, request.second) { diskCache.write(appleMusicId, stamped) }
+            return LyricsCacheStorage.store(application, request.second) {
+                val previous = diskCache.peek(appleMusicId)
+                if (previous != null && matchesCachePolicy(appleMusicId, previous, request.third) &&
+                    AutoLyricsCachePolicy.keepTranslatedDocument(previous, stamped)) true
+                else diskCache.write(appleMusicId, stamped)
+            }
         }
+        override fun hasEntry(appleMusicId: Long): Boolean =
+            LyricsCacheStorage.limitMb(application) > 0 && diskCache.hasEntry(appleMusicId)
+
+        private fun matchesCachePolicy(id: Long, document: String, policy: AutoLyricsCachePolicy): Boolean {
+            if (policy.matches(document)) return true
+            // Legacy builds hashed the last detected language. Only tolerate changes
+            // to that field, keeping source and all rendering preferences checked.
+            return listOf("ja", "ko", "ru", "ar", "zh", "en").any { cachePolicy(id, it).matches(document) }
+        }
+
         override fun read(appleMusicId: Long): String? {
             val request = Triple(appleMusicId, LyricsCacheStorage.epoch, cachePolicy(appleMusicId))
             requests.set(request)
             if (LyricsCacheStorage.limitMb(application) == 0) return null
             return diskCache.read(appleMusicId)?.let { cached ->
-                if (AutoLyricsCachePolicy.isEnrichmentIncomplete(cached)) return null
-                if (!cachePolicy(appleMusicId).matches(cached)) return null
-                val translationMode = application.pluginPreferences("supplement_translation", Context.MODE_PRIVATE).getString("mode", "off")
-                if (!TranslationOutcomeCache.canReuse(cached, translationMode in setOf("api", "offline"))) return null
-                val pronunciationEnabled = application.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
-                    .getBoolean("enabled", true)
-                if (!com.tcrrry.lyrics.engine.lyrics.JapanesePronunciationSupplement.cacheMatches(cached, pronunciationEnabled,
-                    application.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE).getBoolean("primary", false) &&
-                        NativeLyricsEmphasisVisibility.visible(application))) return null
-                if (cached.take(2048).contains("<!--tcrrry-lyrics-v1 ") &&
-                    !cached.take(2048).contains(com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.marker(application, appleMusicId))) return null
-                TtmlSubtitleTrack.cleanChineseSubtitles(cached).also { cleaned ->
-                    if (cleaned != cached) LyricsCacheStorage.store(application, request.second) { diskCache.write(appleMusicId, cleaned) }
+                // A failed or pending optional subtitle must not hide already matched lyrics.
+                if (!matchesCachePolicy(appleMusicId, cached, request.third)) {
+                    ModernXposedRuntime.log("automatic lyrics cache policy mismatch id=$appleMusicId")
+                    return null
+                }
+                // Native/author TTML can get a presentation marker when asynchronous
+                // subtitles are added, but only the desktop pipeline stamps these
+                // two dictionary markers. The full cache policy still checks both.
+                val source = AutoLyricsCachePolicy.readSource(cached)
+                val desktop = source?.startsWith("${CustomLyricsSources.DESKTOP_LYRICS}:") == true ||
+                    (source == null && com.tcrrry.lyrics.engine.lyrics.DesktopLyricsPresentation.fromTtml(cached)
+                        ?.source in LyricsSourceMenuPolicy.thirdPartySources)
+                if (desktop) {
+                    val prefs = application.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
+                    if (!com.tcrrry.lyrics.engine.lyrics.JapanesePronunciationSupplement.cacheMatches(
+                            cached, prefs.getBoolean("enabled", true),
+                            prefs.getBoolean("primary", false) && NativeLyricsEmphasisVisibility.visible(application)) ||
+                        !cached.take(2048).contains(
+                            com.tcrrry.lyrics.engine.lyrics.LanguagePronunciationSupplement.marker(application, appleMusicId))) {
+                        ModernXposedRuntime.log("automatic lyrics desktop pronunciation stamp mismatch id=$appleMusicId")
+                        return null
+                    }
+                }
+                TtmlSubtitleTrack.cleanChineseSubtitles(cached).let { cleaned ->
+                    val normalized = if (request.third.matches(cleaned)) cleaned else request.third.stamp(cleaned)
+                    if (normalized != cached) LyricsCacheStorage.store(application, request.second) {
+                        // A refresh may have published newer translations while we were reading.
+                        if (diskCache.peek(appleMusicId) != cached) false else diskCache.write(appleMusicId, normalized)
+                    }
+                    normalized
                 }
             }
         }
@@ -162,8 +198,9 @@ data class AutoLyricsCandidate(
     val displayName: String? = null,
 )
 
-/** Persistent raw-TTML cache seam; all calls happen off the I2/main hot path. */
+/** Persistent TTML cache. Only the inexpensive file-existence hint is used on the UI path. */
 interface AutoLyricsCache {
+    fun hasEntry(appleMusicId: Long): Boolean = false
     fun read(appleMusicId: Long): String?
     fun write(appleMusicId: Long, ttml: String): Boolean
     fun delete(appleMusicId: Long): Boolean = false
@@ -211,14 +248,20 @@ class FileAutoLyricsCache(
 ) : AutoLyricsCache {
     private val indexFile = File(directory, INDEX_FILE_NAME)
 
-    @Synchronized override fun read(appleMusicId: Long): String? {
-        if (appleMusicId <= 0L) return null
+    override fun hasEntry(appleMusicId: Long): Boolean = lyricFile(appleMusicId)?.isFile == true
+
+    @Synchronized fun peek(appleMusicId: Long): String? {
         val file = lyricFile(appleMusicId) ?: return null
+        if (!file.isFile || file.length() !in 1L..MAX_TTML_BYTES) return null
         return runCatching {
-            if (!file.isFile || file.length() !in 1L..MAX_TTML_BYTES) return@runCatching null
-            val result = FileInputStream(file).use { input ->
-                CustomLyricsFilePolicy.readBounded(input).toString(Charsets.UTF_8)
-            }
+            FileInputStream(file).use { input -> CustomLyricsFilePolicy.readBounded(input).toString(Charsets.UTF_8) }
+        }.getOrNull()
+    }
+
+    @Synchronized override fun read(appleMusicId: Long): String? {
+        val file = lyricFile(appleMusicId) ?: return null
+        val result = peek(appleMusicId) ?: return null
+        return runCatching {
             file.setLastModified(System.currentTimeMillis())
             val ids = readIds().toMutableList()
             if (ids.remove(appleMusicId)) {
@@ -369,6 +412,7 @@ class AutoLyricsReplacementSession(
     private var refreshBackup: Pair<Long, Any>? = null
     private val documents = mutableMapOf<Long, String>()
     private var refreshDocument: String? = null
+    private var checkingCacheGeneration: Long? = null
     private var refreshGeneration: Long? = null
     private var refreshTag: Long? = null
 
@@ -382,6 +426,7 @@ class AutoLyricsReplacementSession(
                 activeSongKnown = appleMusicId != null
                 activeAppleMusicId = appleMusicId
                 pending.clear()
+                checkingCacheGeneration = null
                 jobs.values.forEach { it.cancel(true) }
                 jobs.clear()
                 failedUntil.clear()
@@ -418,7 +463,8 @@ class AutoLyricsReplacementSession(
         if (!isCurrentSong(appleMusicId)) return
         val old = readyReplacementFor(appleMusicId) ?: refreshBackup?.takeIf { it.first == appleMusicId }?.second
         val oldDocument = synchronized(lock) { documents[appleMusicId] ?: refreshDocument }
-        runCatching { cache.delete(appleMusicId) }
+        // Keep the previous disk result until a new document replaces it. Changed source
+        // preferences still invalidate old entries through the cache policy stamp.
         onSongChanged(null)
         onSongChanged(appleMusicId)
         synchronized(lock) {
@@ -428,6 +474,14 @@ class AutoLyricsReplacementSession(
             refreshTag = completionTag
         }
         ensureRequested(appleMusicId)
+    }
+
+    internal fun awaitingCachedReplacement(appleMusicId: Long): Boolean {
+        val checking = synchronized(lock) {
+            isCurrentSongLocked(appleMusicId) && checkingCacheGeneration == generation &&
+                pending[appleMusicId] == generation
+        }
+        return checking && runCatching { cache.hasEntry(appleMusicId) }.getOrDefault(false)
     }
 
     fun isTracking(appleMusicId: Long): Boolean = synchronized(lock) {
@@ -498,6 +552,7 @@ class AutoLyricsReplacementSession(
             val retryAt = failedUntil[appleMusicId] ?: 0L
             if (retryAt > nowMs()) return
             pending[appleMusicId] = requestGeneration
+            if (refreshGeneration != requestGeneration) checkingCacheGeneration = requestGeneration
             logger("automatic lyrics queued id=$appleMusicId generation=$requestGeneration")
             try {
                 val job = FutureTask<Unit> { prepare(appleMusicId, requestGeneration) }
@@ -508,6 +563,7 @@ class AutoLyricsReplacementSession(
                 executor.execute(job)
             } catch (_: RejectedExecutionException) {
                 if (pending[appleMusicId] == requestGeneration) pending.remove(appleMusicId)
+                if (checkingCacheGeneration == requestGeneration) checkingCacheGeneration = null
                 jobs.remove(appleMusicId)
                 logger("automatic lyrics prepare was rejected for $appleMusicId")
                 if (refreshGeneration == requestGeneration) {
@@ -531,14 +587,17 @@ class AutoLyricsReplacementSession(
                 logger("automatic lyrics cancelled before fetch id=$appleMusicId")
                 return
             }
-            val cached = runCatching { cache.read(appleMusicId) }.getOrNull()
+            // Read also snapshots the write policy. An explicit refresh bypasses the value,
+            // while leaving a valid earlier file available if the replacement fails.
+            val bypassCache = synchronized(lock) { refreshGeneration == requestGeneration }
+            val cached = runCatching { cache.read(appleMusicId) }.getOrNull().takeUnless { bypassCache }
             logger("automatic lyrics cache id=$appleMusicId hit=${cached != null}")
             if (cached != null && isCurrentRequest(appleMusicId, requestGeneration)) {
                 val restoredSource = AutoLyricsCachePolicy.readSource(cached) ?: CustomLyricsSources.AUTO_CACHE
                 val candidate = AutoLyricsCandidate(restoredSource, cached)
                 logger(
                     "automatic lyrics cache parse begin id=$appleMusicId source=$restoredSource bytes=${cached.length} " +
-                        "translation=${"<translations>" in cached}",
+                        "translatedRows=${TtmlSubtitleTrack.subtitleValues(cached).size}",
                 )
                 preparedPointer = preparePointer(
                     candidate.ttml,
@@ -549,6 +608,9 @@ class AutoLyricsReplacementSession(
                 logger("automatic lyrics cache parse end id=$appleMusicId ready=${preparedPointer != null}")
                 published = preparedPointer != null
                 if (published) preparedCandidate = candidate
+            }
+            synchronized(lock) {
+                if (checkingCacheGeneration == requestGeneration) checkingCacheGeneration = null
             }
             val upgradeCache = upgradeLineCache && published && cached != null &&
                 TtmlTimingPolicy.metadataOf(cached).timingMode == TtmlTimingMode.NON_WORD
@@ -573,12 +635,11 @@ class AutoLyricsReplacementSession(
                         published = true
                         preparedCandidate = candidate
                         logger("automatic lyrics prepared source=${candidate.source} id=$appleMusicId")
-                        if (shouldCacheSource(candidate.source) &&
-                            !AutoLyricsCachePolicy.isEnrichmentIncomplete(candidate.ttml) &&
-                            isCurrentRequest(appleMusicId, requestGeneration)) {
-                            runCatching {
+                        if (shouldCacheSource(candidate.source) && isCurrentRequest(appleMusicId, requestGeneration)) {
+                            val written = runCatching {
                                 cache.write(appleMusicId, AutoLyricsCachePolicy.stampSource(candidate.ttml, candidate.source))
-                            }
+                            }.getOrDefault(false)
+                            logger("automatic lyrics cache write id=$appleMusicId source=${candidate.source} stored=$written")
                         }
                     }
                 }
@@ -638,6 +699,7 @@ class AutoLyricsReplacementSession(
                 onTaggedRefreshFinished?.invoke(appleMusicId, published, completion.second)
             }
             synchronized(lock) {
+                if (checkingCacheGeneration == requestGeneration) checkingCacheGeneration = null
                 if (pending[appleMusicId] == requestGeneration) {
                     pending.remove(appleMusicId)
                     jobs.remove(appleMusicId)

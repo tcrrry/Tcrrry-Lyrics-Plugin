@@ -591,6 +591,31 @@ class AutoLyricsReplacementSessionTest {
         assertEquals("APPLE_NATIVE", lastSource)
     }
 
+    @Test fun partialExternalDocumentSurvivesFailedRefreshAndReopensWithoutFetch() {
+        val queued = QueuedExecutor()
+        val cache = MemoryCache()
+        var fetches = 0
+        val first = session(queued, cache, fetch = {
+            if (++fetches == 1) AutoLyricsCandidate("desktop-lyrics:QQ音乐",
+                AutoLyricsCachePolicy.stampEnrichmentComplete(WORD_TTML, false)) else null
+        }, parse = { Pointer() })
+        first.onSongChanged(42L)
+        first.ensureRequested(42L)
+        queued.runAll()
+        assertEquals("desktop-lyrics:QQ音乐", AutoLyricsCachePolicy.readSource(requireNotNull(cache.values[42L])))
+        first.refreshCurrent(42L)
+        queued.runAll()
+        assertEquals(2, fetches)
+        assertTrue(cache.values.containsKey(42L))
+
+        val reopened = session(queued, cache, fetch = { fetches++; null }, parse = { Pointer() })
+        reopened.onSongChanged(42L)
+        reopened.ensureRequested(42L)
+        queued.runAll()
+        assertEquals(2, fetches)
+        assertTrue(reopened.readyReplacementFor(42L) != null)
+    }
+
     private fun session(
         queued: QueuedExecutor,
         cache: AutoLyricsCache = MemoryCache(),

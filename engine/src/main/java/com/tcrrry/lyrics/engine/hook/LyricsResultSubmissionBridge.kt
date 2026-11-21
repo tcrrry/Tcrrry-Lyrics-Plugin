@@ -26,6 +26,9 @@ internal class LyricsResultSubmissionBridge private constructor(
     internal var pageIdentityReconciler: ((Any) -> Boolean)? = null
     internal var requestIdentityResolver: ((Any) -> Long?)? = null
     internal var pageContentObserver: ((Any, Long, Boolean) -> Unit)? = null
+    internal var awaitingCachedReplacement: ((Long) -> Boolean)? = null
+    private var delayedNativeGeneration: Long? = null
+    private var delayedNativeValue: Any? = null
     private var finishedLookupId: Long? = null
 
     /** An exhausted search is a terminal UI state, even when no pointer exists. */
@@ -156,6 +159,10 @@ internal class LyricsResultSubmissionBridge private constructor(
                     return@runCatching
                 }
                 val chosen = selectReplacement(requestIdSnapshot(), native) ?: native
+                if (native != null && chosen === native && deferNativeForCache(receiver, incoming)) {
+                    param.result = null
+                    return@runCatching
+                }
                 val effective = canonical(chosen)
                 if (effective != null && !isAlive(effective)) return@runCatching
                 val instance = vmSnapshot() ?: return@runCatching
@@ -461,6 +468,7 @@ internal class LyricsResultSubmissionBridge private constructor(
             return
         }
         if (!isAlive(chosen) || pointerId(chosen) != appleMusicId) return
+        if (chosen === original && synchronized(lock) { delayedNativeValue != null }) return
         notifyContent(fragment, appleMusicId, true)
         val effective = canonical(chosen) ?: return
         if (effective === selectionSnapshot() && !retryInstallation) return
@@ -615,6 +623,32 @@ internal class LyricsResultSubmissionBridge private constructor(
         return nativePointerOf(value) === chosen
     }
 
+    /** Give a known local file a short head start without waiting for network on the UI thread. */
+    private fun deferNativeForCache(receiver: Any, incoming: Any?): Boolean {
+        if (selectionSnapshot()?.let(::matchesRequest) == true || awaitingCachedReplacement?.invoke(requestIdSnapshot()) != true) return false
+        val stamp = synchronized(lock) {
+            if (delayedNativeGeneration == generation) {
+                if (delayedNativeValue == null) return false
+                delayedNativeValue = incoming
+                return true
+            }
+            delayedNativeGeneration = generation
+            delayedNativeValue = incoming
+            generation
+        }
+        mainHandler.postDelayed({
+            val value = synchronized(lock) {
+                if (closed || generation != stamp || container !== receiver) return@postDelayed
+                delayedNativeValue.also { delayedNativeValue = null }
+            }
+            if (value != null && currentRequest() && selectionSnapshot()?.let(::matchesRequest) != true) {
+                runCatching { contract.setValueMethod.invoke(receiver, value) }
+                    .onFailure { report("cached lyric native fallback failed", it) }
+            }
+        }, 220L)
+        return true
+    }
+
     private fun onNewRequest(instance: Any, appleMusicId: Long) {
         synchronized(lock) {
             if (closed) return
@@ -647,6 +681,8 @@ internal class LyricsResultSubmissionBridge private constructor(
     }
 
     private fun clearSelectionLocked() {
+        delayedNativeGeneration = null
+        delayedNativeValue = null
         nativeOriginal = null
         nativeObserved = false
         selectedPointer = null

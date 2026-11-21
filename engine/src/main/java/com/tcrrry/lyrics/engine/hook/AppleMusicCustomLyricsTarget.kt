@@ -374,6 +374,7 @@ internal class AppleMusicCustomLyricsTarget(
                     if (changed) mainHandler.post {
                         val prepared = autoSession?.readyReplacementFor(id)
                         if (registration.isActive && currentSong.current()?.details?.appleMusicId == id &&
+                            autoSession?.awaitingCachedReplacement(id) != true &&
                             NativeLyricsPreferencePolicy.refreshForNativeDocument(
                                 com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
                                 CurrentLyricsSourceStatus.selectedSource(application, id),
@@ -396,6 +397,9 @@ internal class AppleMusicCustomLyricsTarget(
                 seam::currentItemAdamIdOf, selectReplacement, parser::isAlive, parser::documentOf,
                 ModernXposedRuntime::log)
                 ?: return TargetCapabilityInstall.Degraded("Native lyric result contract unavailable; original lyrics retained")
+            resultBridge.awaitingCachedReplacement = { id ->
+                autoSession?.awaitingCachedReplacement(id) == true
+            }
             resultBridge.pageIdentityReconciler = { fragment ->
                 currentSong.current()?.let { snapshot ->
                     seam.currentItemOf(fragment)?.let { item ->

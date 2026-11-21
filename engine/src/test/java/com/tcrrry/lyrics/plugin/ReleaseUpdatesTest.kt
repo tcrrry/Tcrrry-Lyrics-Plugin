@@ -1,6 +1,8 @@
 package com.tcrrry.lyrics.plugin
 
 import android.content.Context
+import com.tcrrry.lyrics.engine.BuildConfig
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,6 +24,29 @@ class ReleaseUpdatesTest {
         assertNull(plugin.versionOf("plugin-v1.0.7-beta"))
         assertEquals("https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.0.7", plugin.release("plugin-v1.0.7"))
     }
+    @Test fun pluginVersionComesFromBuildEvenWithStaleChannelAsset() {
+        val asset = JSONObject()
+            .put("repository", "tcrrry/Tcrrry-Lyrics-Plugin")
+            .put("tagPrefix", "plugin-v")
+            .put("version", "1.2.1")
+            .put("label", "歌词插件")
+        val channel = UpdateChannel.fromAsset(asset)
+        assertEquals(BuildConfig.PLUGIN_VERSION, channel.version)
+        assertFalse(UpdateChannel.newer(BuildConfig.PLUGIN_VERSION, channel.version))
+        asset.remove("version")
+        assertEquals(channel, UpdateChannel.fromAsset(asset))
+        assertEquals(channel, UpdateChannel.pluginDefault())
+    }
+
+    @Test fun embeddedHostUsesItsOwnVersion() {
+        val asset = JSONObject()
+            .put("repository", "tcrrry/AMPP-Lyrics")
+            .put("tagPrefix", "v")
+            .put("version", "1.23")
+            .put("label", "完整安装包")
+        assertEquals("1.23", UpdateChannel.fromAsset(asset).version)
+    }
+
     private fun policy(): UpdateReminderPolicy = UpdateReminderPolicy(RuntimeEnvironment.getApplication()
         .getSharedPreferences("update-policy", Context.MODE_PRIVATE).apply { edit().clear().commit() })
     @Test fun eachReleaseAutomaticallyNotifiesOnlyOnceUnlessPostponed() {

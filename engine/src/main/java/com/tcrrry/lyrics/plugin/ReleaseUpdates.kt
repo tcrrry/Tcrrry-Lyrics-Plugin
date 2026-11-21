@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import com.tcrrry.lyrics.engine.BuildConfig
 import com.tcrrry.lyrics.engine.ui.TcrrryLyricsSettingsUi
 import com.tcrrry.lyrics.plugin.PluginStorage.pluginPreferences
 import org.json.JSONObject
@@ -24,6 +25,18 @@ internal data class UpdateChannel(val repository: String, val tagPrefix: String,
     fun versionOf(tag: String): String? = tag.takeIf { it.startsWith(tagPrefix) }?.removePrefix(tagPrefix)
         ?.takeIf { it.matches(Regex("[0-9]+(?:\\.[0-9]+){1,3}")) }
     companion object {
+        private const val PLUGIN_REPOSITORY = "tcrrry/Tcrrry-Lyrics-Plugin"
+        private const val HOST_REPOSITORY = "tcrrry/AMPP-Lyrics"
+
+        fun pluginDefault() = UpdateChannel(PLUGIN_REPOSITORY, "plugin-v", BuildConfig.PLUGIN_VERSION, "歌词插件")
+
+        fun fromAsset(json: JSONObject): UpdateChannel {
+            val repository = json.getString("repository")
+            require(repository == PLUGIN_REPOSITORY || repository == HOST_REPOSITORY)
+            val version = if (repository == PLUGIN_REPOSITORY) BuildConfig.PLUGIN_VERSION else json.getString("version")
+            return UpdateChannel(repository, json.getString("tagPrefix"), version, json.getString("label"))
+        }
+
         fun newer(candidate: String, current: String): Boolean {
             fun parts(value: String): List<Long> = value.split('.').map { it.toLongOrNull() ?: return emptyList() }
             val a = parts(candidate); val b = parts(current)
@@ -59,14 +72,11 @@ internal object ReleaseUpdates {
     private var dialog = WeakReference<android.app.Dialog>(null)
     private val busy = AtomicBoolean()
     private var generation = 0
-    private val fallback = UpdateChannel("tcrrry/Tcrrry-Lyrics-Plugin", "plugin-v", "1.0.6", "歌词插件")
     val channel: UpdateChannel by lazy {
         runCatching {
             val json = PluginLifetime.context.openAsset("update-channel.json").bufferedReader().use { JSONObject(it.readText()) }
-            val repository = json.getString("repository")
-            require(repository in setOf("tcrrry/Tcrrry-Lyrics-Plugin", "tcrrry/AMPP-Lyrics"))
-            UpdateChannel(repository, json.getString("tagPrefix"), json.getString("version"), json.getString("label"))
-        }.getOrDefault(fallback)
+            UpdateChannel.fromAsset(json)
+        }.getOrElse { UpdateChannel.pluginDefault() }
     }
     private fun preferences(context: Context) = context.pluginPreferences("release_updates_${channel.repository.substringAfter('/')}", Context.MODE_PRIVATE)
     fun automatic(context: Context) = UpdateReminderPolicy(preferences(context)).automatic

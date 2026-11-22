@@ -16,10 +16,10 @@ def main():
     p.add_argument('--aapt2', type=Path, required=True)
     args = p.parse_args()
     badging = subprocess.check_output([str(args.aapt2), 'dump', 'badging', str(args.apk)], text=True)
-    version = re.search(r"versionCode='(1606|1609|1613|1614|1622)' versionName='(7\.0\.(?:0(?:-beta)?|1))'", badging)
-    expected_name = {'1606': '7.0.0-beta', '1609': '7.0.0-beta', '1613': '7.0.0-beta', '1614': '7.0.0', '1622': '7.0.1'}
+    version = re.search(r"versionCode='(1606|1609|1613|1614|1622|1626)' versionName='(7\.0\.(?:0(?:-beta)?|1|3))'", badging)
+    expected_name = {'1606': '7.0.0-beta', '1609': '7.0.0-beta', '1613': '7.0.0-beta', '1614': '7.0.0', '1622': '7.0.1', '1626': '7.0.3'}
     if "name='com.apple.android.music'" not in badging or not version or expected_name.get(version[1]) != version[2]:
-        p.error('Requires original Apple Music 7.0.0-beta / 1606, 1609, 1613, 7.0.0 / 1614, or 7.0.1 / 1622')
+        p.error('Requires original Apple Music 7.0.0-beta / 1606, 1609, 1613, 7.0.0 / 1614, 7.0.1 / 1622, or 7.0.3 / 1626')
     classes = {}
     with zipfile.ZipFile(args.apk) as apk:
         for name in apk.namelist():
@@ -38,7 +38,7 @@ def main():
         nonlocal checks
         checks += 1
         owner, descriptor = owner_name(owner), descriptor_name(descriptor)
-        if version[1] in ('1614', '1622'):
+        if version[1] in ('1614', '1622', '1626'):
             common = {'w':'x', 'y':'z', 'E':'F', 'N':'O', 'P':'Q', 'O':'P', 'v':'w', 'B':'C', 'C':'D'}
             adapter = {'k':'l', 'l':'m'}
             word = {'o0':'p0', 'F':'G', 'i0':'j0', 't0':'u0', 'c0':'d0', 'd0':'e0', 'U':'V', 'b0':'c0', 'W':'X'}
@@ -53,7 +53,7 @@ def main():
             if owner in (base_owner, word_owner, line_owner):
                 method_name, rest = descriptor.split('(', 1)
                 descriptor = aliases.get(method_name, method_name)+'('+rest
-            elif version[1] == '1622' and owner == 'q8/X4':
+            elif version[1] in ('1622', '1626') and owner == 'q8/X4':
                 header_aliases = {'q0': 'p0', 'p0': 'o0'}
                 method_name, rest = descriptor.split('(', 1)
                 descriptor = header_aliases.get(method_name, method_name)+'('+rest
@@ -171,7 +171,7 @@ def main():
         inherited_public('J4/w', descriptor)
     inherited_public(lyrics+'$u', 'h(Landroidx/recyclerview/widget/RecyclerView$k$a;)Z')
     inherited_public(lyrics+'$u', 'f()V')
-    if version[1] == '1622':
+    if version[1] in ('1622', '1626'):
         for callback, capture in (('com/apple/android/music/collection2/fragment/b', 'c'), ('Ba/u', 'b')):
             method(callback, 'invoke()Ljava/lang/Object;')
             field(callback, 'a', 'I')
@@ -297,7 +297,7 @@ def main():
     flex_lp = 'com/google/android/flexbox/FlexboxLayout$a'
     field(flex_lp, 'k', 'Z')
     field(flex_lp, 'c', 'F')
-    if version[1] == '1622':
+    if version[1] in ('1622', '1626'):
         method(flex_lp, 'K()Z')
         method(flex_lp, 'y()F')
     else:
@@ -316,7 +316,7 @@ def main():
     method(vector, 'get(J)Ljava/lang/String;')
     method('com/apple/android/music/playback/util/LocaleUtil', 'matchToSystemLyricsScript(L'+vector+';)Ljava/lang/String;', True)
     resources = subprocess.check_output([str(args.aapt2), 'dump', 'resources', str(args.apk)], text=True, encoding='utf-8', errors='replace')
-    if version[1] in ('1613', '1614', '1622'):
+    if version[1] in ('1613', '1614', '1622', '1626'):
         # The merged optional queue controls retain their exact named API.
         queue = 'com/apple/android/music/playback/queue/'
         manager, provider = queue+'LocalPlaybackQueueManager', queue+'PlaybackQueueItemProvider'
@@ -343,7 +343,7 @@ def main():
         for signature in ('isLiveRadio()Z','hasStreamItem()Z'):
             method(queue+'BaseRadioPlaybackQueueItemProvider',signature)
         assert classes['L'+owner_name('q8/j8')+';']['super']=='L'+owner_name('q8/i8')+';'
-        invalidate_sig = 'x()V' if version[1] == '1622' else 'z()V'
+        invalidate_sig = 'x()V' if version[1] in ('1622', '1626') else 'z()V'
         for signature in ('l()V','a(Landroid/view/View;I)V', invalidate_sig):
             method('q8/j8',signature)
         for name in ('id/button_repeat','id/button_off','id/button_on','drawable/nowplaying_repeat','drawable/nowplaying_repeatone',

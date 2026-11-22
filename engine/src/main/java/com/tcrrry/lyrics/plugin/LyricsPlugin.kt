@@ -20,8 +20,8 @@ class LyricsPlugin : AmppPlugin() {
     private val settingsViews=java.util.Collections.newSetFromMap(java.util.WeakHashMap<View,Boolean>())
     private val dialogs=java.util.Collections.newSetFromMap(java.util.WeakHashMap<android.app.Dialog,Boolean>())
     override fun onLoad(context: PluginContext) {
-        if(context.hostPackageName !in setOf("com.apple.android.music","com.tcrrry.ampplyrics.coexist") || !((context.hostVersionCode in setOf(1606L,1609L,1613L) && context.hostVersionName=="7.0.0-beta") || (context.hostVersionCode==1614L && context.hostVersionName=="7.0.0") || (context.hostVersionCode==1622L && context.hostVersionName=="7.0.1")))
-            throw PluginUnsupportedException("歌词插件仅适配 Apple Music 7.0.0-beta / 1606、1609、1613，7.0.0 / 1614 和 7.0.1 / 1622")
+        if(context.hostPackageName !in setOf("com.apple.android.music","com.tcrrry.ampplyrics.coexist") || !((context.hostVersionCode in setOf(1606L,1609L,1613L) && context.hostVersionName=="7.0.0-beta") || (context.hostVersionCode==1614L && context.hostVersionName=="7.0.0") || (context.hostVersionCode==1622L && context.hostVersionName=="7.0.1") || (context.hostVersionCode==1626L && context.hostVersionName=="7.0.3")))
+            throw PluginUnsupportedException("歌词插件仅适配 Apple Music 7.0.0-beta / 1606、1609、1613，7.0.0 / 1614、7.0.1 / 1622 和 7.0.3 / 1626")
         runtime=context;PluginLifetime.attach(context)
         NativeLyricsHostContract.verify(context.hostClassLoader)
         context.claimResource("com.tcrrry.lyrics.settings",true)
@@ -41,6 +41,7 @@ class LyricsPlugin : AmppPlugin() {
         requireActive("歌词匹配",AppleMusicCustomLyricsTarget(context.application,config,resolver,currentSong,automatic).install())
         val glowForegroundField = when (context.hostVersionCode) {
             1622L -> "Y"
+            1626L -> "X"
             1609L, 1613L, 1614L -> "X"
             else -> "U"
         }

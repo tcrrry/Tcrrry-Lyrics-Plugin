@@ -68,7 +68,8 @@ internal object NativeLyricsSourceMenu {
         NativeLyricsPronunciation.install(loader)
         NativeLyricsPronunciationSubtitle.install(loader, build)
         val fragment = loader.lyricsClass("com.apple.android.music.player.fragment.PlayerLyricsViewFragment")
-        val boundButton: ((Any) -> View?)? = if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0") || (build.versionCode == 1622L && build.versionName == "7.0.1"))) {
+        val boundButton: ((Any) -> View?)? = if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0") || (build.versionCode == 1622L && build.versionName == "7.0.1") ||
+                (build.versionCode == 1626L && build.versionName == "7.0.3"))) {
             runCatching {
                 val binding = fragment.lyricsDeclaredField("n0").apply { isAccessible = true }
                 val button = binding.type.lyricsDeclaredField("o0").apply { isAccessible = true }
@@ -116,7 +117,8 @@ internal object NativeLyricsSourceMenu {
                     }
                 })
         }
-        if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0") || (build.versionCode == 1622L && build.versionName == "7.0.1"))) {
+        if (((build.versionCode in setOf(1609L,1613L) && build.versionName == "7.0.0-beta") || (build.versionCode == 1614L && build.versionName == "7.0.0") || (build.versionCode == 1622L && build.versionName == "7.0.1") ||
+                (build.versionCode == 1626L && build.versionName == "7.0.3"))) {
             runCatching { installBindingAnchorHooks(loader.lyricsClass("q8.Y4")) }
                 .onFailure { ModernXposedRuntime.log("early lyrics menu anchor unavailable", it) }
         }

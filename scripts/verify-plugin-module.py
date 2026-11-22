@@ -64,6 +64,9 @@ def main():
     composer = 'Landroidx/compose/runtime/Composer;'
     tabs_base = f0 + f1 + 'Lcom/kyant/backdrop/Backdrop;ILandroidx/compose/ui/Modifier;J' + f1 * 2 + 'FFF' + f3
     variants = {
+        '1.7.1': ('LiquidBottomTabs-_qkcEIo(' + tabs_base + f0 + 'Lkotlin/jvm/functions/Function2;' + f0
+            + 'FFZLkotlin/jvm/functions/Function2;Z' + f3 * 2 + composer + 'IIII)V',
+            'LiquidBottomTab(Landroidx/compose/foundation/layout/RowScope;' + f0 + 'Landroidx/compose/ui/Modifier;Landroidx/compose/ui/graphics/Shape;' + f3 + composer + 'II)V'),
         '1024': ('LiquidBottomTabs-zD62xY4(' + tabs_base + f0 + 'Lkotlin/jvm/functions/Function2;' + f0 + 'FFZ' + f3 * 2 + composer + 'III)V',
             'LiquidBottomTab(Landroidx/compose/foundation/layout/RowScope;' + f0 + 'Landroidx/compose/ui/Modifier;Landroidx/compose/ui/graphics/Shape;' + f3 + composer + 'II)V'),
         '1012': ('LiquidBottomTabs-AKObu6Q(' + tabs_base + f3 + composer + 'III)V',

@@ -19,7 +19,7 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
 
     @Override public void onLoad(PluginContext context) throws Exception {
         if (!PlaybackIntentPolicy.supportsHost(context.getHostPackageName(), context.getHostVersionName(), context.getHostVersionCode()))
-            throw new PluginUnsupportedException("播放模式优化仅适配 Apple Music 7.0.0-beta / 1609、1613，7.0.0 / 1614 和 7.0.1 / 1622");
+            throw new PluginUnsupportedException("播放模式优化仅适配 Apple Music 7.0.0-beta / 1609、1613，7.0.0 / 1614、7.0.1 / 1622 和 7.0.3 / 1626");
         runtime = context;
         host = new HostContract(context.getHostClassLoader());
         coordinator = new PlaybackIntentCoordinator(host);
@@ -28,11 +28,11 @@ public final class PlaybackIntentPlugin extends AmppPlugin {
         registrations.add(context.claimResource("com.tcrrry.playbackintent.queue-modes", true));
         nativeRepeat.register(registrations);
         clickObserver.register(context, registrations);
-        if (context.getHostVersionCode() == 1622L) {
+        if (context.getHostVersionCode() == 1622L || context.getHostVersionCode() == 1626L) {
             try {
                 new AlbumComposePlaybackBridge(clickObserver, clickGate).register(context, registrations);
             } catch (Exception error) {
-                context.log("1622 album Compose playback unavailable", error);
+                context.log("Album Compose playback unavailable", error);
             }
         }
         registrations.add(context.getHooks().observe(host.addItems, new PluginObserver() {

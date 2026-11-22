@@ -4,9 +4,9 @@
   "id": "com.tcrrry.lyrics",
   "name": "Tcrrry 歌词增强",
   "author": "Tcrrry",
-  "versionName": "1.3.2",
-  "versionCode": 85,
+  "versionName": "1.3.3",
+  "versionCode": 89,
   "entryClass": "com.tcrrry.lyrics.plugin.LyricsPlugin",
   "minAndroidApi": 31,
-  "description": "适配 AM++ 1.6.9／Apple Music 1622。支持拖动调整自动匹配来源顺序，改善译文、注音与缓存；修复队列自动续播按钮，单曲循环与随机互斥，随机可与列表循环同时开启。"
+  "description": "适配 AM++ 1.7.1／Apple Music 7.0.3（1626）。支持拖动调整自动匹配来源顺序，改善译文、注音与缓存；修复队列自动续播按钮，单曲循环与随机互斥，随机可与列表循环同时开启。"
 }

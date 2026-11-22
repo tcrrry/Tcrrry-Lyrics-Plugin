@@ -12,7 +12,7 @@ import com.kyant.backdrop.Backdrop
 import java.lang.reflect.Method
 import java.lang.reflect.Modifier as JavaModifier
 
-/** Exact public Compose ABIs verified in the 1012, 1017 and 1024 embedded modules.
+/** Exact public Compose ABIs verified in the 1012, 1017, 1024 and AM++ 1.7.1 embedded modules.
  * Keep host rendering in its own class loader, without shipping host classes.
  */
 internal object HostLiquidControls {
@@ -28,6 +28,8 @@ internal object HostLiquidControls {
     internal val tabs1017 = tabsBase + listOf(f0, "kotlin.jvm.functions.Function2", f0,
         "float", "float", "boolean", f3, composer, "int", "int", "int")
     internal val tabs1024 = tabs1017.dropLast(5) + listOf(f3) + tabs1017.takeLast(5)
+    internal val tabs171 = tabs1017.dropLast(5) +
+        listOf("kotlin.jvm.functions.Function2", "boolean", f3) + tabs1017.takeLast(5) + "int"
     internal val tabLegacy = listOf("androidx.compose.foundation.layout.RowScope", f0,
         "androidx.compose.ui.Modifier", f3, composer, "int", "int")
     internal val tab1017 = tabLegacy.take(3) + "androidx.compose.ui.graphics.Shape" + tabLegacy.drop(3)
@@ -43,7 +45,7 @@ internal object HostLiquidControls {
 
     val tabs: Method by lazy {
         select(Class.forName(prefix + "LiquidBottomTabsKt", false, loader).declaredMethods,
-            listOf("LiquidBottomTabs-zD62xY4" to tabs1024,
+            listOf("LiquidBottomTabs-_qkcEIo" to tabs171, "LiquidBottomTabs-zD62xY4" to tabs1024,
                 "LiquidBottomTabs-g4fP9js" to tabs1017, "LiquidBottomTabs-AKObu6Q" to tabsLegacy))
     }
     val tab: Method by lazy {
@@ -61,11 +63,14 @@ internal fun HostLiquidBottomTabs(selectedTabIndex: () -> Int, onTabSelected: (I
     val arguments = mutableListOf<Any?>(selectedTabIndex, onTabSelected, backdrop, tabsCount,
         modifier, accentOverride.value.toLong(), null, { _: Int -> true }, panelHeight.value,
         panelBlur.value, 0f, null)
-    if (method.parameterCount in setOf(HostLiquidControls.tabs1017.size, HostLiquidControls.tabs1024.size)) {
+    val is171 = method.parameterCount == HostLiquidControls.tabs171.size
+    if (is171 || method.parameterCount in setOf(HostLiquidControls.tabs1017.size, HostLiquidControls.tabs1024.size)) {
         arguments.addAll(listOf({ 0f }, null, null, 1f, 1f, false))
     }
     if (method.parameterCount == HostLiquidControls.tabs1024.size) arguments.add(null)
+    if (is171) arguments.addAll(listOf(null, false, null))
     arguments.addAll(listOf(content, currentComposer, 0, 0, 0))
+    if (is171) arguments.add(0)
     method.invoke(null, *arguments.toTypedArray())
 }
 

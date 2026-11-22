@@ -36,13 +36,13 @@ final class NativeRepeatButtonBridge {
             RepeatCommand command) throws Exception {
         this.runtime=runtime; this.host=host; this.radio=radio; this.command=command;
         ClassLoader loader=runtime.getHostClassLoader();
-        boolean is1622=runtime.getHostVersionCode()==1622L && "7.0.1".equals(runtime.getHostVersionName());
-        Class<?> owner=loader.loadClass(is1622 ? "q8.i8" : "q8.j8");
+        boolean uses1622Binding = runtime.getHostVersionCode() == 1622L || runtime.getHostVersionCode() == 1626L;
+        Class<?> owner=loader.loadClass(uses1622Binding ? "q8.i8" : "q8.j8");
         root=loader.loadClass("androidx.databinding.ViewDataBinding").getDeclaredField("d");
         if(root.getType()!=View.class) throw new IllegalStateException("Unexpected binding root");
         root.setAccessible(true);
         render=owner.getDeclaredMethod("l"); click=owner.getDeclaredMethod("a",View.class,int.class);
-        invalidate=owner.getDeclaredMethod(is1622 ? "x" : "z");
+        invalidate=owner.getDeclaredMethod(uses1622Binding ? "x" : "z");
         setMask=loader.loadClass("com.apple.android.music.common.views.MaskingView").getDeclaredMethod("setMask",int.class);
         for(Method method:new Method[]{render,click,invalidate,setMask}) {
             if(method.getReturnType()!=void.class) throw new IllegalStateException("Unexpected native method");

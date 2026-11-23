@@ -25,6 +25,20 @@ internal object NativeLyricsHostContract {
     fun fieldName(owner: String, legacy: String): String =
         mapping()?.getJSONObject("fields")?.optJSONObject(owner)?.optString(legacy, legacy) ?: legacy
 
+    fun shareSuppressFieldName(): String? {
+        if (!PluginLifetime.alive) return null
+        val mapped = fieldName("com.apple.android.music.player.fragment.PlayerLyricsViewFragment", "W0")
+        if (mapped != "W0") return mapped
+        val host = PluginLifetime.context
+        return when {
+            host.hostVersionCode in setOf(1609L, 1613L) && host.hostVersionName == "7.0.0-beta" -> "U0"
+            host.hostVersionCode == 1614L && host.hostVersionName == "7.0.0" -> "U0"
+            host.hostVersionCode == 1622L && host.hostVersionName == "7.0.1" -> "V0"
+            host.hostVersionCode == 1626L && host.hostVersionName == "7.0.3" -> "U0"
+            else -> "W0"
+        }
+    }
+
     // These names are used only for the audited 1614, 1622 and 1626 builds. Other releases keep
     // the already audited legacy names. Class-specific maps avoid changing
     // unrelated obfuscated methods that happen to share the same spelling.
@@ -33,7 +47,7 @@ internal object NativeLyricsHostContract {
         val uses1622Methods = (versionCode == 1622L && versionName == "7.0.1") ||
             (versionCode == 1626L && versionName == "7.0.3")
         if (!is1614 && !uses1622Methods) return legacy
-        val common = mapOf("w" to "x", "y" to "z", "E" to "F", "N" to "O", "P" to "Q", "O" to "P", "v" to "w", "B" to "C", "C" to "D")
+        val common = mapOf("w" to "x", "y" to "z", "E" to "F", "N" to "O", "P" to "Q", "Q" to "R", "O" to "P", "v" to "w", "B" to "C", "C" to "D")
         val adapter = mapOf("k" to "l", "l" to "m")
         val word = mapOf("o0" to "p0", "F" to "G", "i0" to "j0", "t0" to "u0", "c0" to "d0", "d0" to "e0", "U" to "V", "b0" to "c0", "W" to "X")
         return if (is1614) {

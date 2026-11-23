@@ -105,6 +105,30 @@ class NativeLyricsHostContractTest {
         assertEquals("com.apple.android.music.player.A", profile.methodContracts.getValue("cjk-karaoke-animation-method").owner)
         assertEquals(listOf("z3.y"), profile.methodContracts.getValue("metadata-to-playback-item-method").parameters)
     }
+    @Test fun host1626AliasesAndFollowFieldsResolveExactly() {
+        val fragment = "com.apple.android.music.player.fragment.PlayerLyricsViewFragment"
+        host(1626, "7.0.3")
+        assertEquals("T0", NativeLyricsHostContract.fieldName(fragment, "V0"))
+        assertEquals("U0", NativeLyricsHostContract.fieldName(fragment, "W0"))
+        assertEquals("U0", NativeLyricsHostContract.shareSuppressFieldName())
+        assertEquals("C0", NativeLyricsHostContract.fieldName(fragment, "E0"))
+        assertEquals("D0", NativeLyricsHostContract.fieldName(fragment, "F0"))
+        assertEquals("E0", NativeLyricsHostContract.fieldName(fragment, "G0"))
+        val map = NativeLyricsHostContract::methodNameForBuild
+        val base = "com.apple.android.music.player.i1"
+        assertEquals("R", map(1626, "7.0.3", base, "Q"))
+        assertEquals("D", map(1626, "7.0.3", base, "C"))
+        assertEquals("F", map(1626, "7.0.3", base, "E"))
+        assertEquals("x", map(1626, "7.0.3", base, "w"))
+        assertEquals("z", map(1626, "7.0.3", base, "y"))
+
+        host(1622, "7.0.1")
+        assertEquals("U0", NativeLyricsHostContract.fieldName(fragment, "V0"))
+        assertEquals("V0", NativeLyricsHostContract.shareSuppressFieldName())
+        assertEquals("D0", NativeLyricsHostContract.fieldName(fragment, "E0"))
+        assertEquals("E0", NativeLyricsHostContract.fieldName(fragment, "F0"))
+        assertEquals("F0", NativeLyricsHostContract.fieldName(fragment, "G0"))
+    }
     @Test fun bothProfilesResolveTheirOwnCompleteMetadataContracts() {
         val original=AppleMusicProfiles.match(TargetBuild("com.apple.android.music","7.0.0-beta",1606))!!
         val newer=AppleMusicProfiles.match(TargetBuild("com.apple.android.music","7.0.0-beta",1609))!!

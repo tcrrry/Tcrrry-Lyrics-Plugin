@@ -41,17 +41,25 @@ class NativeLyricsPresentationRecoveryTest {
         }
     }
     class Browser { var playing = true; fun isPlaying() = playing }
+    class StateHolder(@JvmField var a: Any)
+    class LayoutMgr(@JvmField var h0: Boolean = true)
     class Fragment(activity: Activity) {
         @JvmField val h1 = Any()
         @JvmField val n0 = Binding(ListView(activity))
         @JvmField val p0 = Adapter().apply { pointer = h1 }
+        @JvmField val E0 = Any()
+        @JvmField val G0 = StateHolder(E0)
+        @JvmField val s0 = LayoutMgr()
         @JvmField var V0 = false
+        @JvmField var W0 = false
         @JvmField val Z0 = Callback(this)
         var hidden = false
+        var clearedShare = 0
         val media = Browser()
         fun getView(): View = n0.f0
         fun isHidden() = hidden
         fun getMediaBrowser() = media
+        fun s2() { clearedShare++; W0 = false }
     }
     @org.junit.Before fun attach() { TestPluginContext.attach() }
     @org.junit.After fun close() { TestPluginContext.current.close() }
@@ -97,6 +105,36 @@ class NativeLyricsPresentationRecoveryTest {
         TestPluginContext.current.close()
         assertFalse(port.recover(owner, rv, owner.h1, setOf(9)))
         assertEquals(0, owner.Z0.calls); assertEquals(0, owner.p0.rebinds)
+        activity.finish()
+    }
+    @Test fun stuckShareSuppressTriggersSuspendedAndIsClearedOnRecover() {
+        val (activity, owner, port) = fixture()
+        owner.W0 = true
+        assertTrue(port.suspended(owner, owner.n0.f0, owner.h1, setOf(8, 9)))
+        assertTrue(port.recover(owner, owner.n0.f0, owner.h1, setOf(8, 9)))
+        assertFalse(owner.W0)
+        assertEquals(1, owner.clearedShare)
+        assertEquals(8, owner.Z0.first); assertEquals(9, owner.Z0.last)
+        assertEquals(0, owner.p0.rebinds)
+        assertFalse(port.suspended(owner, owner.n0.f0, owner.h1, setOf(8, 9)))
+        activity.finish()
+    }
+    @Test fun staticModeSuppressesRecoveryAndLockedLayoutManagerRecovers() {
+        val (activity, owner, port) = fixture()
+        owner.s0.h0 = false
+        owner.G0.a = Any() // Static lyrics mode (!== E0)
+        assertFalse(port.suspended(owner, owner.n0.f0, owner.h1, setOf(8, 9)))
+        assertFalse(port.recover(owner, owner.n0.f0, owner.h1, setOf(8, 9)))
+        assertFalse(owner.s0.h0)
+        assertEquals(0, owner.Z0.calls)
+
+        owner.G0.a = owner.E0 // Restore timed lyrics mode
+        assertTrue(port.suspended(owner, owner.n0.f0, owner.h1, setOf(8, 9)))
+        assertTrue(port.recover(owner, owner.n0.f0, owner.h1, setOf(8, 9)))
+        assertTrue(owner.s0.h0)
+        assertEquals(8, owner.Z0.first); assertEquals(9, owner.Z0.last)
+        assertEquals(1, owner.Z0.calls)
+        assertFalse(port.suspended(owner, owner.n0.f0, owner.h1, setOf(8, 9)))
         activity.finish()
     }
 }

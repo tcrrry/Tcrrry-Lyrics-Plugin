@@ -2,10 +2,13 @@ package com.tcrrry.lyrics.engine.hook
 
 import android.app.Activity
 import android.os.Looper
+import android.os.SystemClock
+import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
 import android.util.Pair
 import android.util.SparseArray
+import java.util.TreeSet
 import androidx.recyclerview.widget.`RecyclerView$k$a` as NativeFinishedListener
 import com.tcrrry.lyrics.plugin.PluginLifetime
 import com.tcrrry.lyrics.plugin.TestPluginContext
@@ -65,7 +68,7 @@ class NativeLyricsPlaybackRecoveryTest {
         var lastIds = emptyList<Int>()
         var entries = 0
         var onExit: (() -> Unit)? = null
-        fun N() { unlocks++ }; fun P(value: Boolean) { enabled = value }
+        fun N() { unlocks++ }; fun P(value: Boolean) { enabled = value; A = value }
         fun O(ids: List<Int>, delay: Int, payloads: Array<Pair<*, *>>) {
             nativePlaybackCall(this, "O", arrayOf(List::class.java, Int::class.javaPrimitiveType!!,
                 java.lang.reflect.Array.newInstance(Pair::class.java, 0).javaClass), arrayOf(ids, delay, payloads)) {
@@ -324,6 +327,22 @@ class NativeLyricsPlaybackRecoveryTest {
         recovery.close(); activity.finish()
     }
 
+    @Test fun pendingSeekExpiresEvenWhenThePageNeverRegainsFocus() {
+        val (activity, owner, recovery) = fixture(10000)
+        owner.browser.seekTo(33000)
+        owner.n0.f0.focused = false
+        val noop = Runnable {}
+        owner.b1.c(owner.h1, 33000, noop, noop, noop, noop, noop)
+        assertTrue(owner.b1.positions.isEmpty())
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(2))
+        owner.b1.c(owner.h1, 33000, noop, noop, noop, noop, noop)
+        assertEquals(listOf(33000L), owner.b1.positions)
+        assertEquals(1, owner.loops)
+        assertEquals(0, owner.Z0.calls)
+        recovery.close(); activity.finish()
+    }
+
     @Test fun anotherBrowserCannotTriggerASeekAndClosingRemovesTheNewHooks() {
         val (activity, owner, recovery) = fixture(10000)
         Browser().seekTo(33000)
@@ -361,6 +380,257 @@ class NativeLyricsPlaybackRecoveryTest {
         owner.t0.finish(); draw(owner)
         assertEquals(listOf(1), owner.p0.lastIds)
         assertEquals(1, owner.p0.entries)
+        recovery.close(); activity.finish()
+    }
+
+    class WatchdogListView(activity: Activity) : FrameLayout(activity) {
+        var state = 0; var focused = true
+        var canScrollDown = false; var canScrollUp = false
+        fun getScrollState() = state
+        override fun hasWindowFocus() = focused
+        override fun canScrollVertically(direction: Int) = if (direction > 0) canScrollDown else canScrollUp
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            return nativePlaybackCall(this, "onTouchEvent", arrayOf(MotionEvent::class.java), arrayOf(event)) {
+                super.onTouchEvent(event)
+            } == true
+        }
+        companion object {
+            @JvmStatic fun childPos(view: View): Int = (view.tag as? Int) ?: -1
+        }
+    }
+    class WatchdogBinding(@JvmField val f0: WatchdogListView)
+    class WatchdogState(@JvmField var a: Any)
+    class WatchdogLayoutMgr(@JvmField var h0: Boolean = true)
+    class WatchdogAdapter(private val callback: (Int, Int) -> Unit) : com.apple.android.music.player.A() {
+        enum class a { WORD_HIGHLIGHT_IDS, BG_WORD_HIGHLIGHT_IDS, PLAYBACK_POSITION }
+        var unlocks = 0; var enabled = false; var browsing = false; var rebinds = 0
+        var dispatchScroll = true
+        var highlightedIds = TreeSet<Int>()
+        var lastIds = emptyList<Int>()
+        fun N() { unlocks++ }; fun P(value: Boolean) { enabled = value; A = value }
+        fun w(): TreeSet<Int> = TreeSet(highlightedIds)
+        fun C() = browsing
+        fun Q(value: Boolean) {
+            if (browsing != value) {
+                browsing = value
+                if (!browsing) rebinds++
+            }
+        }
+        fun g() { rebinds++ }
+        fun O(ids: List<Int>, delay: Int, payloads: Array<Pair<*, *>>) {
+            nativePlaybackCall(this, "O", arrayOf(List::class.java, Int::class.javaPrimitiveType!!,
+                java.lang.reflect.Array.newInstance(Pair::class.java, 0).javaClass), arrayOf(ids, delay, payloads)) {
+                lastIds = ids.toList()
+                if (ids.isNotEmpty() && dispatchScroll) callback(ids.first(), ids.last())
+                null
+            }
+        }
+    }
+    class WatchdogCallback(private val owner: WatchdogFragment) {
+        var first = -1; var last = -1; var calls = 0; var setSettlingOnScroll = false
+        fun b(first: Int, last: Int) {
+            this.first = first; this.last = last; calls++
+            if (setSettlingOnScroll) owner.n0.f0.state = 2
+            owner.V0 = false
+        }
+    }
+    class WatchdogFragment(activity: Activity) {
+        @JvmField var h1 = Ptr(Song())
+        @JvmField val n0 = WatchdogBinding(WatchdogListView(activity))
+        @JvmField val p0 = WatchdogAdapter { first, last -> Z0.b(first, last) }.apply { pointer = h1 }
+        @JvmField val E0 = Any()
+        @JvmField val G0 = WatchdogState(E0)
+        @JvmField val s0 = WatchdogLayoutMgr()
+        @JvmField var V0 = false
+        @JvmField var W0 = false
+        @JvmField val Z0 = WatchdogCallback(this)
+        @JvmField val t0 = NativeAnimator()
+        @JvmField val b1 = Processor()
+        @JvmField val c1 = Runnable {}; @JvmField val d1 = Runnable {}; @JvmField val e1 = Runnable {}
+        @JvmField val f1 = Runnable {}; @JvmField val g1 = Runnable {}
+        val browser = Browser()
+        var loops = 0; var hidden = false; var clearedShare = 0
+        var visiblePositions = setOf(0, 1, 2)
+        fun getView(): View = n0.f0; fun isHidden() = hidden
+        fun getMediaBrowser() = browser
+        fun y2(state: Int) { loops++ }
+        fun s2() { clearedShare++; W0 = false }
+        companion object {
+            @JvmStatic fun e2(fragment: WatchdogFragment, pos: Int): Boolean = pos in fragment.visiblePositions
+        }
+    }
+    private fun watchdogFixture(position: Long = 210000L): Triple<Activity, WatchdogFragment, NativeLyricsPlaybackRecovery> {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val owner = WatchdogFragment(activity)
+        owner.browser.position = position
+        activity.setContentView(owner.getView())
+        val recovery = requireNotNull(NativeLyricsPlaybackRecovery.resolve(WatchdogFragment::class.java) { 123L })
+        PluginLifetime.close(recovery::close)
+        recovery.watch(owner)
+        return Triple(activity, owner, recovery)
+    }
+    private fun drawWatchdog(owner: WatchdogFragment) {
+        owner.getView().viewTreeObserver.dispatchOnPreDraw()
+        shadowOf(Looper.getMainLooper()).idle()
+        owner.getView().viewTreeObserver.dispatchOnPreDraw()
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    @Test fun settlingStateAfterRepeatScrollDoesNotBlockEventRestart() {
+        val (activity, owner, recovery) = watchdogFixture(210000L)
+        owner.Z0.setSettlingOnScroll = true
+        owner.browser.position = 0L
+        tick(); drawWatchdog(owner)
+        assertEquals(2, owner.n0.f0.state)
+        assertEquals(0, owner.Z0.first)
+        assertEquals(listOf(0L), owner.b1.positions)
+        assertEquals(1, owner.loops)
+        recovery.close(); activity.finish()
+    }
+
+    @Test fun repeatOpeningAnchorFallbackClearsShareSuppressAndScrollsTopWhenAdapterDoesNotScroll() {
+        val (activity, owner, recovery) = watchdogFixture(210000L)
+        owner.p0.dispatchScroll = false
+        owner.visiblePositions = setOf(10, 11)
+        owner.W0 = true
+        owner.p0.browsing = true
+        owner.browser.position = 1500L
+        tick(); drawWatchdog(owner)
+        assertFalse(owner.W0)
+        assertTrue(owner.clearedShare >= 1)
+        assertFalse(owner.p0.browsing)
+        assertEquals(0, owner.Z0.first); assertEquals(0, owner.Z0.last)
+        assertTrue(owner.Z0.calls >= 1)
+        assertEquals(listOf(1500L), owner.b1.positions)
+        assertEquals(1, owner.loops)
+        recovery.close(); activity.finish()
+    }
+
+    @Test fun blurIndependentWatchdogRecoversFocusLossGatesAndStalledTimer() {
+        val (activity, owner, recovery) = watchdogFixture(32500L)
+        owner.p0.highlightedIds = TreeSet(listOf(1))
+        owner.visiblePositions = setOf(0, 1, 2)
+        // Healthy state does not trigger recovery.
+        repeat(4) { tick() }
+        assertEquals(0, owner.Z0.calls)
+
+        // 1. Stuck shareSuppress (W0), browsing (C/Q), stopped word gate (A), and offscreen active row.
+        owner.W0 = true
+        owner.p0.browsing = true
+        owner.p0.A = false
+        owner.visiblePositions = setOf(10, 11)
+        repeat(4) { tick() }
+        assertFalse(owner.W0)
+        assertTrue(owner.clearedShare >= 1)
+        assertFalse(owner.p0.browsing)
+        assertTrue(owner.p0.A)
+        assertEquals(1, owner.Z0.first); assertEquals(1, owner.Z0.last)
+        assertEquals(1, owner.Z0.calls)
+
+        // 2. Stalled native timer: browser is at 32.5s (line 1) while adapter highlights are stuck at 0.
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        owner.visiblePositions = setOf(10, 11)
+        owner.p0.highlightedIds = TreeSet(listOf(0))
+        repeat(4) { tick() }
+        assertEquals(listOf(32500L), owner.b1.positions)
+        assertTrue(owner.loops >= 1)
+        assertTrue(owner.Z0.calls >= 2)
+        recovery.close(); activity.finish()
+    }
+
+    @Test fun userTouchAndIdleGraceSuppressFocusWatchdogUntilUserStopsInteracting() {
+        val (activity, owner, recovery) = watchdogFixture(32500L)
+        owner.p0.highlightedIds = TreeSet(listOf(1))
+        owner.visiblePositions = setOf(10, 11) // Offscreen active line 1
+        val rv = owner.n0.f0
+
+        val down = MotionEvent.obtain(0L, SystemClock.uptimeMillis(), MotionEvent.ACTION_DOWN, 10f, 10f, 0)
+        rv.dispatchTouchEvent(down)
+        down.recycle()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(4))
+        assertEquals(0, owner.Z0.calls)
+
+        val up = MotionEvent.obtain(0L, SystemClock.uptimeMillis(), MotionEvent.ACTION_UP, 10f, 10f, 0)
+        rv.dispatchTouchEvent(up)
+        up.recycle()
+        // Wait 3.0s (< 3.5s grace): must remain suppressed.
+        repeat(6) { tick() }
+        assertEquals(0, owner.Z0.calls)
+
+        // Wait another 2.5s (>= 3.5s grace + 1.5s persistence): now recovers cleanly.
+        repeat(5) { tick() }
+        assertEquals(1, owner.Z0.calls)
+        assertEquals(1, owner.Z0.first)
+        recovery.close(); activity.finish()
+    }
+
+    @Test fun driftedActiveLineInLowerViewportRecoversOnlyWhenMoreLyricsRemainBelow() {
+        val (activity, owner, recovery) = watchdogFixture(32500L)
+        owner.p0.highlightedIds = TreeSet(listOf(1))
+        owner.visiblePositions = setOf(0, 1, 2)
+        val rv = owner.n0.f0
+        shadowOf(Looper.getMainLooper()).idle()
+        val viewportHeight = rv.height.takeIf { it > 100 } ?: 400
+        val row = View(activity).apply { tag = 1 }
+        rv.addView(row, FrameLayout.LayoutParams(
+            rv.width.takeIf { it > 0 } ?: 300,
+            (viewportHeight * 0.12f).toInt().coerceAtLeast(20),
+        ).apply { topMargin = (viewportHeight * 0.72f).toInt() })
+        shadowOf(Looper.getMainLooper()).idle()
+
+        // End of song (cannot scroll down further): no recovery even when active row sits low.
+        rv.canScrollDown = false
+        repeat(4) { tick() }
+        assertEquals(0, owner.Z0.calls)
+
+        // More lyrics remain below: watchdog detects drift (> 60% viewport) and re-anchors.
+        rv.canScrollDown = true
+        repeat(4) { tick() }
+        assertEquals(1, owner.Z0.calls)
+        assertEquals(1, owner.Z0.first); assertEquals(1, owner.Z0.last)
+        recovery.close(); activity.finish()
+    }
+
+    @Test fun lockedLayoutManagerScrollFlagRecoversDuringActivePlayback() {
+        val (activity, owner, recovery) = watchdogFixture(32500L)
+        owner.p0.highlightedIds = TreeSet(listOf(1))
+        owner.visiblePositions = setOf(0, 1, 2)
+        owner.s0.h0 = false
+        repeat(4) { tick() }
+        assertTrue(owner.s0.h0)
+        assertEquals(1, owner.Z0.calls)
+        assertEquals(1, owner.Z0.first); assertEquals(1, owner.Z0.last)
+        recovery.close(); activity.finish()
+    }
+
+    @Test fun interludeDoesNotReanchorToAStaleHighlight() {
+        val (activity, owner, recovery) = watchdogFixture(50000L)
+        owner.p0.highlightedIds = TreeSet(listOf(1))
+        owner.visiblePositions = setOf(2)
+        owner.s0.h0 = false
+        repeat(8) { tick() }
+
+        assertEquals(0, owner.Z0.calls)
+        assertTrue(owner.b1.positions.isEmpty())
+        assertFalse(owner.s0.h0)
+        recovery.close(); activity.finish()
+    }
+
+    @Test fun staticLyricsStateSuppressesWatchdogWhileTimedStateEnablesIt() {
+        val (activity, owner, recovery) = watchdogFixture(32500L)
+        owner.p0.highlightedIds = TreeSet(listOf(1))
+        owner.visiblePositions = setOf(0, 1, 2)
+        owner.W0 = true
+        owner.G0.a = Any() // Static lyrics state (!== E0)
+        repeat(4) { tick() }
+        assertTrue(owner.W0)
+        assertEquals(0, owner.Z0.calls)
+
+        owner.G0.a = owner.E0 // Timed lyrics state (=== E0)
+        repeat(4) { tick() }
+        assertFalse(owner.W0)
+        assertEquals(1, owner.Z0.calls)
+        assertEquals(1, owner.Z0.first)
         recovery.close(); activity.finish()
     }
 }

@@ -476,13 +476,15 @@ internal class OpenSourceLyricBlurPort(
         val document = currentDocument
         val owner = lyricsFragmentOwner
         rv.post {
-            if (document !== currentDocument || owner !== lyricsFragmentOwner || recyclerView !== rv || target !in followHighlights() || isUserScrolling ||
+            val latest = followHighlights()
+            if (document !== currentDocument || owner !== lyricsFragmentOwner || recyclerView !== rv || latest.isEmpty() || isUserScrolling ||
                 (lastUserTouchAt != Long.MIN_VALUE &&
                     SystemClock.uptimeMillis() - lastUserTouchAt < USER_BROWSING_GRACE_MS)) return@post
             runCatching {
-                if (targetAccess.recoverFollow(owner, rv, document, followHighlights())) {
-                    LyricsPlaybackDiagnostics.record("follow-native", "target=$target")
-                    Log.i(TAG, "Recovered native lyric presentation at row $target")
+                if (targetAccess.recoverFollow(owner, rv, document, latest)) {
+                    val row = latest.minOrNull() ?: target
+                    LyricsPlaybackDiagnostics.record("follow-native", "target=$row")
+                    Log.i(TAG, "Recovered native lyric presentation at row $row")
                 }
 
             }.onFailure { error -> LyricsPlaybackDiagnostics.record("follow-error", error.javaClass.simpleName); Log.w(TAG, "Lyric follow recovery unavailable", error) }

@@ -39,7 +39,7 @@ def main():
         checks += 1
         owner, descriptor = owner_name(owner), descriptor_name(descriptor)
         if version[1] in ('1614', '1622', '1626'):
-            common = {'w':'x', 'y':'z', 'E':'F', 'N':'O', 'P':'Q', 'O':'P', 'v':'w', 'B':'C', 'C':'D'}
+            common = {'w':'x', 'y':'z', 'E':'F', 'N':'O', 'P':'Q', 'Q':'R', 'O':'P', 'v':'w', 'B':'C', 'C':'D'}
             adapter = {'k':'l', 'l':'m'}
             word = {'o0':'p0', 'F':'G', 'i0':'j0', 't0':'u0', 'c0':'d0', 'd0':'e0', 'U':'V', 'b0':'c0', 'W':'X'}
             base_owner = owner_name('com/apple/android/music/player/n1')
@@ -127,6 +127,42 @@ def main():
     field(lyrics, 'h1', 'Lcom/apple/android/music/ttml/javanative/model/SongInfo$SongInfoPtr;')
     field(lyrics, 'p0', 'Lcom/apple/android/music/player/n1;')
     field(lyrics, 'V0', 'Z')
+    if version[1] == '1626':
+        if mapped_field_name(lyrics, 'V0') != 'T0':
+            raise RuntimeError('1626 follow flag V0 must map to T0 (not share-suppress U0)')
+        if mapped_field_name(lyrics, 'W0') != 'U0':
+            raise RuntimeError('1626 share-suppress flag W0 must map to U0')
+        if mapped_field_name(lyrics, 'E0') != 'C0':
+            raise RuntimeError('1626 timed state E0 must map to C0 (not static D0)')
+        if mapped_field_name(lyrics, 'F0') != 'D0':
+            raise RuntimeError('1626 static state F0 must map to D0')
+        if mapped_field_name(lyrics, 'G0') != 'E0':
+            raise RuntimeError('1626 observable state G0 must map to E0')
+        field(lyrics, 'W0', 'Z')
+        field(lyrics, 'F0', 'Lcom/apple/android/music/player/fragment/PlayerLyricsViewFragment$x;')
+    elif version[1] == '1622':
+        if mapped_field_name(lyrics, 'V0') != 'U0':
+            raise RuntimeError('1622 follow flag V0 must map to U0')
+        if mapped_field_name(lyrics, 'E0') != 'D0':
+            raise RuntimeError('1622 timed state E0 must map to D0')
+        if mapped_field_name(lyrics, 'F0') != 'E0':
+            raise RuntimeError('1622 static state F0 must map to E0')
+        if mapped_field_name(lyrics, 'G0') != 'F0':
+            raise RuntimeError('1622 observable state G0 must map to F0')
+        field(lyrics, 'F0', 'Lcom/apple/android/music/player/fragment/PlayerLyricsViewFragment$x;')
+    if version[1] in ('1622', '1626'):
+        method(lyrics, 's2()V')
+        method(lyrics, 'e2(Lcom/apple/android/music/player/fragment/PlayerLyricsViewFragment;I)Z', True)
+        method('com/apple/android/music/player/n1', 'Q(Z)V')
+        w_cls = classes['L'+lyrics+'$w;']
+        w_bools = [n for n, d in w_cls['fields'].items() if d == 'Z' and not (w_cls['field_access'][n] & 8)]
+        expected_w = ['h0'] if version[1] == '1626' else ['i0']
+        if w_bools != expected_w:
+            raise RuntimeError(f'Unexpected {version[1]} PLVF$w scroll-lock boolean fields: {w_bools}')
+        rv_cls = classes['Landroidx/recyclerview/widget/RecyclerView;']
+        rv_pos = [m for m, acc in rv_cls['method_access'].items() if (acc & 8) and m.endswith('(Landroid/view/View;)I')]
+        if len(rv_pos) != 1:
+            raise RuntimeError(f'Unexpected RecyclerView static (View)I methods: {rv_pos}')
     field(lyrics, 'Z0', 'Lcom/apple/android/music/player/fragment/L;')
     method('com/apple/android/music/player/n1', 'w()Ljava/util/TreeSet;')
     method('com/apple/android/music/player/fragment/L', 'b(II)V')

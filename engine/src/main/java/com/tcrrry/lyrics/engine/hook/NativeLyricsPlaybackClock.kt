@@ -38,6 +38,11 @@ internal class NativeLyricsPlaybackClock private constructor(
     fun suspendEvents(fragment: Any, lyricMessageId: Int) {
         if (lyricMessageId != 0) (messages?.get(fragment) as? Handler)?.removeMessages(lyricMessageId)
     }
+    fun hasPendingEvents(fragment: Any, lyricMessageId: Int): Boolean? {
+        if (lyricMessageId == 0) return null
+        val handler = messages?.get(fragment) as? Handler ?: return null
+        return handler.hasMessages(lyricMessageId)
+    }
     fun restart(fragment: Any, lyricMessageId: Int, nextEventDelay: Long = 100L) {
         val media = browser.invoke(fragment) ?: return
         val handler = messages?.get(fragment) as? Handler

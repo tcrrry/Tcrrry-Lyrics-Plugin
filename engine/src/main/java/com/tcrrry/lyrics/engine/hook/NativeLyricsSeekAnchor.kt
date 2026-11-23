@@ -8,35 +8,56 @@ internal class NativeLyricsSeekAnchor {
     private var document = WeakReference<Any>(null)
     private var lines = emptyList<Line>()
 
-    fun at(pointer: Any, position: Long): Int? {
-        if (document.get() !== pointer) {
-            val song = pointer.javaClass.getMethod("get").invoke(pointer) ?: return null
-            val result = mutableListOf<Line>()
-            fun entries(vector: Any, maximum: Int, consume: (Any) -> Unit) {
-                val count = (vector.javaClass.getMethod("size").invoke(vector) as Number).toInt()
-                require(count in 0..maximum)
-                val get = vector.javaClass.getMethod("get", Long::class.javaPrimitiveType)
-                for (i in 0 until count) {
-                    val ptr = get.invoke(vector, i.toLong()) ?: continue
-                    ptr.javaClass.getMethod("get").invoke(ptr)?.let(consume)
-                }
+    private fun ensureLoaded(pointer: Any): Boolean {
+        if (document.get() === pointer) return true
+        val song = pointer.javaClass.getMethod("get").invoke(pointer) ?: return false
+        val result = mutableListOf<Line>()
+        fun entries(vector: Any, maximum: Int, consume: (Any) -> Unit) {
+            val count = (vector.javaClass.getMethod("size").invoke(vector) as Number).toInt()
+            require(count in 0..maximum)
+            val get = vector.javaClass.getMethod("get", Long::class.javaPrimitiveType)
+            for (i in 0 until count) {
+                val ptr = get.invoke(vector, i.toLong()) ?: continue
+                ptr.javaClass.getMethod("get").invoke(ptr)?.let(consume)
             }
-            val sections = song.javaClass.getMethod("getSections").invoke(song) ?: return null
-            entries(sections, 512) { section ->
-                val rows = section.javaClass.getMethod("getLines").invoke(section) ?: return@entries
-                entries(rows, 4096) { line ->
-                    val type = line.javaClass
-                    val id = (type.getMethod("getLineId").invoke(line) as Number).toInt()
-                    val begin = (type.getMethod("getBegin").invoke(line) as Number).toLong()
-                    val end = (type.getMethod("getEnd").invoke(line) as Number).toLong()
-                    val text = type.getMethod("getHtmlLineText").invoke(line) as? String
-                    if (id >= 0 && begin >= 0 && end > begin && !text.isNullOrBlank()) result += Line(id, begin, end)
-                }
-            }
-            lines = result.distinctBy { it.id }.sortedBy { it.begin }
-            document = WeakReference(pointer)
         }
+        val sections = song.javaClass.getMethod("getSections").invoke(song) ?: return false
+        entries(sections, 512) { section ->
+            val rows = section.javaClass.getMethod("getLines").invoke(section) ?: return@entries
+            entries(rows, 4096) { line ->
+                val type = line.javaClass
+                val id = (type.getMethod("getLineId").invoke(line) as Number).toInt()
+                val begin = (type.getMethod("getBegin").invoke(line) as Number).toLong()
+                val end = (type.getMethod("getEnd").invoke(line) as Number).toLong()
+                val text = type.getMethod("getHtmlLineText").invoke(line) as? String
+                if (id >= 0 && begin >= 0 && end > begin && !text.isNullOrBlank()) result += Line(id, begin, end)
+            }
+        }
+        lines = result.distinctBy { it.id }.sortedBy { it.begin }
+        document = WeakReference(pointer)
+        return true
+    }
+
+    fun at(pointer: Any, position: Long): Int? {
+        if (!ensureLoaded(pointer)) return null
         return select(lines, position)
+    }
+
+    fun activeLineIdsAt(pointer: Any, position: Long): Set<Int> {
+        if (!ensureLoaded(pointer)) return emptySet()
+        return lines.filter { position >= it.begin && position < it.end }.mapTo(linkedSetOf()) { it.id }
+    }
+
+    fun lineIdsNear(pointer: Any, position: Long, toleranceMs: Long = 1_200L): Set<Int> {
+        if (!ensureLoaded(pointer)) return emptySet()
+        val from = position - toleranceMs
+        val to = position + toleranceMs
+        return lines.filter { it.end >= from && it.begin <= to }.mapTo(linkedSetOf()) { it.id }
+    }
+
+    fun hasUpcomingLine(pointer: Any, position: Long): Boolean {
+        if (!ensureLoaded(pointer)) return false
+        return lines.any { it.end > position }
     }
 
     companion object {

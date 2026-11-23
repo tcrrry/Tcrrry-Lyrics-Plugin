@@ -1,13 +1,19 @@
 # Tcrrry 歌词增强
 
-当前正式版 **1.3.3**，适用于 AM++ 1.7.1／Apple Music 7.0.3（1626），并保留 1606、1609、1613、1614、1622 支持。
+当前正式版 **1.3.4**，适用于 AM++ 1.7.1／Apple Music 7.0.3（1626），并保留 1606、1609、1613、1614、1622 支持。
 
-[![下载歌词插件 ZIP](docs/images/downloads/plugin-zip-1.3.3.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.3.3/Tcrrry-Lyrics-Plugin-1.3.3.zip)
+[![下载歌词插件 ZIP](docs/images/downloads/plugin-zip-1.3.4.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.3.4/Tcrrry-Lyrics-Plugin-1.3.4.zip)
 [![下载翻译插件 ZIP](docs/images/downloads/translation-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.9/Tcrrry-Translation-Plugin-1.0.0.zip)
 
-[1.3.3 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.3.3) · [安装说明](docs/INSTALL.md) · [翻译扩展](docs/TRANSLATION-EXTENSION.md) · [完整安装包](https://github.com/tcrrry/AMPP-Lyrics)
+[1.3.4 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.3.4) · [安装说明](docs/INSTALL.md) · [翻译扩展](docs/TRANSLATION-EXTENSION.md) · [完整安装包](https://github.com/tcrrry/AMPP-Lyrics)
 
 只需要歌词功能，导入歌词 ZIP 即可。需要离线机器翻译，再导入并启用翻译 ZIP；两个文件都在 AM++ 插件管理器导入，**无需安装翻译 APK**。中文模型内置，其他语言按需下载；下载语言包需要开启代理，下载完成后可离线使用。
+
+## 1.3.4 更新
+
+- 修复 1626 单曲循环结束后歌词没有回到开头的问题。
+- 播放中歌词停止跟随时自动尝试恢复，关闭模糊效果时也会检测。
+- 跳进度后离开歌词页时及时恢复歌词更新，长间奏期间避免回滚到上一句。
 
 ## 1.3.3 更新
 

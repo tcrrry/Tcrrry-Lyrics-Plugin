@@ -113,6 +113,8 @@ internal class AppleMusicCustomLyricsTarget(
             CurrentLyricsSourceStatus.selectedSource(application, id),
             nativeById[id]?.let(nativeText::get), hasImportedLyrics(id),
             com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(application).orEmpty())
+        fun replacementEnabled(): Boolean =
+            com.tcrrry.lyrics.engine.lyrics.LyricsPreference.lyricsReplacementEnabled(application)
 
         val fileReader = CustomLyricsFileReader { fileId ->
             config.openFile(fileId)?.let { input ->
@@ -167,6 +169,7 @@ internal class AppleMusicCustomLyricsTarget(
             AutoLyricsReplacementSession(
                 onLookupFinished = { id, _ -> mainHandler.post { if (registration.isActive) lookupFinished(id) } },
                 fetchCandidate = fetch@{ appleMusicId ->
+                    if (!replacementEnabled()) return@fetch null
                     val policyRevision = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.revision(application)
                     val current = currentSong.current()
                         ?.takeIf { it.details.appleMusicId == appleMusicId }
@@ -282,7 +285,8 @@ internal class AppleMusicCustomLyricsTarget(
                 // Desktop Lyrics lookup can supersede an older fallback.
                 publisher = null,
                 isAllowed = { appleMusicId ->
-                    appleMusicId !in runtime.suppressedIds &&
+                    replacementEnabled() &&
+                        appleMusicId !in runtime.suppressedIds &&
                         appleMusicId !in configuredManualIds &&
                         !session.isMapped(appleMusicId) &&
                         session.readyReplacementFor(appleMusicId) == null
@@ -308,16 +312,20 @@ internal class AppleMusicCustomLyricsTarget(
             )
         }
         val readyReplacementFor: (Long) -> Any? = { appleMusicId ->
-            parser.unwrap(session.readyReplacementFor(appleMusicId)
-                ?: (if (preferNative(appleMusicId)) {
-                    if (preparedSource[appleMusicId] == "APPLE_NATIVE") autoSession?.readyReplacementFor(appleMusicId)
-                        ?: nativeById[appleMusicId]?.takeIf(parser::isAlive)
-                    else nativeById[appleMusicId]?.takeIf(parser::isAlive)
-                } else null)
-                ?: autoSession?.readyReplacementFor(appleMusicId))
+            if (!replacementEnabled()) {
+                parser.unwrap(nativeById[appleMusicId]?.takeIf(parser::isAlive))
+            } else {
+                parser.unwrap(session.readyReplacementFor(appleMusicId)
+                    ?: (if (preferNative(appleMusicId)) {
+                        if (preparedSource[appleMusicId] == "APPLE_NATIVE") autoSession?.readyReplacementFor(appleMusicId)
+                            ?: nativeById[appleMusicId]?.takeIf(parser::isAlive)
+                        else nativeById[appleMusicId]?.takeIf(parser::isAlive)
+                    } else null)
+                    ?: autoSession?.readyReplacementFor(appleMusicId))
+            }
         }
         val isTracking: (Long) -> Boolean = { appleMusicId ->
-            session.isTracking(appleMusicId) || autoSession?.isTracking(appleMusicId) == true
+            replacementEnabled() && (session.isTracking(appleMusicId) || autoSession?.isTracking(appleMusicId) == true)
         }
         val reloadAuxiliaries: (Long) -> Boolean = { id ->
             if (registration.isActive && currentSong.current()?.details?.appleMusicId == id && id > 0L) {
@@ -358,6 +366,7 @@ internal class AppleMusicCustomLyricsTarget(
         }
         if (resultProfile?.document?.has("lyricResultSubmission") == true) {
             HostLyricsSubmissionGuard.install(registration) {
+                if (!replacementEnabled()) return@install null
                 currentSong.current()?.details?.appleMusicId?.let { id ->
                     parser.unwrap(session.readyReplacementFor(id) ?: autoSession?.readyReplacementFor(id))
                 }
@@ -371,9 +380,9 @@ internal class AppleMusicCustomLyricsTarget(
                     val previous = nativeById.put(id, original)
                     val changed = previous !== original &&
                         (previous == null || nativeText[previous] != nativeText[original])
-                    if (changed) mainHandler.post {
+                    if (changed && replacementEnabled()) mainHandler.post {
                         val prepared = autoSession?.readyReplacementFor(id)
-                        if (registration.isActive && currentSong.current()?.details?.appleMusicId == id &&
+                        if (registration.isActive && replacementEnabled() && currentSong.current()?.details?.appleMusicId == id &&
                             autoSession?.awaitingCachedReplacement(id) != true &&
                             NativeLyricsPreferencePolicy.refreshForNativeDocument(
                                 com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
@@ -384,21 +393,25 @@ internal class AppleMusicCustomLyricsTarget(
                                 com.tcrrry.lyrics.engine.lyrics.LyricsPreference.customSourceOrder(application).orEmpty())) autoSession?.refreshCurrent(id)
                     }
                 }
-                val manual = session.replacementFor(id)
-                val native = if (preferNative(id)) {
-                    (if (preparedSource[id] == "APPLE_NATIVE") autoSession?.readyReplacementFor(id) else null)
-                        ?: nativeById[id]?.takeIf(parser::isAlive)
-                } else null
-                val automatic = if (manual == null && native == null) autoSession?.replacementFor(id) else null
-                if (manual == null && automatic != null) autoSession?.markTakeoverApplied(id)
-                parser.unwrap(manual ?: native ?: automatic)
+                if (!replacementEnabled()) {
+                    parser.unwrap(nativeById[id]?.takeIf(parser::isAlive))
+                } else {
+                    val manual = session.replacementFor(id)
+                    val native = if (preferNative(id)) {
+                        (if (preparedSource[id] == "APPLE_NATIVE") autoSession?.readyReplacementFor(id) else null)
+                            ?: nativeById[id]?.takeIf(parser::isAlive)
+                    } else null
+                    val automatic = if (manual == null && native == null) autoSession?.replacementFor(id) else null
+                    if (manual == null && automatic != null) autoSession?.markTakeoverApplied(id)
+                    parser.unwrap(manual ?: native ?: automatic)
+                }
             }
             resultBridge = LyricsResultSubmissionBridge.create(symbols, registration, currentSong,
                 seam::currentItemAdamIdOf, selectReplacement, parser::isAlive, parser::documentOf,
                 ModernXposedRuntime::log)
                 ?: return TargetCapabilityInstall.Degraded("Native lyric result contract unavailable; original lyrics retained")
             resultBridge.awaitingCachedReplacement = { id ->
-                autoSession?.awaitingCachedReplacement(id) == true
+                replacementEnabled() && autoSession?.awaitingCachedReplacement(id) == true
             }
             resultBridge.pageIdentityReconciler = { fragment ->
                 currentSong.current()?.let { snapshot ->
@@ -503,8 +516,14 @@ internal class AppleMusicCustomLyricsTarget(
                     activeFragment = WeakReference(fragment)
                     resultBridge.attach(fragment)
                     seam.currentItemAdamIdOf(fragment)?.takeIf { currentSong.current()?.details?.appleMusicId == it }?.let { id ->
-                        session.ensureRequested(id)
                         val alreadyInstalled = installedPointer?.get(fragment)
+                        if (!replacementEnabled()) {
+                            val native = nativeById[id]?.takeIf(parser::isAlive)?.let(parser::unwrap)
+                            if (native != null && alreadyInstalled !== native) publishToPage(id)
+                            else NativeLyricsAuxiliaryControls.synchronize(fragment)
+                            return@let
+                        }
+                        session.ensureRequested(id)
                         val ready = session.readyReplacementFor(id) ?: autoSession?.readyReplacementFor(id)
                         if (ready == null) autoSession?.ensureRequested(id)
                         if (alreadyInstalled != null && alreadyInstalled === parser.unwrap(ready)) {
@@ -519,7 +538,7 @@ internal class AppleMusicCustomLyricsTarget(
             val availabilityHooked = availability.valueOrNull()?.let { method ->
                 hook(method, object : ModernMethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
-                        if (param.result == true) return
+                        if (param.result == true || !replacementEnabled()) return
                         val id = seam.detailsOfItem(param.args.firstOrNull())?.appleMusicId ?: return
                         session.ensureRequested(id); autoSession?.ensureRequested(id)
                         if (shouldExposeCustomLyrics(false, id,
@@ -531,7 +550,12 @@ internal class AppleMusicCustomLyricsTarget(
             if (!availabilityHooked) return TargetCapabilityInstall.Degraded("Native lyric result availability contract unavailable")
             session.start()
             CurrentLyricsSourceStatus.installRefreshHandler { id, userInitiated ->
-                if (currentSong.current()?.details?.appleMusicId == id && session.isMapped(id)) {
+                if (!replacementEnabled()) {
+                    if (currentSong.current()?.details?.appleMusicId == id) {
+                        publishToPage(id)
+                        nativeById[id]?.let(parser::isAlive) == true
+                    } else false
+                } else if (currentSong.current()?.details?.appleMusicId == id && session.isMapped(id)) {
                     session.ensureRequested(id)
                     publishToPage(id)
                     true
@@ -552,9 +576,11 @@ internal class AppleMusicCustomLyricsTarget(
                 val id = current?.details?.appleMusicId
                 CurrentLyricsSourceStatus.cancelSourceCycleUnless(id)
                 resultBridge.onSongChanged(id)
-                id?.let(session::ensureRequested)
                 autoSession?.onSongChanged(id)
-                id?.let { if (session.readyReplacementFor(it) == null) autoSession?.ensureRequested(it) }
+                if (replacementEnabled()) {
+                    id?.let(session::ensureRequested)
+                    id?.let { if (session.readyReplacementFor(it) == null) autoSession?.ensureRequested(it) }
+                }
             }
             registration.onClose(subscription::close)
             return TargetCapabilityInstall.Active("Native lyric ViewModel result channel installed; " +
@@ -681,8 +707,10 @@ internal class AppleMusicCustomLyricsTarget(
                 } }, replay = replay, recovered = { fragment, id ->
                     ModernXposedRuntime.log("Lyrics page identity recovered id=$id")
                     LyricsPlaybackDiagnostics.record("page-metadata-recovered", "id=$id")
-                    session.ensureRequested(id)
-                    autoSession?.ensureRequested(id)
+                    if (replacementEnabled()) {
+                        session.ensureRequested(id)
+                        autoSession?.ensureRequested(id)
+                    }
                     publishToPage(id)
                     immediateAnchor?.schedule(fragment)
                 }, authoritative = { page, snapshot -> pageIdentity?.isAuthoritative(page, snapshot) == true },
@@ -714,8 +742,10 @@ internal class AppleMusicCustomLyricsTarget(
                 metadataRefresh?.schedule(fragment)
                 seam.currentItemAdamIdOf(fragment)?.let { id ->
                     if (currentSong.current()?.details?.appleMusicId == id) {
-                        session.ensureRequested(id)
-                        autoSession?.ensureRequested(id)
+                        if (replacementEnabled()) {
+                            session.ensureRequested(id)
+                            autoSession?.ensureRequested(id)
+                        }
                         publishToPage(id)
                     }
                 }
@@ -730,8 +760,10 @@ internal class AppleMusicCustomLyricsTarget(
                     runCatching { immediateAnchor?.watch(fragment); immediateAnchor?.schedule(fragment) }
                         .onFailure { ModernXposedRuntime.log("Lyrics focus recovery registration failed open", it) }
                     seam.currentItemAdamIdOf(fragment)?.let { id ->
-                        session.ensureRequested(id)
-                        autoSession?.ensureRequested(id)
+                        if (replacementEnabled()) {
+                            session.ensureRequested(id)
+                            autoSession?.ensureRequested(id)
+                        }
                         publishToPage(id)
                     }
                 }
@@ -756,6 +788,7 @@ internal class AppleMusicCustomLyricsTarget(
                             nativeText[pointer] = ttml
                         }
                         if (
+                            replacementEnabled() &&
                             appleMusicId != null &&
                             currentSong.current()?.details?.appleMusicId == appleMusicId &&
                             session.readyReplacementFor(appleMusicId) == null
@@ -796,15 +829,16 @@ internal class AppleMusicCustomLyricsTarget(
                         )
                         adamId ?: return@runCatching
                         param.thisObject?.let { activeFragment = WeakReference(it) }
-                        val manualReplacement = session.replacementFor(adamId)
+                        val enabled = replacementEnabled()
+                        val manualReplacement = if (enabled) session.replacementFor(adamId) else null
                         val timingMetadata = timingObservations.metadataOf(original)
                         if (original != null && nativePointers[original] == true) {
                             val previous = nativeById.put(adamId, original)
                             val changed = previous !== original &&
                                 (previous == null || nativeText[previous] != nativeText[original])
-                            if (changed) mainHandler.post {
+                            if (changed && enabled) mainHandler.post {
                                 val prepared = autoSession?.readyReplacementFor(adamId)
-                                if (registration.isActive && currentSong.current()?.details?.appleMusicId == adamId &&
+                                if (registration.isActive && replacementEnabled() && currentSong.current()?.details?.appleMusicId == adamId &&
                                     NativeLyricsPreferencePolicy.refreshForNativeDocument(
                                         com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
                                         CurrentLyricsSourceStatus.selectedSource(application, adamId),
@@ -816,12 +850,14 @@ internal class AppleMusicCustomLyricsTarget(
                                 }
                             }
                         }
-                        val native = if (preferNative(adamId)) {
+                        val native = if (!enabled) {
+                            nativeById[adamId]?.takeIf(parser::isAlive)
+                        } else if (preferNative(adamId)) {
                             (if (preparedSource[adamId] == "APPLE_NATIVE") autoSession?.readyReplacementFor(adamId) else null)
                                 ?: nativeById[adamId]?.takeIf(parser::isAlive)
                         } else null
-                        val autoEligible = autoSession != null && native == null
-                        val autoReplacement = if (manualReplacement == null && native == null) {
+                        val autoEligible = enabled && autoSession != null && native == null
+                        val autoReplacement = if (enabled && manualReplacement == null && native == null) {
                             autoSession?.replacementFor(adamId)
                         } else null
                         // User-managed mappings win. Automatic native Word lyrics
@@ -998,7 +1034,7 @@ internal class AppleMusicCustomLyricsTarget(
                 override fun afterHookedMethod(param: MethodHookParam) {
                     runCatching {
                         val nativeLyricsAvailable = param.result as? Boolean ?: return@runCatching
-                        if (nativeLyricsAvailable) return@runCatching
+                        if (nativeLyricsAvailable || !replacementEnabled()) return@runCatching
                         val appleMusicId = seam.detailsOfItem(param.args.getOrNull(0))?.appleMusicId
                         appleMusicId?.let { id ->
                             session.ensureRequested(id)
@@ -1027,7 +1063,13 @@ internal class AppleMusicCustomLyricsTarget(
         }.isSuccess
         session.start()
         CurrentLyricsSourceStatus.installRefreshHandler { id, userInitiated ->
-            if (currentSong.current()?.details?.appleMusicId == id && autoSession != null && !session.isMapped(id)) {
+            if (!replacementEnabled()) {
+                if (currentSong.current()?.details?.appleMusicId == id) {
+                    activeFragment?.get()?.let { readyReapply.recordMiss(it, id) }
+                    publishToPage(id)
+                    nativeById[id]?.let(parser::isAlive) == true
+                } else false
+            } else if (currentSong.current()?.details?.appleMusicId == id && autoSession != null && !session.isMapped(id)) {
                 if (userInitiated) userRefreshes.add(id)
                 if (scheduledRefreshes.add(id)) mainHandler.postDelayed({
                     scheduledRefreshes.remove(id)
@@ -1044,22 +1086,24 @@ internal class AppleMusicCustomLyricsTarget(
         val identitySubscription = currentSong.addListener { current ->
             activeFragment?.get()?.let { metadataRefresh?.schedule(it) }
             val appleMusicId = current?.details?.appleMusicId
+            val enabled = replacementEnabled()
             CurrentLyricsSourceStatus.cancelSourceCycleUnless(appleMusicId)
             ModernXposedRuntime.log(
                 "Desktop Lyrics song id=${appleMusicId ?: 0L} " +
+                    "enabled=$enabled " +
                     "auto=${autoSession != null} " +
                     "suppressed=${appleMusicId in (autoLyricsRuntime?.suppressedIds ?: emptySet())} " +
                     "manual=${appleMusicId in configuredManualIds} " +
                     "mapped=${appleMusicId?.let(session::isMapped) ?: false}",
             )
-            appleMusicId?.let(session::ensureRequested)
+            if (enabled) appleMusicId?.let(session::ensureRequested)
             autoSession?.onSongChanged(appleMusicId)
             appleMusicId?.let { id ->
                 ModernXposedRuntime.log(
                     "Desktop Lyrics eligibility id=$id manualReady=${session.readyReplacementFor(id) != null} " +
                         "manualMapped=${session.isMapped(id)}",
                 )
-                if (session.readyReplacementFor(id) == null) autoSession?.ensureRequested(id)
+                if (enabled && session.readyReplacementFor(id) == null) autoSession?.ensureRequested(id)
             }
         }
         registration.onClose(identitySubscription::close)

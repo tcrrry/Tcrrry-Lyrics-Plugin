@@ -46,7 +46,7 @@ internal object TcrrryLyricsSettingsUi {
             addView(title(activity, song?.title ?: "暂无播放歌曲", 19f))
             addView(label(activity, song?.artist.orEmpty(), 13f, SettingsUiTheme.colors(activity).secondary))
             addView(sourceStatusLabel(activity, { CurrentLyricsSourceStatus.description(activity, id) }) {
-                if (id > 0L) showSourceSettings(activity, id, song, refreshPage)
+                showSourceSettings(activity, id, song, refreshPage)
             }, fullMargin(activity, 12))
             addView(action(activity, "查看当前匹配信息") {
                 showMatchingInformation(activity, id)
@@ -62,7 +62,7 @@ internal object TcrrryLyricsSettingsUi {
         parent.addView(menuRow(activity, "歌词效果", "辉光灵敏度、触发位置与短单元平滑") {
             bubbleDialog(activity, glowSettingsCard(activity, readSettings(), onSettingsChanged, refreshPage, id)).show()
         }, fullMargin(activity, 12))
-        parent.addView(menuRow(activity, "更多工具", "缓存与系统链接") {
+        parent.addView(menuRow(activity, "更多工具", "睡眠定时、歌单导出、封面修复与外观") {
             showMoreSettings(activity, id)
         }, fullMargin(activity, 12))
         parent.addView(menuRow(activity, "操作说明", "播放页歌词源按钮的三种操作") {
@@ -79,19 +79,33 @@ internal object TcrrryLyricsSettingsUi {
         lateinit var redraw: () -> Unit
         val changed = { refreshPage(); redraw() }
         redraw = {
-            val selected = CurrentLyricsSourceStatus.selectedSource(activity, id)
-            val provider = LyricsSourceMenuPolicy.provider(CurrentLyricsSourceStatus.appliedSource(activity, id)) ?: selected
+            val colors = SettingsUiTheme.colors(activity)
+            val policy = com.tcrrry.lyrics.engine.lyrics.LyricsPreference
+            val replacementEnabled = policy.lyricsReplacementEnabled(activity)
+            val controlsActive = replacementEnabled && id > 0L
+            val selected = if (id > 0L) CurrentLyricsSourceStatus.selectedSource(activity, id) else null
+            val provider = if (id > 0L) LyricsSourceMenuPolicy.provider(CurrentLyricsSourceStatus.appliedSource(activity, id)) ?: selected else null
             body.removeAllViews()
             body.addView(title(activity, "当前歌曲歌词源", 20f))
-            body.addView(label(activity, "${song?.title.orEmpty()} · ${song?.artist.orEmpty()}", 13f,
-                SettingsUiTheme.colors(activity).secondary), fullMargin(activity, 5))
+            body.addView(label(activity, if (id > 0L) "${song?.title.orEmpty()} · ${song?.artist.orEmpty()}" else "暂无播放歌曲", 13f,
+                colors.secondary), fullMargin(activity, 5))
             body.addView(sourceStatusLabel(activity, { CurrentLyricsSourceStatus.description(activity, id) }, expanded = true), fullMargin(activity, 14))
-            body.addView(menuRow(activity, "选择歌词源", selected ?: "自动匹配") {
+            body.addView(menuRow(activity, "选择歌词源", when {
+                !replacementEnabled -> "已关闭插件歌词源修改"
+                id <= 0L -> "暂无正在播放的歌曲"
+                else -> selected ?: "自动匹配"
+            }) {
                 showSourcePicker(activity, id, selected, changed)
+            }.apply {
+                isEnabled = controlsActive
+                alpha = if (controlsActive) 1f else .45f
             }, fullMargin(activity, 16))
             body.addView(menuRow(activity, "自动匹配来源顺序",
-                com.tcrrry.lyrics.engine.lyrics.LyricsPreference.sourceOrder(activity).joinToString(" › ")) {
+                policy.sourceOrder(activity).joinToString(" › ")) {
                 showSourceOrderEditor(activity, id, changed)
+            }.apply {
+                isEnabled = replacementEnabled
+                alpha = if (replacementEnabled) 1f else .45f
             }, fullMargin(activity, 10))
             val nextSource = action(activity, "下一个来源") {
                 val next = CurrentLyricsSourceStatus.beginSourceCycle(activity, id)
@@ -101,36 +115,41 @@ internal object TcrrryLyricsSettingsUi {
                     toast(activity, if (started) "正在尝试$next" else "请重新打开歌词页后生效")
                 }
                 changed()
-            }
+            }.apply { isEnabled = controlsActive; alpha = if (isEnabled) 1f else .45f }
             val nextVersion = action(activity, "同源下一版") {
                 if (CurrentLyricsSourceStatus.excludeCurrentRecord(activity, id)) {
                     toast(activity, if (CurrentLyricsSourceStatus.refresh(id)) "正在寻找下一个匹配版本" else "请重新打开歌词页后生效")
                 } else toast(activity, "请先装入选中的第三方歌词，再换匹配版本")
                 changed()
-            }
+            }.apply { isEnabled = controlsActive; alpha = if (isEnabled) 1f else .45f }
             body.addView(pairedActions(activity, nextSource, nextVersion), fullMargin(activity, 10))
             val best = action(activity, "当前源最佳") {
                 CurrentLyricsSourceStatus.retryCurrentSource(activity, id)
                 toast(activity, if (CurrentLyricsSourceStatus.refresh(id)) "正在选用当前来源最佳记录" else "请重新打开歌词页后生效")
                 changed()
-            }.apply { isEnabled = selected != null || provider != null; alpha = if (isEnabled) 1f else .45f }
+            }.apply { isEnabled = controlsActive && (selected != null || provider != null); alpha = if (isEnabled) 1f else .45f }
             val automatic = action(activity, "自动选择源") {
                 CurrentLyricsSourceStatus.resetMatching(activity, id)
                 CurrentLyricsSourceStatus.refresh(id)
                 changed()
-            }
+            }.apply { isEnabled = controlsActive; alpha = if (isEnabled) 1f else .45f }
             body.addView(pairedActions(activity, best, automatic), fullMargin(activity, 10))
             body.addView(menuRow(activity, "匹配记录与预览", "查看历史结果，或手动选用歌词") {
                 showHistory(activity, id, song, changed)
-            }, fullMargin(activity, 12))
+            }.apply { isEnabled = controlsActive; alpha = if (isEnabled) 1f else .45f }, fullMargin(activity, 12))
             val offsetValue = label(activity, formatOffset(provider?.let { CurrentLyricsSourceStatus.offsetMs(activity, id, it) } ?: 0),
-                14f, SettingsUiTheme.colors(activity).text)
+                14f, colors.text)
             body.addView(LinearLayout(activity).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 addView(title(activity, "歌词偏移", 16f), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
                 addView(offsetValue)
             }, fullMargin(activity, 20))
-            val slider = offsetSlider(activity, id, provider, offsetValue)
+            val slider = offsetSlider(activity, id, provider, offsetValue).apply {
+                if (!controlsActive) {
+                    isEnabled = false
+                    alpha = .45f
+                }
+            }
             body.addView(slider, fullMargin(activity, 10))
             body.addView(action(activity, "重置偏移") {
                 if (provider != null) {
@@ -139,7 +158,43 @@ internal object TcrrryLyricsSettingsUi {
                     CurrentLyricsSourceStatus.refreshSilently(id)
                 }
             }.apply { isEnabled = slider.isEnabled; alpha = if (isEnabled) 1f else .45f }, fullMargin(activity, 8))
-            body.addView(reloadAuxiliariesAction(activity, id, changed), fullMargin(activity, 14))
+            body.addView(reloadAuxiliariesAction(activity, id, changed).apply {
+                if (!controlsActive) {
+                    isEnabled = false
+                    alpha = .45f
+                }
+            }, fullMargin(activity, 14))
+            val masterFill = when {
+                replacementEnabled && colors.dark -> 0x34E8345C
+                replacementEnabled -> 0xD6FCE8EC.toInt()
+                colors.dark -> 0x1EFFFFFF
+                else -> 0xCCFFFFFF.toInt()
+            }
+            val masterStroke = when {
+                replacementEnabled && colors.dark -> 0x80FF8BA1.toInt()
+                replacementEnabled -> colors.primary
+                colors.dark -> 0x38FFFFFF
+                else -> 0x22000000
+            }
+            body.addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(activity, 12), dp(activity, 12), dp(activity, 12), dp(activity, 12))
+                background = shape(activity, masterFill, 16, masterStroke)
+                SettingsGlassMaterial.mark(this, SettingsGlassKind.Card, accent = replacementEnabled)
+                addView(binaryChoice(activity, "插件歌词源修改", replacementEnabled) { enabled ->
+                    policy.updateLyricsReplacementEnabled(activity, enabled)
+                    if (id > 0L) CurrentLyricsSourceStatus.refresh(id)
+                    toast(activity, if (enabled) "已开启插件歌词源修改" else "已关闭插件歌词源修改，将保留 Apple Music 原生歌词")
+                    changed()
+                })
+                addView(label(
+                    activity,
+                    if (replacementEnabled) "开启后可自动匹配与切换第三方歌词源；关闭后将保留 Apple Music 原生歌词，其余增强功能不受影响"
+                    else "当前已关闭，插件不再拦截或替换歌词，仅保留 Apple Music 原生歌词，其余增强功能正常使用",
+                    12f,
+                    if (replacementEnabled) colors.text else colors.secondary,
+                ), fullMargin(activity, 8))
+            }, fullMargin(activity, 18))
         }
         redraw()
         dialog.show()
@@ -226,9 +281,112 @@ internal object TcrrryLyricsSettingsUi {
         body.addView(binaryChoice(activity, "新版本自动提醒", com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity)) { enabled ->
             com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity, enabled)
         }, fullMargin(activity, 14))
-        body.addView(binaryChoice(activity, "强制覆盖循环方式", com.tcrrry.lyrics.plugin.PlaybackModeOptimization.enabled(activity)) { enabled ->
+        body.addView(binaryChoice(activity, "优化单曲循环覆盖问题", com.tcrrry.lyrics.plugin.PlaybackModeOptimization.enabled(activity)) { enabled ->
             com.tcrrry.lyrics.plugin.PlaybackModeOptimization.setEnabled(activity, enabled)
         }, fullMargin(activity, 14))
+
+        val tools1626Ready = com.tcrrry.lyrics.plugin.MoreToolsCoordinator.is1626Supported()
+        body.addView(binaryChoice(
+            activity,
+            "强化睡眠定时",
+            com.tcrrry.lyrics.plugin.MoreToolsCoordinator.sleepTimerEnabled(activity),
+            enabled = tools1626Ready,
+        ) { enabled ->
+            com.tcrrry.lyrics.plugin.MoreToolsCoordinator.setSleepTimerEnabled(activity, enabled)
+        }, fullMargin(activity, 14))
+
+        body.addView(binaryChoice(
+            activity,
+            "自定义歌单封面修复",
+            com.tcrrry.lyrics.plugin.MoreToolsCoordinator.coverFixEnabled(activity),
+            enabled = tools1626Ready,
+        ) { enabled ->
+            com.tcrrry.lyrics.plugin.MoreToolsCoordinator.setCoverFixEnabled(activity, enabled)
+        }, fullMargin(activity, 14))
+
+        val kifRow = menuRow(activity, "Kifranei 媒体插件（移植）", com.tcrrry.lyrics.plugin.MoreToolsCoordinator.kifraneiMenuSummary(activity)) {}
+        var kifSummaryView: TextView? = null
+        run {
+            val leftCol = (kifRow as? ViewGroup)?.getChildAt(0) as? ViewGroup
+            kifSummaryView = leftCol?.getChildAt(1) as? TextView
+        }
+        kifRow.setOnClickListener { view ->
+            SettingsDialogMotion.from(view) {
+                showKifraneiSettings(activity) {
+                    val summary = com.tcrrry.lyrics.plugin.MoreToolsCoordinator.kifraneiMenuSummary(activity)
+                    kifSummaryView?.text = summary
+                    kifRow.contentDescription = "Kifranei 媒体插件（移植），$summary"
+                }
+            }
+        }
+        body.addView(kifRow, fullMargin(activity, 14))
+
+        val autoRow = menuRow(activity, "智能混音（自动过渡）", com.tcrrry.lyrics.plugin.MoreToolsCoordinator.autoTransitionMenuSummary(activity)) {}
+        var autoSummaryView: TextView? = null
+        run {
+            val leftCol = (autoRow as? ViewGroup)?.getChildAt(0) as? ViewGroup
+            autoSummaryView = leftCol?.getChildAt(1) as? TextView
+        }
+        autoRow.setOnClickListener { view ->
+            SettingsDialogMotion.from(view) {
+                showAutoTransitionSettings(activity) {
+                    val summary = com.tcrrry.lyrics.plugin.MoreToolsCoordinator.autoTransitionMenuSummary(activity)
+                    autoSummaryView?.text = summary
+                    autoRow.contentDescription = "智能混音（自动过渡），$summary"
+                }
+            }
+        }
+        body.addView(autoRow, fullMargin(activity, 14))
+
+        val usbRow = menuRow(activity, "有线耳机优化", com.tcrrry.lyrics.plugin.MoreToolsCoordinator.usbMenuSummary(activity)) {}
+        var usbSummaryView: TextView? = null
+        run {
+            val leftCol = (usbRow as? ViewGroup)?.getChildAt(0) as? ViewGroup
+            usbSummaryView = leftCol?.getChildAt(1) as? TextView
+        }
+        usbRow.setOnClickListener { view ->
+            SettingsDialogMotion.from(view) {
+                showWiredHeadphoneSettings(activity) {
+                    val summary = com.tcrrry.lyrics.plugin.MoreToolsCoordinator.usbMenuSummary(activity)
+                    usbSummaryView?.text = summary
+                    usbRow.contentDescription = "有线耳机优化，$summary"
+                }
+            }
+        }
+        body.addView(usbRow, fullMargin(activity, 14))
+
+        val speedRow = menuRow(activity, "长按倍速播放", com.tcrrry.lyrics.plugin.MoreToolsCoordinator.playbackSpeedMenuSummary(activity)) {}
+        var speedSummaryView: TextView? = null
+        run {
+            val leftCol = (speedRow as? ViewGroup)?.getChildAt(0) as? ViewGroup
+            speedSummaryView = leftCol?.getChildAt(1) as? TextView
+        }
+        speedRow.setOnClickListener { view ->
+            SettingsDialogMotion.from(view) {
+                showPlaybackSpeedSettings(activity) {
+                    val summary = com.tcrrry.lyrics.plugin.MoreToolsCoordinator.playbackSpeedMenuSummary(activity)
+                    speedSummaryView?.text = summary
+                    speedRow.contentDescription = "长按倍速播放，$summary"
+                }
+            }
+        }
+        body.addView(speedRow, fullMargin(activity, 14))
+
+        val exportRow = menuRow(activity, "导出播放列表", com.tcrrry.lyrics.plugin.MoreToolsCoordinator.exportMenuSummary(activity)) {}
+        var exportSummaryView: TextView? = null
+        run {
+            val leftCol = (exportRow as? ViewGroup)?.getChildAt(0) as? ViewGroup
+            exportSummaryView = leftCol?.getChildAt(1) as? TextView
+        }
+        exportRow.setOnClickListener { view ->
+            SettingsDialogMotion.from(view) {
+                showPlaylistExportSettings(activity) {
+                    exportSummaryView?.text = com.tcrrry.lyrics.plugin.MoreToolsCoordinator.exportMenuSummary(activity)
+                }
+            }
+        }
+        body.addView(exportRow, fullMargin(activity, 14))
+
         body.addView(action(activity, "歌词缓存") { showCacheSettings(activity) }, fullMargin(activity, 14))
         body.addView(action(activity, "清理补充译文缓存") {
             val folder = java.io.File(activity.pluginCacheDir, "translations")
@@ -243,6 +401,1171 @@ internal object TcrrryLyricsSettingsUi {
                 .onFailure { toast(activity, "无法打开系统链接设置") }
         }, fullMargin(activity, 8))
         bubbleDialog(activity, body).show()
+    }
+
+    internal fun showKifraneiSettings(activity: Activity, onChanged: () -> Unit = {}) {
+        val coordinator = com.tcrrry.lyrics.plugin.MoreToolsCoordinator
+        val colors = SettingsUiTheme.colors(activity)
+        val kifReady = coordinator.isKifraneiSupported()
+        val oplus = coordinator.isOplusRom()
+        val initialCfg = coordinator.kifraneiConfig(activity)
+        val initialSnap = coordinator.kifraneiConflictSnapshot(activity)
+        val body = card(activity).apply { addView(title(activity, "Kifranei 媒体插件（移植）", 20f)) }
+
+        if (!kifReady) {
+            body.addView(
+                label(activity, "当前 Apple Music 版本暂未适配 Kifranei 媒体增强（不影响歌词功能）", 12.5f, colors.secondary),
+                fullMargin(activity, 8),
+            )
+        }
+
+        if (initialSnap.standaloneEnabled) {
+            val conflictMsg = if (initialSnap.parseFallbackAll) {
+                "已检测到独立版 AM 媒体增强插件已启用；因未能读取其设置，已保守避让全部 9 项内置移植功能以防止宿主冲突阻止"
+            } else {
+                "已检测到独立版 AM 媒体增强插件已启用：仅自动避让对方正在使用的 ${initialSnap.yielded.size} 项（如播放页玻璃与资源下载可分别共存）"
+            }
+            val banner = label(activity, conflictMsg, 12.5f, colors.primary).apply {
+                setPadding(dp(activity, 14), dp(activity, 10), dp(activity, 14), dp(activity, 10))
+                background = shape(activity, colors.selected, 14, colors.primary)
+                SettingsGlassMaterial.mark(this, SettingsGlassKind.Card, accent = true)
+            }
+            body.addView(banner, fullMargin(activity, 10))
+        }
+
+        lateinit var playerGlassToggle: TextView
+        lateinit var popupStyleRow: View
+        lateinit var popupStyleNote: TextView
+        lateinit var playerHandleToggle: TextView
+        lateinit var systemCornersToggle: TextView
+        lateinit var volumeBarToggle: TextView
+        lateinit var iosControlsToggle: TextView
+        lateinit var sharingToggle: TextView
+        lateinit var downloadsToggle: TextView
+
+        fun setBinaryEnabled(view: TextView, enabled: Boolean) {
+            view.isEnabled = enabled
+            view.alpha = if (enabled) 1f else .45f
+        }
+
+        fun setSegmentedEnabled(row: View, enabled: Boolean) {
+            row.alpha = if (enabled) 1f else .45f
+            val group = (row as? ViewGroup)?.let { vg ->
+                (0 until vg.childCount).firstNotNullOfOrNull { idx -> vg.getChildAt(idx) as? SettingsSegmentedControl }
+            }
+            group?.isEnabled = enabled
+        }
+
+        fun refreshControls() {
+            val cfg = coordinator.kifraneiConfig(activity)
+            val snap = coordinator.kifraneiConflictSnapshot(activity)
+            val subActive = kifReady && cfg.masterEnabled
+            setBinaryEnabled(playerGlassToggle, subActive && !snap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.PLAYER_GLASS))
+            setSegmentedEnabled(popupStyleRow, subActive && cfg.playerGlass && !snap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.PLAYER_GLASS))
+            popupStyleNote.alpha = if (subActive && cfg.playerGlass) 1f else .55f
+            setBinaryEnabled(playerHandleToggle, subActive && !snap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.PLAYER_CHROME))
+            setBinaryEnabled(systemCornersToggle, subActive && !snap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.PLAYER_CHROME))
+            setBinaryEnabled(volumeBarToggle, subActive && !oplus && !snap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.VOLUME_BAR))
+            setBinaryEnabled(iosControlsToggle, subActive && !snap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.IOS_CONTROLS))
+            setBinaryEnabled(sharingToggle, subActive && !snap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.SHARING))
+            setBinaryEnabled(downloadsToggle, subActive && !snap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.CONTENT_DOWNLOADS))
+        }
+
+        body.addView(binaryChoice(
+            activity,
+            "启用 Kifranei 媒体增强",
+            initialCfg.masterEnabled,
+            enabled = kifReady,
+        ) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(masterEnabled = enabled) }
+            refreshControls()
+            onChanged()
+        }, fullMargin(activity, 12))
+
+        body.addView(title(activity, "播放页外观与液态玻璃", 16f), fullMargin(activity, 16))
+
+        val glassYielded = initialSnap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.PLAYER_GLASS)
+        playerGlassToggle = binaryChoice(
+            activity,
+            "播放页液态玻璃",
+            initialCfg.playerGlass,
+        ) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(playerGlass = enabled) }
+            refreshControls()
+            onChanged()
+        }
+        body.addView(playerGlassToggle, fullMargin(activity, 10))
+        if (glassYielded) {
+            body.addView(
+                label(activity, "独立版 K 插件已开启此项：播放页已自动让位，歌单菜单与排序弹窗继续保留液态玻璃", 12f, colors.secondary),
+                fullMargin(activity, 4),
+            )
+        }
+
+        val styles = listOf(
+            dev.kifranei.ampp.media.PopupGlassStyle.BOTTOM_BAR,
+            dev.kifranei.ampp.media.PopupGlassStyle.MORE_MENU,
+            dev.kifranei.ampp.media.PopupGlassStyle.NO_FROST,
+        )
+        popupStyleRow = segmentedChoice(
+            activity,
+            "弹窗液态玻璃样式",
+            listOf("同底栏", "同更多菜单", "无磨砂"),
+            styles.indexOf(initialCfg.popupGlassStyle).coerceAtLeast(0),
+            inlineGlass = true,
+        ) { which ->
+            val picked = styles.getOrElse(which) { dev.kifranei.ampp.media.PopupGlassStyle.BOTTOM_BAR }
+            coordinator.updateKifraneiConfig(activity) { copy(popupGlassStyle = picked) }
+            toast(activity, "弹窗样式已设为「${listOf("同底栏", "同更多菜单", "无磨砂").getOrElse(which) { "同底栏" }}」")
+        }
+        body.addView(popupStyleRow, fullMargin(activity, 12))
+        popupStyleNote = label(
+            activity,
+            if (glassYielded) "当前已同步独立版 K 插件的弹窗磨砂样式"
+            else "作用于睡眠定时、排序、删除确认与音质弹窗；更多菜单保持独立效果",
+            12f,
+            colors.secondary,
+        )
+        body.addView(popupStyleNote, fullMargin(activity, 4))
+
+        val chromeYielded = initialSnap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.PLAYER_CHROME)
+        playerHandleToggle = binaryChoice(activity, "播放页顶部把手", initialCfg.playerHandle) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(playerHandle = enabled) }
+        }
+        body.addView(playerHandleToggle, fullMargin(activity, 10))
+
+        systemCornersToggle = binaryChoice(activity, "播放页系统圆角", initialCfg.systemCorners) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(systemCorners = enabled) }
+        }
+        body.addView(systemCornersToggle, fullMargin(activity, 10))
+        if (chromeYielded) {
+            body.addView(
+                label(activity, "独立版 K 插件已接管播放页顶部把手/圆角，已自动让位", 12f, colors.secondary),
+                fullMargin(activity, 4),
+            )
+        }
+
+        val volumeYielded = initialSnap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.VOLUME_BAR)
+        volumeBarToggle = binaryChoice(
+            activity,
+            "播放页音量条",
+            initialCfg.volumeBar && !oplus,
+        ) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(volumeBar = enabled) }
+        }
+        body.addView(volumeBarToggle, fullMargin(activity, 10))
+        if (oplus || volumeYielded) {
+            body.addView(
+                label(
+                    activity,
+                    if (oplus) "ColorOS / realme UI / OxygenOS 因系统默认 DPI 原因已自动禁用音量条"
+                    else "独立版 K 插件已开启音量条，已自动让位",
+                    12f,
+                    colors.secondary,
+                ),
+                fullMargin(activity, 4),
+            )
+        }
+
+        val iosYielded = initialSnap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.IOS_CONTROLS)
+        iosControlsToggle = binaryChoice(activity, "iOS 媒体控制按钮（输出设备）", initialCfg.iosControls) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(iosControls = enabled) }
+        }
+        body.addView(iosControlsToggle, fullMargin(activity, 10))
+        if (iosYielded) {
+            body.addView(
+                label(activity, "独立版 K 插件已开启 iOS 音频输出控制，已自动让位", 12f, colors.secondary),
+                fullMargin(activity, 4),
+            )
+        }
+
+        body.addView(title(activity, "分享与资源下载", 16f), fullMargin(activity, 16))
+
+        val sharingYielded = initialSnap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.SHARING)
+        sharingToggle = binaryChoice(activity, "解除分享白名单限制", initialCfg.sharing) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(sharing = enabled) }
+            onChanged()
+        }
+        body.addView(sharingToggle, fullMargin(activity, 10))
+        body.addView(
+            label(
+                activity,
+                if (sharingYielded) "独立版 K 插件已开启卡片分享解限，已自动让位"
+                else "为歌曲与歌词卡片增加系统图片分享和保存到相册入口",
+                12f,
+                colors.secondary,
+            ),
+            fullMargin(activity, 4),
+        )
+
+        val downloadsYielded = initialSnap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.CONTENT_DOWNLOADS)
+        downloadsToggle = binaryChoice(activity, "下载封面、动态封面与原始 TTML", initialCfg.contentDownloads) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(contentDownloads = enabled) }
+            onChanged()
+        }
+        body.addView(downloadsToggle, fullMargin(activity, 10))
+        body.addView(
+            label(
+                activity,
+                if (downloadsYielded) "独立版 K 插件已开启资源下载，已自动让位"
+                else "艺术家/专辑页可下载封面、MP4 动态封面、字标与简介；播放页更多菜单或长按歌词导出 TTML 至 Download/AM++",
+                12f,
+                colors.secondary,
+            ),
+            fullMargin(activity, 4),
+        )
+
+        refreshControls()
+        bubbleDialog(activity, body).show()
+    }
+
+    internal fun showAutoTransitionSettings(activity: Activity, onChanged: () -> Unit = {}) {
+        val coordinator = com.tcrrry.lyrics.plugin.MoreToolsCoordinator
+        val colors = SettingsUiTheme.colors(activity)
+        val initialCfg = coordinator.kifraneiConfig(activity)
+        val initialSnap = coordinator.kifraneiConflictSnapshot(activity)
+        val body = card(activity).apply { addView(title(activity, "智能混音（自动过渡）", 20f)) }
+
+        if (!coordinator.isKifraneiSupported()) {
+            body.addView(
+                label(activity, "当前 Apple Music 版本暂未适配智能混音", 12.5f, colors.secondary),
+                fullMargin(activity, 8),
+            )
+        } else if (initialSnap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.AUTO_TRANSITION)) {
+            val banner = label(
+                activity,
+                "检测到独立版 Kifranei 插件已开启自动过渡，本插件已自动让位以避免冲突；若想使用本插件版本，请先在独立版 K 插件中关闭自动过渡",
+                12.5f,
+                colors.primary,
+            ).apply {
+                setPadding(dp(activity, 14), dp(activity, 10), dp(activity, 14), dp(activity, 10))
+                background = shape(activity, colors.selected, 14, colors.primary)
+                SettingsGlassMaterial.mark(this, SettingsGlassKind.Card, accent = true)
+            }
+            body.addView(banner, fullMargin(activity, 10))
+        }
+
+        lateinit var autoTransitionToggle: TextView
+        lateinit var autoDurationRow: View
+        lateinit var autoShowQueueBtnToggle: TextView
+        lateinit var autoAnimateToggle: TextView
+        lateinit var autoAppleCurveToggle: TextView
+        lateinit var autoAlbumSeqToggle: TextView
+        lateinit var autoRepeatOneToggle: TextView
+        lateinit var autoSeekTriggerToggle: TextView
+
+        fun setBinaryEnabled(view: TextView, enabled: Boolean) {
+            view.isEnabled = enabled
+            view.alpha = if (enabled) 1f else .45f
+        }
+
+        fun setSegmentedEnabled(row: View, enabled: Boolean) {
+            row.alpha = if (enabled) 1f else .45f
+            val group = (row as? ViewGroup)?.let { vg ->
+                (0 until vg.childCount).firstNotNullOfOrNull { idx -> vg.getChildAt(idx) as? SettingsSegmentedControl }
+            }
+            group?.isEnabled = enabled
+        }
+
+        fun refreshAutoControls() {
+            val cfg = coordinator.kifraneiConfig(activity)
+            val snap = coordinator.kifraneiConflictSnapshot(activity)
+            val autoUnlocked = coordinator.isKifraneiSupported() &&
+                !snap.isYielded(dev.kifranei.ampp.media.KifraneiCapability.AUTO_TRANSITION)
+            setBinaryEnabled(autoTransitionToggle, autoUnlocked)
+            setBinaryEnabled(autoShowQueueBtnToggle, autoUnlocked)
+            val autoSubUnlocked = autoUnlocked && cfg.autoTransition
+            setSegmentedEnabled(autoDurationRow, autoSubUnlocked)
+            setBinaryEnabled(autoAnimateToggle, autoSubUnlocked)
+            setBinaryEnabled(autoAppleCurveToggle, autoSubUnlocked)
+            setBinaryEnabled(autoAlbumSeqToggle, autoSubUnlocked)
+            setBinaryEnabled(autoRepeatOneToggle, autoSubUnlocked)
+            setBinaryEnabled(autoSeekTriggerToggle, autoSubUnlocked)
+        }
+
+        autoTransitionToggle = binaryChoice(activity, "启用智能混音（自动过渡）", initialCfg.autoTransition) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(autoTransition = enabled) }
+            refreshAutoControls()
+            onChanged()
+        }
+        body.addView(autoTransitionToggle, fullMargin(activity, 12))
+        body.addView(
+            label(
+                activity,
+                "默认关闭；自动接管原生交叉淡化引擎（无需手动关掉系统开关），支持队列快捷按钮与智能进度光效",
+                12f,
+                colors.secondary,
+            ),
+            fullMargin(activity, 4),
+        )
+
+        val durations = listOf(0, 4, 6, 8, 12)
+        val initialDurationIdx = if (initialCfg.autoTransitionDuration <= 0) {
+            0
+        } else {
+            (1 until durations.size).minByOrNull {
+                kotlin.math.abs(durations[it] - initialCfg.autoTransitionDuration)
+            } ?: 0
+        }
+        autoDurationRow = segmentedChoice(
+            activity,
+            "默认淡化时长",
+            listOf("自动", "4秒", "6秒", "8秒", "12秒"),
+            initialDurationIdx,
+            inlineGlass = true,
+        ) { which ->
+            val sec = durations.getOrElse(which) { 0 }
+            coordinator.updateKifraneiConfig(activity) { copy(autoTransitionDuration = sec) }
+            onChanged()
+        }
+        body.addView(autoDurationRow, fullMargin(activity, 12))
+        body.addView(
+            label(activity, "「自动」会根据曲目尾奏强弱与节奏契合度在 4~10 秒间柔和过渡，避免裁剪人声", 12f, colors.secondary),
+            fullMargin(activity, 4),
+        )
+
+        autoShowQueueBtnToggle = binaryChoice(activity, "在播放列表显示过渡图标", initialCfg.autoTransitionShowQueueButton) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(autoTransitionShowQueueButton = enabled) }
+        }
+        body.addView(autoShowQueueBtnToggle, fullMargin(activity, 10))
+        body.addView(
+            label(activity, "关闭后将隐藏播放列表顶部的渐入渐出快捷图标", 12f, colors.secondary),
+            fullMargin(activity, 4),
+        )
+
+        autoAnimateToggle = binaryChoice(activity, "切歌封面过渡动画", initialCfg.autoTransitionAnimate) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(autoTransitionAnimate = enabled) }
+        }
+        body.addView(autoAnimateToggle, fullMargin(activity, 10))
+
+        autoAppleCurveToggle = binaryChoice(activity, "优先使用 Apple 原生过渡曲线", initialCfg.autoTransitionPreferAppleCurve) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(autoTransitionPreferAppleCurve = enabled) }
+        }
+        body.addView(autoAppleCurveToggle, fullMargin(activity, 10))
+        body.addView(
+            label(activity, "默认关闭；开启后曲目具备官方过渡数据时保留原生淡化曲线", 12f, colors.secondary),
+            fullMargin(activity, 4),
+        )
+
+        autoAlbumSeqToggle = binaryChoice(activity, "允许同专辑连播过渡", initialCfg.autoTransitionAllowAlbumSequential) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(autoTransitionAllowAlbumSequential = enabled) }
+        }
+        body.addView(autoAlbumSeqToggle, fullMargin(activity, 10))
+        body.addView(
+            label(activity, "默认开启；解除系统对同一专辑相邻曲目的淡化限制，大幅提高触发率", 12f, colors.secondary),
+            fullMargin(activity, 4),
+        )
+
+        autoRepeatOneToggle = binaryChoice(activity, "适配单曲循环无缝过渡", initialCfg.autoTransitionAllowSingleRepeat) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(autoTransitionAllowSingleRepeat = enabled) }
+        }
+        body.addView(autoRepeatOneToggle, fullMargin(activity, 10))
+        body.addView(
+            label(activity, "默认关闭；开启后允许单曲循环在结尾尝试无缝重接", 12f, colors.secondary),
+            fullMargin(activity, 4),
+        )
+
+        autoSeekTriggerToggle = binaryChoice(activity, "允许拖动进度条触发过渡", initialCfg.autoTransitionAllowSeekTrigger) { enabled ->
+            coordinator.updateKifraneiConfig(activity) { copy(autoTransitionAllowSeekTrigger = enabled) }
+        }
+        body.addView(autoSeekTriggerToggle, fullMargin(activity, 10))
+        body.addView(
+            label(activity, "默认开启；手动拖动进度条至歌曲末尾过渡区间时，仍可立即触发平滑交叉淡化", 12f, colors.secondary),
+            fullMargin(activity, 4),
+        )
+
+        val cacheStatusView = label(activity, "", 12f, colors.secondary)
+        fun refreshCacheLabel() {
+            val (count, bytes) = coordinator.automixCacheStats(activity)
+            val kbText = if (bytes <= 0L) "0 KB" else "${kotlin.math.max(1L, (bytes + 1023L) / 1024L)} KB"
+            cacheStatusView.text = "本地分析缓存：已记录 $count 首曲目（约 $kbText），完整播完一次后自动入库以加速后续触发"
+        }
+        refreshCacheLabel()
+        body.addView(cacheStatusView, fullMargin(activity, 10))
+        body.addView(action(activity, "清理过渡分析缓存") {
+            val cleared = coordinator.clearAutomixCache(activity)
+            refreshCacheLabel()
+            toast(activity, if (cleared) "已清理本地过渡分析缓存" else "当前暂无分析缓存")
+        }, fullMargin(activity, 8))
+
+        refreshAutoControls()
+        bubbleDialog(activity, body).show()
+    }
+
+    internal fun showUsbBitPerfectSettings(activity: Activity, onChanged: () -> Unit = {}) {
+        showWiredHeadphoneSettings(activity, onChanged)
+    }
+
+    internal fun showPlaybackSpeedSettings(activity: Activity, onChanged: () -> Unit = {}) {
+        val coordinator = com.tcrrry.lyrics.plugin.MoreToolsCoordinator
+        val colors = SettingsUiTheme.colors(activity)
+        val body = card(activity)
+        val dialog = bubbleDialog(activity, body)
+        lateinit var redraw: () -> Unit
+        redraw = {
+            val cfg = coordinator.playbackSpeedConfig(activity)
+            val subUnlocked = cfg.enabled
+            body.removeAllViews()
+            body.addView(title(activity, "长按倍速播放", 20f))
+            body.addView(
+                label(
+                    activity,
+                    "在播放页长按「下一首」倍速快进，长按「上一首」慢速播放；短按仍正常切歌",
+                    12.5f,
+                    colors.secondary,
+                ),
+                fullMargin(activity, 6),
+            )
+            body.addView(binaryChoice(activity, "启用长按倍速播放", cfg.enabled) { enabled ->
+                coordinator.updatePlaybackSpeedConfig(activity) { copy(enabled = enabled) }
+                onChanged()
+                redraw()
+            }, fullMargin(activity, 14))
+
+            val modeRow = segmentedChoice(
+                activity,
+                "触发方式",
+                listOf("松手恢复", "长按锁定"),
+                if (cfg.holdMode) 0 else 1,
+                inlineGlass = true,
+            ) { which ->
+                coordinator.updatePlaybackSpeedConfig(activity) { copy(holdMode = which == 0) }
+                onChanged()
+            }.apply {
+                alpha = if (subUnlocked) 1f else .45f
+                (this as? ViewGroup)?.let { vg ->
+                    (0 until vg.childCount).map(vg::getChildAt).filterIsInstance<SettingsSegmentedControl>()
+                        .forEach { it.isEnabled = subUnlocked }
+                }
+            }
+            body.addView(modeRow, fullMargin(activity, 14))
+
+            val fastValueLabel = label(
+                activity,
+                com.tcrrry.lyrics.plugin.LongPressPlaybackSpeed.formatSpeed(cfg.fastSpeed),
+                14f,
+                colors.primary,
+            ).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
+            body.addView(LinearLayout(activity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                alpha = if (subUnlocked) 1f else .45f
+                addView(title(activity, "长按下一首（倍速）", 15f), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(fastValueLabel)
+            }, fullMargin(activity, 16))
+
+            val fastProgressInit = kotlin.math.round((cfg.fastSpeed - 1.25f) / 0.25f).toInt().coerceIn(0, 7)
+            body.addView(SeekBar(activity).apply {
+                max = 7
+                progress = fastProgressInit
+                isEnabled = subUnlocked
+                alpha = if (subUnlocked) 1f else .45f
+                progressTintList = ColorStateList.valueOf(colors.primary)
+                progressBackgroundTintList = ColorStateList.valueOf(colors.outline)
+                thumbTintList = ColorStateList.valueOf(colors.text)
+                splitTrack = false
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        val speed = 1.25f + progress * 0.25f
+                        fastValueLabel.text = com.tcrrry.lyrics.plugin.LongPressPlaybackSpeed.formatSpeed(speed)
+                        if (fromUser) {
+                            coordinator.updatePlaybackSpeedConfig(activity) { copy(fastSpeed = speed) }
+                            onChanged()
+                        }
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                })
+            }, fullMargin(activity, 6))
+
+            body.addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                alpha = if (subUnlocked) 1f else .45f
+                val presets = listOf(1.5f, 2.0f, 2.5f, 3.0f)
+                presets.forEachIndexed { idx, preset ->
+                    val selected = kotlin.math.abs(cfg.fastSpeed - preset) < 0.01f
+                    addView(action(activity, com.tcrrry.lyrics.plugin.LongPressPlaybackSpeed.formatSpeed(preset), emphasized = selected) {
+                        coordinator.updatePlaybackSpeedConfig(activity) { copy(fastSpeed = preset) }
+                        onChanged()
+                        redraw()
+                    }.apply {
+                        isEnabled = subUnlocked
+                        textSize = 12.5f
+                        minimumHeight = dp(activity, 40)
+                        setPadding(dp(activity, 6), dp(activity, 6), dp(activity, 6), dp(activity, 6))
+                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (idx > 0) marginStart = dp(activity, 6)
+                    })
+                }
+            }, fullMargin(activity, 6))
+
+            val slowValueLabel = label(
+                activity,
+                com.tcrrry.lyrics.plugin.LongPressPlaybackSpeed.formatSpeed(cfg.slowSpeed),
+                14f,
+                colors.primary,
+            ).apply { typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL) }
+            body.addView(LinearLayout(activity).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                alpha = if (subUnlocked) 1f else .45f
+                addView(title(activity, "长按上一首（慢放）", 15f), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+                addView(slowValueLabel)
+            }, fullMargin(activity, 16))
+
+            val slowProgressInit = kotlin.math.round((cfg.slowSpeed - 0.50f) / 0.05f).toInt().coerceIn(0, 8)
+            body.addView(SeekBar(activity).apply {
+                max = 8
+                progress = slowProgressInit
+                isEnabled = subUnlocked
+                alpha = if (subUnlocked) 1f else .45f
+                progressTintList = ColorStateList.valueOf(colors.primary)
+                progressBackgroundTintList = ColorStateList.valueOf(colors.outline)
+                thumbTintList = ColorStateList.valueOf(colors.text)
+                splitTrack = false
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                        val speed = 0.50f + progress * 0.05f
+                        slowValueLabel.text = com.tcrrry.lyrics.plugin.LongPressPlaybackSpeed.formatSpeed(speed)
+                        if (fromUser) {
+                            coordinator.updatePlaybackSpeedConfig(activity) { copy(slowSpeed = speed) }
+                            onChanged()
+                        }
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                })
+            }, fullMargin(activity, 6))
+
+            body.addView(LinearLayout(activity).apply {
+                orientation = LinearLayout.HORIZONTAL
+                alpha = if (subUnlocked) 1f else .45f
+                val presets = listOf(0.50f, 0.65f, 0.75f, 0.85f)
+                presets.forEachIndexed { idx, preset ->
+                    val selected = kotlin.math.abs(cfg.slowSpeed - preset) < 0.01f
+                    addView(action(activity, com.tcrrry.lyrics.plugin.LongPressPlaybackSpeed.formatSpeed(preset), emphasized = selected) {
+                        coordinator.updatePlaybackSpeedConfig(activity) { copy(slowSpeed = preset) }
+                        onChanged()
+                        redraw()
+                    }.apply {
+                        isEnabled = subUnlocked
+                        textSize = 12.5f
+                        minimumHeight = dp(activity, 40)
+                        setPadding(dp(activity, 6), dp(activity, 6), dp(activity, 6), dp(activity, 6))
+                    }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        if (idx > 0) marginStart = dp(activity, 6)
+                    })
+                }
+            }, fullMargin(activity, 6))
+
+            body.addView(binaryChoice(activity, "变速保持原调", cfg.keepPitch, enabled = subUnlocked) { keep ->
+                coordinator.updatePlaybackSpeedConfig(activity) { copy(keepPitch = keep) }
+            }, fullMargin(activity, 14))
+            body.addView(
+                label(activity, "关闭后将随倍速同步升降音调（适合听 Slowed / Nightcore 效果）", 12f, colors.secondary),
+                fullMargin(activity, 4),
+            )
+
+            body.addView(action(activity, "立即恢复 1.0x 原速") {
+                coordinator.restoreNormalPlaybackSpeed(activity)
+                toast(activity, "已恢复 1.0x 原速")
+            }, fullMargin(activity, 14))
+        }
+        redraw()
+        dialog.show()
+    }
+
+    internal fun showWiredHeadphoneSettings(activity: Activity, onChanged: () -> Unit = {}) {
+        val coordinator = com.tcrrry.lyrics.plugin.MoreToolsCoordinator
+        val colors = SettingsUiTheme.colors(activity)
+        val supported = coordinator.isUsbBitPerfectSupported()
+        val body = card(activity).apply { addView(title(activity, "有线耳机优化", 20f)) }
+
+        body.addView(
+            label(
+                activity,
+                if (supported) "接入 USB 小尾巴或有线耳机播歌时，优先申请独立 Hi-Fi 输出通道，并实时显示当前采样率与硬件素质。"
+                else "当前 Android 版本低于 Android 14（API 34），仅支持查看有线设备基础状态；独立直通混音接口需 Android 14 及以上。",
+                12.5f,
+                colors.secondary,
+            ),
+            fullMargin(activity, 6),
+        )
+
+        val diagView = label(activity, "正在检测有线音频设备...", 13f, colors.text).apply {
+            setLineSpacing(0f, 1.35f)
+            setPadding(dp(activity, 14), dp(activity, 12), dp(activity, 14), dp(activity, 12))
+            background = shape(activity, colors.raised, 14, colors.outline)
+            SettingsGlassMaterial.mark(this, SettingsGlassKind.Card)
+            setTextIsSelectable(true)
+        }
+
+        fun refreshProbe(showToast: Boolean = false) {
+            val snap = coordinator.probeUsbAudio(activity)
+            diagView.text = snap.formatCleanCard()
+            if (showToast) {
+                val msg = when {
+                    snap.usbDacPresent -> {
+                        val bpNote = if (snap.bitPerfectCount > 0) " · 支持硬件 Bit-Perfect" else " · 独立通道就绪"
+                        "已连接 ${snap.deviceName}$bpNote"
+                    }
+                    snap.wiredHeadsetPresent -> "已连接 ${snap.deviceName}"
+                    else -> "未检测到有线耳机或 USB 小尾巴"
+                }
+                toast(activity, msg)
+            }
+            onChanged()
+        }
+
+        body.addView(binaryChoice(
+            activity,
+            "启用有线耳机优化",
+            coordinator.usbBitPerfectEnabled(activity),
+            enabled = supported,
+        ) { enabled ->
+            coordinator.setUsbBitPerfectEnabled(activity, enabled)
+            refreshProbe(false)
+            toast(activity, if (enabled) "已开启有线耳机优化，切歌或重播后生效" else "已关闭有线耳机优化")
+        }, fullMargin(activity, 12))
+
+        body.addView(title(activity, "实时设备与采样率信息", 15f), fullMargin(activity, 14))
+        body.addView(diagView, fullMargin(activity, 8))
+
+        val probeBtn = action(activity, "检测设备", emphasized = true) {
+            refreshProbe(true)
+        }
+        val clearBtn = action(activity, "恢复默认") {
+            val msg = coordinator.clearUsbPreferredMixer(activity)
+            refreshProbe(false)
+            toast(activity, msg)
+        }.apply {
+            isEnabled = supported
+            alpha = if (supported) 1f else .45f
+        }
+        body.addView(pairedActions(activity, probeBtn, clearBtn), fullMargin(activity, 12))
+
+        body.addView(title(activity, "优化作用说明", 15f), fullMargin(activity, 14))
+        body.addView(
+            label(
+                activity,
+                "重要提示：仅已获取 Root 权限或系统底层 HAL 开放独占接口的设备，才能实现真正的 USB 硬件源码独占（Bit-Perfect）。无 Root 机型开启后可申请独立 Hi-Fi 通道，避开系统调音并保留 32bit 解析余裕。",
+                12.5f,
+                colors.primary,
+            ).apply {
+                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+                setLineSpacing(0f, 1.3f)
+                setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10))
+                background = shape(activity, colors.selected, 12, colors.primary)
+            },
+            fullMargin(activity, 8),
+        )
+        body.addView(
+            label(
+                activity,
+                "• 规避系统音效调音：申请独立 Hi-Fi 输出通道，绕过系统内置耳机音效，保留外接 DAC 原始声底。\n" +
+                    "• 32bit 无降采样匹配：按音轨实时采样率（最高 192kHz）匹配混音器规格，减少重采样与位深截断损失。",
+                12.5f,
+                colors.secondary,
+            ).apply {
+                setLineSpacing(0f, 1.3f)
+            },
+            fullMargin(activity, 8),
+        )
+
+        refreshProbe(false)
+        val listenerCloseable = coordinator.addUsbAudioListener {
+            refreshProbe(false)
+        }
+        val dialog = bubbleDialog(activity, body)
+        dialog.setOnDismissListener {
+            runCatching { listenerCloseable.close() }
+        }
+        dialog.show()
+    }
+
+    internal fun showPlaylistExportSettings(activity: Activity, onChanged: () -> Unit = {}) {
+        val coordinator = com.tcrrry.lyrics.plugin.MoreToolsCoordinator
+        val colors = SettingsUiTheme.colors(activity)
+        val body = card(activity).apply { addView(title(activity, "导出播放列表", 20f)) }
+        val handler = com.tcrrry.lyrics.plugin.PluginHandler()
+        var closed = false
+        var busy = false
+
+        val loadedPlaylists = ArrayList<com.tcrrry.playlisttools.PlaylistModels.PlaylistSummary>()
+        val selectedPids = LinkedHashSet<Long>()
+
+        body.addView(binaryChoice(activity, "启用播放列表导出", coordinator.playlistExportEnabled(activity)) { enabled ->
+            coordinator.setPlaylistExportEnabled(activity, enabled)
+            onChanged()
+        }, fullMargin(activity, 14))
+
+        body.addView(binaryChoice(activity, "覆盖同名旧文件", coordinator.exportOverwriteEnabled(activity)) { enabled ->
+            coordinator.setExportOverwriteEnabled(activity, enabled)
+            onChanged()
+        }, fullMargin(activity, 10))
+        body.addView(
+            label(activity, "重复导出同一歌单时自动覆盖或替换旧文件，避免重复堆积", 12f, colors.secondary),
+            fullMargin(activity, 5),
+        )
+
+        val formats = listOf(
+            com.tcrrry.playlisttools.PlaylistModels.ExportFormat.CSV,
+            com.tcrrry.playlisttools.PlaylistModels.ExportFormat.TXT_TITLE_ARTIST,
+            com.tcrrry.playlisttools.PlaylistModels.ExportFormat.TXT_ARTIST_TITLE,
+        )
+        val initialFmtIndex = formats.indexOf(coordinator.playlistExportFormat(activity)).coerceAtLeast(0)
+        body.addView(segmentedChoice(
+            activity,
+            "导出格式（同步原生菜单）",
+            listOf("CSV", "TXT 歌名-歌手", "TXT 歌手-歌名"),
+            initialFmtIndex,
+            inlineGlass = true,
+        ) { which ->
+            coordinator.setPlaylistExportFormat(activity, formats.getOrElse(which) { com.tcrrry.playlisttools.PlaylistModels.ExportFormat.CSV })
+            onChanged()
+        }, fullMargin(activity, 14))
+
+        val locationRow = menuRow(activity, "导出位置", coordinator.exportLocationDisplayLabel(activity)) {}
+        val locationSummaryView = ((locationRow as? ViewGroup)?.getChildAt(0) as? ViewGroup)?.getChildAt(1) as? TextView
+        fun refreshLocationSummary() {
+            val label = coordinator.exportLocationDisplayLabel(activity)
+            locationSummaryView?.text = label
+            locationRow.contentDescription = "导出位置，$label"
+        }
+        locationRow.setOnClickListener { view ->
+            SettingsDialogMotion.from(view) {
+                showExportLocationDialog(activity) {
+                    refreshLocationSummary()
+                    onChanged()
+                }
+            }
+        }
+        body.addView(locationRow, fullMargin(activity, 14))
+
+        val countBadge = label(activity, "已选 0", 12.5f, colors.primary).apply {
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        body.addView(LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(title(activity, "资料库歌单", 16f), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(countBadge)
+        }, fullMargin(activity, 18))
+
+        val statusView = label(activity, "正在读取资料库歌单...", 12.5f, colors.secondary)
+        body.addView(statusView, fullMargin(activity, 4))
+
+        val listContainer = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+
+        lateinit var copyBtn: TextView
+        lateinit var exportBtn: TextView
+        lateinit var refreshBtn: TextView
+        lateinit var selectAllBtn: TextView
+        lateinit var clearBtn: TextView
+
+        fun updateSelectionUi() {
+            val total = loadedPlaylists.size
+            val selectedCount = selectedPids.size
+            countBadge.text = if (total > 0) "已选 $selectedCount/$total" else "已选 $selectedCount"
+            exportBtn.text = if (selectedCount > 0) "导出选中 ($selectedCount)" else "导出选中"
+        }
+
+        fun updateBusy(nextBusy: Boolean) {
+            busy = nextBusy
+            val enabled = !nextBusy && coordinator.is1626Supported()
+            listOf(refreshBtn, selectAllBtn, clearBtn, copyBtn, exportBtn).forEach { btn ->
+                btn.isEnabled = enabled
+                btn.alpha = if (enabled) 1f else .45f
+            }
+        }
+
+        fun paintRow(
+            row: LinearLayout,
+            checkView: TextView,
+            titleView: TextView,
+            trackBadge: TextView,
+            item: com.tcrrry.playlisttools.PlaylistModels.PlaylistSummary,
+            selected: Boolean,
+        ) {
+            checkView.text = if (selected) "✓" else "○"
+            checkView.setTextColor(if (selected) colors.primary else colors.muted)
+            titleView.text = item.title
+            titleView.setTextColor(if (selected) colors.primary else colors.text)
+            trackBadge.text = "${item.trackCount} 首"
+            trackBadge.setTextColor(if (selected) colors.primary else colors.secondary)
+            val fill = if (selected) colors.selected else colors.raised
+            val stroke = if (selected) colors.primary else colors.outline
+            val rippleColor = (colors.primary and 0x00FFFFFF) or (0x24 shl 24)
+            row.background = android.graphics.drawable.RippleDrawable(
+                ColorStateList.valueOf(rippleColor),
+                shape(activity, fill, 12, stroke),
+                shape(activity, android.graphics.Color.WHITE, 12, android.graphics.Color.WHITE),
+            )
+            SettingsGlassMaterial.mark(row, SettingsGlassKind.Button, accent = selected)
+        }
+
+        fun renderPlaylists() {
+            listContainer.removeAllViews()
+            updateSelectionUi()
+            if (loadedPlaylists.isEmpty()) {
+                listContainer.addView(label(activity, "暂无可用歌单", 13f, colors.secondary))
+                return
+            }
+            for (item in loadedPlaylists) {
+                val selected = selectedPids.contains(item.persistentId)
+                val checkView = label(activity, "", 15f, colors.muted).apply {
+                    gravity = Gravity.CENTER
+                    typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+                }
+                val titleView = title(activity, item.title, 14.5f)
+                val trackBadge = label(activity, "", 12.5f, colors.secondary).apply {
+                    gravity = Gravity.END or Gravity.CENTER_VERTICAL
+                }
+                val row = LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    minimumHeight = dp(activity, 50)
+                    setPadding(dp(activity, 14), dp(activity, 10), dp(activity, 14), dp(activity, 10))
+                    isClickable = true
+                    isFocusable = true
+                    addView(checkView, LinearLayout.LayoutParams(dp(activity, 24), ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        marginEnd = dp(activity, 8)
+                    })
+                    addView(titleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginEnd = dp(activity, 10)
+                    })
+                    addView(trackBadge)
+                }
+                paintRow(row, checkView, titleView, trackBadge, item, selected)
+                row.setOnClickListener {
+                    if (busy) return@setOnClickListener
+                    val nowSelected = !selectedPids.contains(item.persistentId)
+                    if (nowSelected) selectedPids.add(item.persistentId) else selectedPids.remove(item.persistentId)
+                    paintRow(row, checkView, titleView, trackBadge, item, nowSelected)
+                    updateSelectionUi()
+                }
+                listContainer.addView(row, fullMargin(activity, 8))
+            }
+        }
+
+        fun reloadPlaylists() {
+            if (closed || busy) return
+            if (!coordinator.is1626Supported()) {
+                statusView.text = "当前 Apple Music 版本暂不支持歌单读取（仅适配 7.0.3 / 1626）"
+                updateBusy(false)
+                return
+            }
+            updateBusy(true)
+            statusView.text = "正在读取资料库歌单..."
+            coordinator.listPlaylistsAsync(
+                onSuccess = { result ->
+                    handler.post {
+                        if (closed) return@post
+                        loadedPlaylists.clear()
+                        loadedPlaylists.addAll(result)
+                        val validPids = result.mapTo(HashSet()) { it.persistentId }
+                        selectedPids.retainAll(validPids)
+                        renderPlaylists()
+                        statusView.text = if (result.isEmpty()) {
+                            "未读到资料库播放列表，请先打开资料库页面同步后重试"
+                        } else {
+                            "共 ${result.size} 个歌单（导出将保持当前歌单排序）"
+                        }
+                        updateBusy(false)
+                    }
+                },
+                onError = { error ->
+                    handler.post {
+                        if (closed) return@post
+                        statusView.text = error.message ?: error.javaClass.simpleName
+                        updateBusy(false)
+                    }
+                },
+            )
+        }
+
+        refreshBtn = action(activity, "刷新") { reloadPlaylists() }.apply { minimumHeight = dp(activity, 40) }
+        selectAllBtn = action(activity, "全选") {
+            if (busy) return@action
+            selectedPids.clear()
+            loadedPlaylists.forEach { selectedPids.add(it.persistentId) }
+            renderPlaylists()
+        }.apply { minimumHeight = dp(activity, 40) }
+        clearBtn = action(activity, "清空") {
+            if (busy) return@action
+            selectedPids.clear()
+            renderPlaylists()
+        }.apply { minimumHeight = dp(activity, 40) }
+
+        val bar = LinearLayout(activity).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(refreshBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(activity, 6) })
+            addView(selectAllBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(activity, 6) })
+            addView(clearBtn, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        body.addView(bar, fullMargin(activity, 10))
+        body.addView(listContainer, fullMargin(activity, 8))
+
+        copyBtn = action(activity, "复制文本") {
+            if (busy || selectedPids.isEmpty()) {
+                if (selectedPids.isEmpty()) statusView.text = "请先点击选择至少 1 个歌单"
+                return@action
+            }
+            updateBusy(true)
+            statusView.text = "正在生成文本..."
+            val artistFirst = coordinator.playlistExportFormat(activity) ==
+                com.tcrrry.playlisttools.PlaylistModels.ExportFormat.TXT_ARTIST_TITLE
+            coordinator.copySelectedTxtAsync(
+                pids = selectedPids.toList(),
+                artistFirst = artistFirst,
+                onSuccess = { text, playlistCount, trackCount ->
+                    handler.post {
+                        if (closed) return@post
+                        val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+                        if (cm != null) {
+                            cm.setPrimaryClip(android.content.ClipData.newPlainText("TcrrryPlaylists", text))
+                            statusView.text = "已复制 $playlistCount 个歌单（共 $trackCount 首）到剪贴板"
+                            toast(activity, "已复制到剪贴板")
+                        } else {
+                            statusView.text = "系统剪贴板不可用"
+                        }
+                        updateBusy(false)
+                    }
+                },
+                onError = { error ->
+                    handler.post {
+                        if (closed) return@post
+                        statusView.text = "复制失败：${error.message ?: error.javaClass.simpleName}"
+                        updateBusy(false)
+                    }
+                },
+            )
+        }
+
+        fun runExport(merged: Boolean) {
+            val fmt = coordinator.playlistExportFormat(activity)
+            val destLabel = coordinator.exportLocationDisplayLabel(activity)
+            updateBusy(true)
+            statusView.text = "正在导出到 $destLabel..."
+            coordinator.exportSelectedAsync(
+                pids = selectedPids.toList(),
+                format = fmt,
+                merged = merged,
+                appContext = activity.applicationContext,
+                onSuccess = { files ->
+                    handler.post {
+                        if (closed) return@post
+                        if (files.isEmpty()) {
+                            statusView.text = "未匹配到选中的歌单，请刷新后重试"
+                        } else if (files.size == 1) {
+                            val r = files[0]
+                            val overwriteTag = if (r.overwritten) "（已覆盖旧文件）" else ""
+                            statusView.text = "导出成功$overwriteTag：${r.displayPath}（${r.trackCount} 首）"
+                        } else {
+                            val total = files.sumOf { it.trackCount }
+                            val overwrittenCount = files.count { it.overwritten }
+                            val overwriteTag = if (overwrittenCount > 0) "（含 $overwrittenCount 个覆盖更新）" else ""
+                            statusView.text = "已分开导出 ${files.size} 个文件$overwriteTag（共 $total 首）到 $destLabel"
+                        }
+                        toast(activity, statusView.text.toString())
+                        updateBusy(false)
+                    }
+                },
+                onError = { error ->
+                    handler.post {
+                        if (closed) return@post
+                        statusView.text = "导出失败：${error.message ?: error.javaClass.simpleName}"
+                        updateBusy(false)
+                    }
+                },
+            )
+        }
+
+        exportBtn = action(activity, "导出选中", emphasized = true) {
+            if (busy || selectedPids.isEmpty()) {
+                if (selectedPids.isEmpty()) statusView.text = "请先点击选择至少 1 个歌单"
+                return@action
+            }
+            if (selectedPids.size == 1) {
+                runExport(merged = false)
+                return@action
+            }
+            val modeCard = card(activity).apply {
+                addView(title(activity, "选择导出方式", 20f))
+                addView(
+                    label(
+                        activity,
+                        "已选择 ${selectedPids.size} 个歌单（将按各自当前排序导出）",
+                        13f,
+                        colors.secondary,
+                    ),
+                    fullMargin(activity, 6),
+                )
+            }
+            lateinit var modeDialog: android.app.AlertDialog
+            modeCard.addView(action(activity, "分开导出（每个歌单独立文件）") {
+                modeDialog.dismiss()
+                runExport(merged = false)
+            }, fullMargin(activity, 14))
+            modeCard.addView(action(activity, "合并导出（合并为单个文件）", emphasized = true) {
+                modeDialog.dismiss()
+                runExport(merged = true)
+            }, fullMargin(activity, 10))
+            modeDialog = bubbleDialog(activity, modeCard, compact = true)
+            modeDialog.show()
+        }
+
+        val footer = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 18), dp(activity, 10), dp(activity, 18), dp(activity, 16))
+            addView(pairedActions(activity, copyBtn, exportBtn), fullMargin(activity, 0))
+        }
+
+        val dialog = bubbleDialog(activity, body, footer = footer)
+        dialog.setOnDismissListener {
+            closed = true
+            handler.removeCallbacksAndMessages(null)
+        }
+        updateSelectionUi()
+        reloadPlaylists()
+        dialog.show()
+    }
+
+    private fun showExportLocationDialog(activity: Activity, onLocationUpdated: () -> Unit) {
+        val coordinator = com.tcrrry.lyrics.plugin.MoreToolsCoordinator
+        val colors = SettingsUiTheme.colors(activity)
+        val body = card(activity).apply { addView(title(activity, "导出位置", 20f)) }
+
+        val infoCard = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(activity, 14), dp(activity, 12), dp(activity, 14), dp(activity, 12))
+            background = shape(activity, colors.raised, 12, colors.outline)
+        }
+        infoCard.addView(label(activity, "当前保存目录", 12f, colors.secondary))
+        val pathLabel = title(activity, coordinator.exportLocationDisplayLabel(activity), 14.5f)
+        infoCard.addView(pathLabel, fullMargin(activity, 3))
+        infoCard.addView(
+            label(activity, "默认保存在 Download/${com.tcrrry.playlisttools.PlaylistExporter.DOWNLOAD_SUBDIR}，不会改变原默认习惯", 11.5f, colors.muted),
+            fullMargin(activity, 5),
+        )
+        body.addView(infoCard, fullMargin(activity, 12))
+
+        lateinit var resetBtn: TextView
+        fun syncUi() {
+            pathLabel.text = coordinator.exportLocationDisplayLabel(activity)
+            val custom = coordinator.hasCustomExportLocation(activity)
+            resetBtn.visibility = if (custom) View.VISIBLE else View.GONE
+        }
+
+        val onPicked: (String?) -> Unit = {
+            syncUi()
+            onLocationUpdated()
+        }
+
+        val hasOem = coordinator.hasOemFileManagerPicker(activity)
+        if (hasOem) {
+            body.addView(action(activity, "使用系统文件管理选择", emphasized = true) {
+                if (!coordinator.launchOemDirectoryPicker(activity, onPicked)) {
+                    toast(activity, "无法打开系统文件管理器，请尝试目录授权选择")
+                }
+            }, fullMargin(activity, 14))
+            body.addView(action(activity, "系统目录授权选择（任意文件夹）") {
+                if (!coordinator.launchSafDirectoryPicker(activity, null, onPicked)) {
+                    toast(activity, "无法打开系统目录选择器")
+                }
+            }, fullMargin(activity, 8))
+        } else {
+            body.addView(action(activity, "选择导出文件夹", emphasized = true) {
+                if (!coordinator.launchSafDirectoryPicker(activity, null, onPicked)) {
+                    toast(activity, "无法打开系统目录选择器")
+                }
+            }, fullMargin(activity, 14))
+        }
+
+        body.addView(action(activity, "在文件管理中打开") {
+            if (!coordinator.openExportLocationInFileManager(activity)) {
+                toast(activity, "未找到可用的文件管理器")
+            }
+        }, fullMargin(activity, 8))
+
+        resetBtn = action(activity, "恢复默认位置（Download/TcrrryPlaylists）") {
+            coordinator.resetExportLocation(activity)
+            syncUi()
+            onLocationUpdated()
+            toast(activity, "已恢复默认导出位置")
+        }
+        body.addView(resetBtn, fullMargin(activity, 8))
+        syncUi()
+
+        bubbleDialog(activity, body, compact = true).show()
+    }
+
+    internal fun showCustomSleepTimerDialog(
+        activity: Activity,
+        initialMinutes: Int,
+        activeRemainingMs: Long,
+        onConfirm: (Int) -> Unit,
+    ) {
+        val colors = SettingsUiTheme.colors(activity)
+        val clampedInitial = HorizontalMinuteDialView.clampMinutes(initialMinutes)
+        var currentMinutes = clampedInitial
+
+        val body = card(activity).apply {
+            addView(title(activity, "自定义睡眠定时", 20f).apply { gravity = Gravity.CENTER_HORIZONTAL })
+        }
+        if (activeRemainingMs > 0L) {
+            body.addView(
+                label(
+                    activity,
+                    "当前剩余 ${com.tcrrry.playlisttools.HardenedSleepTimer.formatRemaining(activeRemainingMs)}",
+                    12.5f,
+                    colors.secondary,
+                ).apply { gravity = Gravity.CENTER_HORIZONTAL },
+                fullMargin(activity, 4),
+            )
+        }
+
+        val readoutView = title(activity, "$currentMinutes 分钟", 32f).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
+        }
+        body.addView(readoutView, fullMargin(activity, 12))
+
+        fun detailLabel(mins: Int): String =
+            HorizontalMinuteDialView.formatDurationDetail(mins).ifEmpty { "左右滑动刻度盘调整时长" }
+
+        val detailView = label(activity, detailLabel(currentMinutes), 12f, colors.secondary).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+        }
+        body.addView(detailView, fullMargin(activity, 2))
+
+        val dialView = HorizontalMinuteDialView(
+            context = activity,
+            accentColor = colors.primary,
+            primaryTextColor = colors.text,
+            secondaryTextColor = colors.secondary,
+        ).apply {
+            setMinutes(clampedInitial, notify = false)
+            onMinutesChanged = { next ->
+                currentMinutes = next
+                readoutView.text = "$next 分钟"
+                detailView.text = detailLabel(next)
+            }
+        }
+        body.addView(
+            dialView,
+            LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(activity, 92)).apply {
+                topMargin = dp(activity, 10)
+            },
+        )
+
+        lateinit var dialog: android.app.AlertDialog
+        val cancelBtn = action(activity, "取消") { dialog.dismiss() }
+        val startBtn = action(activity, "开始定时", emphasized = true) {
+            onConfirm(HorizontalMinuteDialView.clampMinutes(currentMinutes))
+            dialog.dismiss()
+        }
+        body.addView(pairedActions(activity, cancelBtn, startBtn), fullMargin(activity, 12))
+        dialog = bubbleDialog(activity, body, compact = true)
+        dialog.show()
     }
 
     private fun showCacheSettings(activity: Activity) {
@@ -1180,32 +2503,129 @@ internal object TcrrryLyricsSettingsUi {
         enabled: Boolean = true, change: (Boolean) -> Unit): TextView {
         var selected = checked
         val colors = SettingsUiTheme.colors(activity)
+        val density = activity.resources.displayMetrics.density
         val button = TextView(activity).apply {
-            textSize = 15f; gravity = Gravity.CENTER; minimumHeight = dp(activity, 48)
-            setPadding(dp(activity, 14), dp(activity, 12), dp(activity, 14), dp(activity, 12))
+            textSize = 15f
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+            gravity = Gravity.CENTER_VERTICAL or Gravity.START
+            minimumHeight = dp(activity, 50)
+            setPadding(dp(activity, 16), dp(activity, 12), dp(activity, 14), dp(activity, 12))
+            compoundDrawablePadding = dp(activity, 12)
             isClickable = true; isFocusable = true; isEnabled = enabled
+            alpha = if (enabled) 1f else .45f
             contentDescription = heading
         }
         fun paint() {
-            button.text = "$heading：${if (selected) "开启" else "关闭"}"
+            button.text = heading
             button.isSelected = selected
             button.setTextColor(if (selected) colors.primary else colors.text)
-            button.background = android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(
-                if (colors.dark) 0x24FFFFFF else 0x14000000),
-                shape(activity, if (selected) colors.selected else colors.raised, 12,
-                    if (selected) colors.primary else colors.outline), null)
+            val fallbackFill = when {
+                selected -> if (colors.dark) 0x4CE8345C else colors.selected
+                colors.dark -> 0x22FFFFFF
+                else -> colors.raised
+            }
+            val fallbackStroke = when {
+                selected -> colors.primary
+                colors.dark -> 0x38FFFFFF
+                else -> colors.outline
+            }
+            button.background = android.graphics.drawable.RippleDrawable(
+                ColorStateList.valueOf(if (colors.dark) 0x28FFFFFF else 0x16000000),
+                shape(activity, fallbackFill, 14, fallbackStroke),
+                shape(activity, android.graphics.Color.WHITE, 14, android.graphics.Color.WHITE),
+            )
+            button.setCompoundDrawablesRelativeWithIntrinsicBounds(
+                null,
+                null,
+                BinaryTogglePillDrawable(selected, colors.dark, colors.primary, density),
+                null,
+            )
+            SettingsGlassMaterial.mark(button, SettingsGlassKind.Button, accent = selected)
             if (Build.VERSION.SDK_INT >= 30) button.stateDescription = if (selected) "开启" else "关闭"
         }
         paint()
-        button.setOnClickListener { if (button.isEnabled) { selected = !selected; paint(); change(selected) } }
+        button.setOnClickListener {
+            if (button.isEnabled) {
+                selected = !selected
+                paint()
+                button.requestLayout()
+                change(selected)
+            }
+        }
         return button
     }
 
+    private class BinaryTogglePillDrawable(
+        private val selected: Boolean,
+        private val dark: Boolean,
+        private val primary: Int,
+        private val density: Float,
+    ) : android.graphics.drawable.Drawable() {
+        private val w = (40f * density).toInt()
+        private val h = (24f * density).toInt()
+        private val fillPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        private val strokePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = maxOf(1f, density)
+        }
+        private val rect = android.graphics.RectF()
+
+        override fun getIntrinsicWidth(): Int = w
+        override fun getIntrinsicHeight(): Int = h
+
+        override fun draw(canvas: android.graphics.Canvas) {
+            val b = bounds
+            val left = b.left.toFloat()
+            val top = b.top.toFloat()
+            val right = left + w
+            val bottom = top + h
+            val radius = h * 0.5f
+            rect.set(left, top, right, bottom)
+            fillPaint.color = when {
+                selected -> (primary and 0x00FFFFFF) or (0xE8 shl 24)
+                dark -> 0x33FFFFFF
+                else -> 0x26000000
+            }
+            canvas.drawRoundRect(rect, radius, radius, fillPaint)
+            strokePaint.color = when {
+                selected -> 0x66FFFFFF
+                dark -> 0x52FFFFFF
+                else -> 0x2A000000
+            }
+            val inset = strokePaint.strokeWidth * 0.5f
+            rect.inset(inset, inset)
+            canvas.drawRoundRect(rect, radius, radius, strokePaint)
+
+            val thumbRadius = radius - 3f * density
+            val cy = top + radius
+            val cx = if (selected) right - radius else left + radius
+            fillPaint.color = 0x28000000
+            canvas.drawCircle(cx, cy + 0.8f * density, thumbRadius, fillPaint)
+            fillPaint.color = if (selected || !dark) android.graphics.Color.WHITE else 0xFFEBEBF5.toInt()
+            canvas.drawCircle(cx, cy, thumbRadius, fillPaint)
+        }
+
+        override fun setAlpha(alpha: Int) {
+            fillPaint.alpha = alpha
+            strokePaint.alpha = alpha
+        }
+
+        override fun setColorFilter(colorFilter: android.graphics.ColorFilter?) {
+            fillPaint.colorFilter = colorFilter
+            strokePaint.colorFilter = colorFilter
+        }
+
+        @Deprecated("Deprecated in Android")
+        override fun getOpacity(): Int = android.graphics.PixelFormat.TRANSLUCENT
+    }
+
     private fun segmentedChoice(activity: Activity, heading: String, choices: List<String>,
-        selected: Int, choose: (Int) -> Unit): View = LinearLayout(activity).apply {
+        selected: Int, inlineGlass: Boolean = false, choose: (Int) -> Unit): View = LinearLayout(activity).apply {
         orientation = LinearLayout.VERTICAL
         addView(title(activity, heading, 15f))
-        addView(SettingsSegmentedControl(activity, heading, choices, selected, choose), fullMargin(activity, 10))
+        addView(SettingsSegmentedControl(activity, heading, choices, selected, choose).apply {
+            this.inlineGlass = inlineGlass
+        }, fullMargin(activity, 10))
     }
 
     internal fun showMatchingInformation(activity: Activity, id: Long) {

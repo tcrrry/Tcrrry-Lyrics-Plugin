@@ -71,7 +71,14 @@ internal class SettingsSegmentedControl(context: Context, val heading: String,
         glassActive = false
     }
 
+    override fun setEnabled(enabled: Boolean) {
+        super.setEnabled(enabled)
+        alpha = if (enabled) 1f else .45f
+        labels.forEach { it.isEnabled = enabled }
+    }
+
     fun select(index: Int) {
+        if (!isEnabled) return
         if (index !in choices.indices || index == selectedIndex) return
         selectedIndex = index
         paintSelection()
@@ -97,6 +104,7 @@ internal class SettingsSegmentedControl(context: Context, val heading: String,
     private fun dp(value: Int) = (value * resources.displayMetrics.density + .5f).toInt()
 
     override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (!isEnabled) return false
         // A local Compose host follows the same ScrollView transform as its labels.
         if (liquid != null) return super.dispatchTouchEvent(event)
         if (glassActive) return super.dispatchTouchEvent(event)

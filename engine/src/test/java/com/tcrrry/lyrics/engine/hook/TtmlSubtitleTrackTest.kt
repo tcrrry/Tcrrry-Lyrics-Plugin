@@ -57,4 +57,49 @@ class TtmlSubtitleTrackTest {
         assertTrue(result.contains("itunes:key=\"TcrrryL2\""))
         assertTrue(TtmlTimingPolicy.metadataOf(result).hasTranslation)
     }
+    @Test fun `cleanRedundantPronunciation strips English transliteration block and resets marker`() {
+        val marker = com.tcrrry.lyrics.engine.lyrics.DesktopLyricsPresentation("网易云音乐", true, true, false, false, true).marker()
+        val raw = "<?xml version=\"1.0\" encoding=\"utf-8\"?>$marker<!--tcrrry-source-language-v1 en-->" +
+            "<tt xml:lang=\"ko\" xmlns:itunes=\"http://music.apple.com/lyric-ttml-internal\"><head><metadata><iTunesMetadata>" +
+            "<transliterations><transliteration xml:lang=\"ko-Latn\"><text for=\"L1\">still remember, when we met!</text><text for=\"L2\">im gonna stay</text></transliteration></transliterations>" +
+            "</iTunesMetadata></metadata></head>" +
+            "<body><div><p itunes:key=\"L1\">Still remember when we met</p><p itunes:key=\"L2\">I'm gonna stay</p></div></body></tt>"
+        val cleaned = TtmlSubtitleTrack.cleanRedundantPronunciation(raw)
+        assertTrue(!cleaned.contains("<transliterations>"))
+        assertTrue(!cleaned.contains("xml:lang=\"ko\""))
+        assertTrue(cleaned.contains("xml:lang=\"en\""))
+        assertEquals(false, com.tcrrry.lyrics.engine.lyrics.DesktopLyricsPresentation.fromTtml(cleaned)?.pronunciation)
+    }
+    @Test fun `cleanRedundantPronunciation keeps Cantonese timed spans while blanking English rows`() {
+        val cantoneseSpan = "<span begin=\"1s\" end=\"2s\">gaa soeng </span><span begin=\"2s\" end=\"3s\">bat sei dik</span>"
+        val body = "<body><div><p itunes:key=\"L1\"><span begin=\"1s\" end=\"2s\">加上</span><span begin=\"2s\" end=\"3s\">不死的</span></p>" +
+            "<p itunes:key=\"L2\"><span begin=\"4s\" end=\"6s\">Still remember when we met</span></p></div></body>"
+        val raw = "<tt xml:lang=\"ko\" xmlns:itunes=\"http://music.apple.com/lyric-ttml-internal\"><head><metadata><iTunesMetadata>" +
+            "<transliterations><transliteration xml:lang=\"ko-Latn\"><text for=\"L1\">$cantoneseSpan</text>" +
+            "<text for=\"L2\"><span begin=\"4s\" end=\"6s\">Still remember when we met</span></text></transliteration></transliterations>" +
+            "<translations><translation type=\"subtitle\" xml:lang=\"zh-Hans\"><text for=\"L1\"> </text><text for=\"L2\">依然记得</text></translation></translations>" +
+            "</iTunesMetadata></metadata></head>$body</tt>"
+        val cleaned = TtmlSubtitleTrack.cleanRedundantPronunciation(raw)
+        assertTrue(cleaned.contains(body))
+        assertTrue(cleaned.contains("<text for=\"L1\">$cantoneseSpan</text>"))
+        assertTrue(cleaned.contains("<text for=\"L2\"> </text>"))
+        assertEquals(mapOf(0 to "gaa soeng bat sei dik"), TtmlSubtitleTrack.subtitleValues(cleaned, true))
+    }
+    @Test fun `native remember filters pure English transliterations while keeping mixed Cantonese`() {
+        val englishPointer = Any()
+        val englishTtml = "<tt xmlns:itunes=\"urn\"><head><metadata><transliterations><transliteration xml:lang=\"ko-Latn\">" +
+            "<text for=\"L1\">still remember when we met</text></transliteration></transliterations></metadata></head>" +
+            "<body><div><p itunes:key=\"L1\">Still remember when we met</p></div></body></tt>"
+        NativeLyricsPronunciationSubtitle.remember(englishPointer, englishTtml)
+        assertTrue(!NativeLyricsPronunciationSubtitle.hasManagedPronunciation(englishPointer))
+
+        val mixedPointer = Any()
+        val mixedTtml = "<tt xmlns:itunes=\"urn\"><head><metadata><transliterations><transliteration xml:lang=\"ko-Latn\">" +
+            "<text for=\"L1\">gaa soeng bat sei dik</text><text for=\"L2\">Still remember</text></transliteration></transliterations></metadata></head>" +
+            "<body><div><p itunes:key=\"L1\">加上不死的</p><p itunes:key=\"L2\">Still remember</p></div></body></tt>"
+        NativeLyricsPronunciationSubtitle.remember(mixedPointer, mixedTtml)
+        assertTrue(NativeLyricsPronunciationSubtitle.hasManagedPronunciation(mixedPointer))
+        assertEquals("gaa soeng bat sei dik", NativeLyricsPronunciationSubtitle.lineSubtitles(mixedPointer, "加上不死的")?.pronunciation)
+        assertEquals(null, NativeLyricsPronunciationSubtitle.lineSubtitles(mixedPointer, "Still remember")?.pronunciation)
+    }
 }

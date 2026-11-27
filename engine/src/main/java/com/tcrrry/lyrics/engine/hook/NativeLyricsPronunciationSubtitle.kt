@@ -181,15 +181,17 @@ internal object NativeLyricsPronunciationSubtitle {
 
     fun rememberForSong(songId: Long, pointer: Any, ttml: String) {
         val presentation = DesktopLyricsPresentation.fromTtml(ttml)
-        val subtitles = NativeSubtitleLookup(ttml)
+        val cleanedTtml = if (presentation?.primaryPronunciation == true) ttml else TtmlSubtitleTrack.cleanRedundantPronunciation(ttml)
+        val cleanedPresentation = if (cleanedTtml == ttml) presentation else DesktopLyricsPresentation.fromTtml(cleanedTtml)
+        val subtitles = NativeSubtitleLookup(cleanedTtml)
         // Imported/cached platform TTML can bypass the cross-source enrichment pass.
         // Register that exact provider text too; mixed Latin words remain literal units.
-        val platformPronunciation=TtmlAuxiliaryOrigins.read(ttml)?.pronunciation.orEmpty()
-        val japaneseRoot=TtmlOriginalLanguage.read(ttml)?.startsWith("ja",true)==true ||
-            presentation?.offlinePronunciationLanguages?.contains("ja")==true
-        if(!japaneseRoot && (presentation?.source in setOf("QQ音乐","网易云音乐") ||
+        val platformPronunciation=TtmlAuxiliaryOrigins.read(cleanedTtml)?.pronunciation.orEmpty()
+        val japaneseRoot=TtmlOriginalLanguage.read(cleanedTtml)?.startsWith("ja",true)==true ||
+            cleanedPresentation?.offlinePronunciationLanguages?.contains("ja")==true
+        if(!japaneseRoot && (cleanedPresentation?.source in setOf("QQ音乐","网易云音乐") ||
             platformPronunciation.any { it in setOf("QQ音乐","网易云音乐") })) {
-            val body=Regex("(?is)<body\\b[^>]*>(.*?)</body\\s*>").find(ttml)?.groupValues?.get(1).orEmpty()
+            val body=Regex("(?is)<body\\b[^>]*>(.*?)</body\\s*>").find(cleanedTtml)?.groupValues?.get(1).orEmpty()
             val lines=Regex("(?is)<p\\b[^>]*>(.*?)</p\\s*>").findAll(body)
                 .map { LyricsAuxiliaryText.plain(it.groupValues[1]) }.toList()
             if(lines.none { Regex("[ぁ-ゖァ-ヺ가-힣]").containsMatchIn(it) }) lines.forEach { original ->
@@ -198,9 +200,9 @@ internal object NativeLyricsPronunciationSubtitle {
                 }
             }
         }
-        val entry = if (presentation != null || subtitles.hasPronunciation || subtitles.hasTranslation) {
-            Managed(TtmlTimingPolicy.isWord(ttml), subtitles.hasPronunciation,
-                presentation?.primaryPronunciation == true, subtitles)
+        val entry = if (cleanedPresentation != null || subtitles.hasPronunciation || subtitles.hasTranslation) {
+            Managed(TtmlTimingPolicy.isWord(cleanedTtml), subtitles.hasPronunciation,
+                cleanedPresentation?.primaryPronunciation == true, subtitles)
         } else null
         val address = pointerAddress(pointer)
         synchronized(managedLock) {
@@ -322,12 +324,17 @@ internal object NativeLyricsPronunciationSubtitle {
                     val pron = ((if (background) backgroundPronunciation else pronunciation).invoke(value) as? String)?.let(LyricsAuxiliaryText::forNative)
                     val trans = ((if (background) backgroundTranslation else translation).invoke(value) as? String)?.let(LyricsAuxiliaryText::forNative)
                     val fallback = if (background) null else data.subtitles.forOriginal(primary)
+                    val primaryPlain = LyricsAuxiliaryText.plain(primary)
+                    val rawPron = pron?.takeIf(String::isNotBlank) ?: fallback?.pronunciation
+                    val effectivePron = if (!selected.pronunciation) null
+                        else if (data.primaryPronunciation || background) rawPron
+                        else com.tcrrry.lyrics.engine.lyrics.PronunciationSubtitlePolicy.usable(primaryPlain, rawPron)
                     reconcileAuxiliaries(container,
-                        if (selected.pronunciation) pron?.takeIf(String::isNotBlank) ?: fallback?.pronunciation else null,
+                        effectivePron,
                         if (selected.translation) trans?.takeIf(String::isNotBlank) ?: fallback?.translation else null,
                         background) { text, layout -> subtitle.invoke(target, text, container, layout, false, 1) }
                     RubyPronunciationRows.bindWords(container, primary,
-                        if (selected.pronunciation && !background) pron?.takeIf(String::isNotBlank) ?: fallback?.pronunciation else null,
+                        if (!background) effectivePron else null,
                         data.primaryPronunciation)
                 }
             }

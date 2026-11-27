@@ -65,11 +65,21 @@ internal object NativeLineLyricsPresentation {
         NativeLyricsPronunciationSubtitle.stylePronunciation(pronunciation)
     }
 
-    internal fun repairText(view: TextView, nativeText: String?, fallback: String?, selected: Boolean, primaryText: String? = null) {
+    internal fun repairText(
+        view: TextView,
+        nativeText: String?,
+        fallback: String?,
+        selected: Boolean,
+        primaryText: String? = null,
+        isPronunciation: Boolean = false,
+        primaryPronunciation: Boolean = false,
+    ) {
         val nativeValue = nativeText?.let(LyricsAuxiliaryText::plain)?.takeIf(String::isNotBlank)
         val value = nativeValue ?: fallback?.let(LyricsAuxiliaryText::plain)?.takeIf(String::isNotBlank)
         val primaryValue = primaryText?.let { android.text.Html.fromHtml(it, 0).toString().trim() }
-        if (!selected || value == null || value.trim() == primaryValue) {
+        if (!selected || value == null || value.trim() == primaryValue ||
+            (isPronunciation && !primaryPronunciation && primaryValue != null &&
+                com.tcrrry.lyrics.engine.lyrics.PronunciationSubtitlePolicy.usable(primaryValue, value) == null)) {
             view.visibility = View.GONE
             return
         }
@@ -137,14 +147,16 @@ internal object NativeLineLyricsPresentation {
                         val value = dereference.invoke(lineAt.invoke(data, index.invoke(target, param.args[1], true))) ?: return@runCatching
                         val primaryText = nativeOriginal.invoke(value) as? String ?: ""
                         val fallback = NativeLyricsPronunciationSubtitle.lineSubtitles(pointer.invoke(target), primaryText)
+                        val primaryPron = NativeLyricsPronunciationSubtitle.isPronunciationPrimary(pointer.invoke(target))
                         repairText(pronunciation.get(views) as TextView, nativePronunciation.invoke(value) as? String,
-                            fallback?.pronunciation, pronounced.getBoolean(target), primaryText)
+                            fallback?.pronunciation, pronounced.getBoolean(target), primaryText,
+                            isPronunciation = true, primaryPronunciation = primaryPron)
                         repairText(translation.get(views) as TextView, nativeTranslation.invoke(value) as? String,
                             fallback?.translation, translated.getBoolean(target), primaryText)
                         val pronunciationView = pronunciation.get(views) as TextView
                         RubyPronunciationRows.bindLine(original.get(views) as TextView, pronunciationView, primaryText,
                             pronunciationView.text.toString().takeIf { pronounced.getBoolean(target) && pronunciationView.visibility == View.VISIBLE },
-                            NativeLyricsPronunciationSubtitle.isPronunciationPrimary(pointer.invoke(target)))
+                            primaryPron)
                     }.onFailure { ModernXposedRuntime.log("line auxiliary presentation failed open", it) }
                 }
             }

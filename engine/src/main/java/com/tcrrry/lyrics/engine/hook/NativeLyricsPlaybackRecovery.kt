@@ -96,6 +96,10 @@ internal class NativeLyricsPlaybackRecovery private constructor(
     private var clockStallSince = 0L
     private var missingEventSince = 0L
     private var lastClockRecoveryAt = Long.MIN_VALUE
+    private var lastObservedHighlighted: Set<Int> = emptySet()
+    private var lastHighlightAdvanceAt = Long.MIN_VALUE
+    private var lastClockRecoveryExpectedMax: Int? = null
+    private var clockSkewSuppressed = false
     private val anchors = NativeLyricsSeekAnchor()
     private val presentation = NativeLyricsSeekPresentation.resolve(type)
     private var closed = false
@@ -213,7 +217,7 @@ internal class NativeLyricsPlaybackRecovery private constructor(
         replay = LyricReplayRecovery()
         sampledSong = null; lastPosition = null; pendingPausedSeek = false
         requestedPosition = null; transitioning = false; presentation?.cancel()
-        userTouchActive = false; lastUserTouchAt = Long.MIN_VALUE; clearFocusWatchdogTimers()
+        userTouchActive = false; lastUserTouchAt = Long.MIN_VALUE; clearFocusWatchdogTimers(); clearClockSkewTracking()
         owner = WeakReference(fragment); root = WeakReference(view)
         view.addOnAttachStateChangeListener(attachment)
         runCatching { sample(seed = true) }
@@ -229,6 +233,13 @@ internal class NativeLyricsPlaybackRecovery private constructor(
         focusAnomalySince = 0L
         clockStallSince = 0L
         missingEventSince = 0L
+    }
+
+    private fun clearClockSkewTracking() {
+        lastObservedHighlighted = emptySet()
+        lastHighlightAdvanceAt = Long.MIN_VALUE
+        lastClockRecoveryExpectedMax = null
+        clockSkewSuppressed = false
     }
 
     private fun isTimedState(fragment: Any): Boolean {
@@ -363,14 +374,43 @@ internal class NativeLyricsPlaybackRecovery private constructor(
         val message = view.resources.getIdentifier("message_lyrics_process_events", "id",
             com.tcrrry.lyrics.engine.ModuleConstants.RESOURCE_PACKAGE)
         val highlighted = readHighlighted(current)
+        if (!highlighted.isNullOrEmpty() && highlighted != lastObservedHighlighted) {
+            val prevMax = lastObservedHighlighted.maxOrNull()
+            val curMax = highlighted.maxOrNull()
+            if (prevMax != null && curMax != null && curMax > prevMax) {
+                lastHighlightAdvanceAt = now
+            }
+            lastObservedHighlighted = highlighted
+        }
         val expectedActive = anchors.activeLineIdsAt(token, position)
         val nearbyLines = anchors.lineIdsNear(token, position, toleranceMs = 1_200L)
+        if (!highlighted.isNullOrEmpty() && highlighted.any { it in nearbyLines }) {
+            clockSkewSuppressed = false
+            lastClockRecoveryExpectedMax = null
+        }
+        val nativeAhead = !highlighted.isNullOrEmpty() && expectedActive.isNotEmpty() &&
+            highlighted.min() > expectedActive.max()
+        val nativeTimerAlive = clock.hasPendingEvents(fragment, message) == true
+        val nativeRecentlyAdvanced = lastHighlightAdvanceAt != Long.MIN_VALUE && now - lastHighlightAdvanceAt < 10_000L
+        if (nativeAhead && lastClockRecoveryExpectedMax != null &&
+            lastClockRecoveryAt != Long.MIN_VALUE && now - lastClockRecoveryAt < 6_000L &&
+            highlighted.min() > lastClockRecoveryExpectedMax!!) {
+            if (!clockSkewSuppressed) {
+                clockSkewSuppressed = true
+                ModernXposedRuntime.log("Native lyric watchdog yielded to live ahead clock: position=$position expected=$expectedActive had=$highlighted")
+            }
+        }
+        if (nativeAhead && (clockSkewSuppressed || nativeTimerAlive || nativeRecentlyAdvanced)) {
+            clearFocusWatchdogTimers()
+            return
+        }
         val clockLagged = highlighted != null && expectedActive.isNotEmpty() && highlighted.none { it in nearbyLines }
         if (clockLagged) {
             if (clockStallSince == 0L) clockStallSince = now
             val clockReady = lastClockRecoveryAt == Long.MIN_VALUE || now - lastClockRecoveryAt >= 2_500L
             if (now - clockStallSince >= 1_500L && clockReady) {
                 lastClockRecoveryAt = now
+                lastClockRecoveryExpectedMax = expectedActive.maxOrNull()
                 clearFocusWatchdogTimers()
                 clearNativeSuppress(fragment)
                 unlockScrollManager(fragment)
@@ -460,6 +500,7 @@ internal class NativeLyricsPlaybackRecovery private constructor(
                 cancelPendingSeek()
                 revision++; transitioning = false; presentation?.cancel()
                 clearFocusWatchdogTimers()
+                clearClockSkewTracking()
             }
             sampledSong = id; lastPosition = null; pendingPausedSeek = false
         }
@@ -518,6 +559,8 @@ internal class NativeLyricsPlaybackRecovery private constructor(
         clearPendingSeek()
         pendingPausedSeek = false
         clearFocusWatchdogTimers()
+        clockSkewSuppressed = false
+        lastClockRecoveryExpectedMax = null
         val opening = observed != null && replay.opening
         val stamp = ++revision
         val current = adapter.get(fragment) ?: return
@@ -612,7 +655,7 @@ internal class NativeLyricsPlaybackRecovery private constructor(
     private fun reset() {
         cancelPendingSeek()
         revision++; replay = LyricReplayRecovery(); sampledSong = null; lastPosition = null
-        pendingPausedSeek = false; requestedPosition = null; transitioning = false; clearFocusWatchdogTimers()
+        pendingPausedSeek = false; requestedPosition = null; transitioning = false; clearFocusWatchdogTimers(); clearClockSkewTracking()
         presentation?.cancel()
     }
     private fun abandon(fragment: Any, message: Int, stamp: Long, error: Throwable) {

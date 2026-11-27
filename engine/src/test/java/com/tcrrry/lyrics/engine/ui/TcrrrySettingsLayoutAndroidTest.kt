@@ -82,11 +82,13 @@ class TcrrrySettingsLayoutAndroidTest {
             openMenu(page(activity), "翻译与注音")
             val root = ShadowAlertDialog.getLatestAlertDialog().window!!.decorView
             val toggle = texts(root).single { it.contentDescription == "繁体转简体" }
-            assertNull(SettingsGlassMaterial.style(toggle))
+            assertEquals(SettingsGlassKind.Button, SettingsGlassMaterial.style(toggle)?.kind)
+            assertFalse(SettingsGlassMaterial.style(toggle)!!.accent)
             assertFalse(toggle.isSelected)
             val revision = policy.revision(activity)
             toggle.performClick()
             assertTrue(toggle.isSelected)
+            assertTrue(SettingsGlassMaterial.style(toggle)!!.accent)
             assertTrue(policy.simplifiedChinese(activity))
             assertEquals(revision + 1, policy.revision(activity))
             toggle.performClick()
@@ -118,13 +120,21 @@ class TcrrrySettingsLayoutAndroidTest {
         val activity=Robolectric.buildActivity(Activity::class.java).setup().visible().get()
         openMenu(page(activity),"更多工具")
         val tools=ShadowAlertDialog.getLatestAlertDialog()
+        val toolsTexts = texts(tools.window!!.decorView).map { it.text.toString() }
+        val kifIdx = toolsTexts.indexOfFirst { it.startsWith("Kifranei 媒体插件（移植）") }
+        val autoIdx = toolsTexts.indexOfFirst { it.startsWith("智能混音（自动过渡）") }
+        val exportIdx = toolsTexts.indexOf("导出播放列表")
+        assertTrue(kifIdx >= 0 && autoIdx > kifIdx && exportIdx > autoIdx)
         val selector=texts(tools.window!!.decorView).single { it.contentDescription == "新版本自动提醒" }
         assertTrue(selector.isSelected)
-        assertNull(SettingsGlassMaterial.style(selector))
+        assertEquals(SettingsGlassKind.Button, SettingsGlassMaterial.style(selector)?.kind)
+        assertTrue(SettingsGlassMaterial.style(selector)!!.accent)
         selector.performClick()
         assertFalse(com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity))
+        assertFalse(SettingsGlassMaterial.style(selector)!!.accent)
         selector.performClick()
         assertTrue(com.tcrrry.lyrics.plugin.ReleaseUpdates.automatic(activity))
+        assertTrue(SettingsGlassMaterial.style(selector)!!.accent)
         tools.dismiss()
         var clicks=0
         val body=TcrrryLyricsSettingsUi.updateReminderBody(activity,"有新版本","当前版本",listOf("查看并下载更新" to { clicks++ },"稍后提醒" to { clicks++ }))
@@ -144,7 +154,7 @@ class TcrrrySettingsLayoutAndroidTest {
         assertEquals(1,views(dialog.window!!.decorView).filterIsInstance<SettingsSegmentedControl>().size)
         for ((heading,key) in listOf("日语注音" to "enabled","韩语注音" to "korean_enabled","当前歌曲粤语注音" to "cantonese_321")) {
             val button=texts(dialog.window!!.decorView).single { it.contentDescription == heading }
-            assertNull(SettingsGlassMaterial.style(button))
+            assertEquals(SettingsGlassKind.Button, SettingsGlassMaterial.style(button)?.kind)
             button.performClick()
             assertTrue(activity.pluginPreferences("japanese_pronunciation",Context.MODE_PRIVATE).getBoolean(key,false))
             button.performClick()
@@ -543,13 +553,12 @@ class TcrrrySettingsLayoutAndroidTest {
             assertTrue(commands.isNotEmpty())
             commands.forEach { view ->
                 val style = SettingsGlassMaterial.style(view)
-                if (view.contentDescription in setOf("繁体转简体", "隐藏开头署名", "日语注音", "韩语注音", "当前歌曲粤语注音", "新版本自动提醒", "强制覆盖循环方式", "短单元平滑")) {
-                    assertNull(style)
-                    return@forEach
-                }
                 assertNotNull("Missing material: ${(view as? TextView)?.text ?: view.contentDescription}", style)
                 assertEquals(if (view is android.widget.EditText) SettingsGlassKind.Field else SettingsGlassKind.Button,
                     style!!.kind)
+                if (view.contentDescription in setOf("繁体转简体", "隐藏开头署名", "日语注音", "韩语注音", "当前歌曲粤语注音", "新版本自动提醒", "优化单曲循环覆盖问题", "短单元平滑", "强化睡眠定时", "自定义歌单封面修复", "Kifranei 媒体插件（移植）")) {
+                    assertEquals(view.isSelected, style.accent)
+                }
             }
         }
         val main = TcrrryLyricsSettingsUi.mainDialog(activity, body)
@@ -588,5 +597,129 @@ class TcrrrySettingsLayoutAndroidTest {
                 layout.getLineWidth(line) <= button.width - button.compoundPaddingLeft - button.compoundPaddingRight + 1)
         }
         dialog.dismiss()
+    }
+
+    @Test fun customSleepTimerDialogUsesHorizontalDialWithoutEditText() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        TcrrryLyricsSettingsUi.showCustomSleepTimerDialog(activity, 35, 0L) {}
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val root = dialog.window!!.decorView
+        val dials = views(root).filterIsInstance<HorizontalMinuteDialView>()
+        assertEquals(1, dials.size)
+        assertEquals(35, dials.single().getMinutes())
+        assertEquals(0, views(root).filterIsInstance<android.widget.EditText>().size)
+        assertEquals(1, texts(root).count { it.text.toString() == "35 分钟" })
+        dialog.dismiss()
+    }
+
+    @Test fun playlistExportSubmenuShowsLocationOverwriteAndPinnedFooter() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        TcrrryLyricsSettingsUi.showPlaylistExportSettings(activity)
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val root = dialog.window!!.decorView
+        val labels = texts(root).map { it.text.toString() }
+        val overwriteBtn = texts(root).single { it.contentDescription == "覆盖同名旧文件" }
+        assertEquals(SettingsGlassKind.Button, SettingsGlassMaterial.style(overwriteBtn)?.kind)
+        val formatControl = views(root).filterIsInstance<SettingsSegmentedControl>()
+            .single { it.heading == "导出格式（同步原生菜单）" }
+        assertTrue(formatControl.inlineGlass)
+        assertEquals("覆盖同名旧文件", overwriteBtn.text.toString())
+        assertTrue(labels.contains("覆盖同名旧文件"))
+        assertTrue(labels.contains("导出位置"))
+        assertTrue(labels.any { it.contains("Download/TcrrryPlaylists（默认）") })
+        assertTrue(labels.contains("导出选中"))
+        assertTrue(labels.contains("复制文本"))
+        dialog.dismiss()
+    }
+
+    @Test fun lyricsReplacementToggleInSourceDialogPersistsAndGatesControls() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val policy = com.tcrrry.lyrics.engine.lyrics.LyricsPreference
+        assertTrue(policy.lyricsReplacementEnabled(activity))
+        val home = page(activity)
+        val statusText = texts(home).single { it.text == CurrentLyricsSourceStatus.description(activity, 321) }
+        assertTrue((statusText.parent.parent as View).performClick())
+
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val root = dialog.window!!.decorView
+        val allTexts = texts(root)
+        val reloadIdx = allTexts.indexOfFirst { it.text == "重新装载译文和发音" }
+        val toggle = allTexts.single { it.contentDescription == "插件歌词源修改" }
+        val toggleIdx = allTexts.indexOf(toggle)
+        assertTrue(reloadIdx >= 0 && toggleIdx > reloadIdx)
+        val toggleCard = toggle.parent as View
+        assertEquals(SettingsGlassKind.Card, SettingsGlassMaterial.style(toggleCard)?.kind)
+        assertTrue(SettingsGlassMaterial.style(toggleCard)!!.accent)
+        assertTrue(toggle.isSelected)
+        assertEquals(SettingsGlassKind.Button, SettingsGlassMaterial.style(toggle)?.kind)
+        assertTrue(SettingsGlassMaterial.style(toggle)!!.accent)
+
+        toggle.performClick()
+        assertFalse(policy.lyricsReplacementEnabled(activity))
+        assertTrue(CurrentLyricsSourceStatus.description(activity, 321).contains("插件歌词源修改已关闭"))
+        assertTrue(dialog.isShowing)
+        assertFalse(texts(dialog.window!!.decorView).single { it.text == "下一个来源" }.isEnabled)
+        assertFalse(texts(dialog.window!!.decorView).single { it.text == "自动选择源" }.isEnabled)
+
+        val toggleOff = texts(dialog.window!!.decorView).single { it.contentDescription == "插件歌词源修改" }
+        val toggleOffCard = toggleOff.parent as View
+        assertEquals(SettingsGlassKind.Card, SettingsGlassMaterial.style(toggleOffCard)?.kind)
+        assertFalse(SettingsGlassMaterial.style(toggleOffCard)!!.accent)
+        assertFalse(toggleOff.isSelected)
+        assertFalse(SettingsGlassMaterial.style(toggleOff)!!.accent)
+        toggleOff.performClick()
+        assertTrue(policy.lyricsReplacementEnabled(activity))
+        assertTrue(texts(dialog.window!!.decorView).single { it.text == "下一个来源" }.isEnabled)
+        dialog.dismiss()
+
+        val noSongHome = LinearLayout(activity).apply {
+            orientation = LinearLayout.VERTICAL
+            TcrrryLyricsSettingsUi.render(activity, this, null, {}, ModuleSettings(), {})
+        }
+        val noSongStatus = texts(noSongHome).single { it.text == CurrentLyricsSourceStatus.description(activity, 0L) }
+        assertTrue((noSongStatus.parent.parent as View).performClick())
+        val noSongDialog = ShadowAlertDialog.getLatestAlertDialog()
+        assertTrue(texts(noSongDialog.window!!.decorView).single { it.contentDescription == "插件歌词源修改" }.isEnabled)
+        noSongDialog.dismiss()
+        activity.finish()
+    }
+
+    @Test fun playbackSpeedSubmenuOpensFromMoreToolsAndPersistsPreferences() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        openMenu(page(activity), "更多工具")
+        val tools = ShadowAlertDialog.getLatestAlertDialog()
+        val speedRow = views(tools.window!!.decorView).single {
+            it.isClickable && it.contentDescription?.toString()?.startsWith("长按倍速播放，") == true
+        }
+        assertTrue(speedRow.performClick())
+
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val root = dialog.window!!.decorView
+        val master = texts(root).single { it.contentDescription == "启用长按倍速播放" }
+        assertFalse(master.isSelected)
+        assertEquals(SettingsGlassKind.Button, SettingsGlassMaterial.style(master)?.kind)
+
+        master.performClick()
+        assertTrue(com.tcrrry.lyrics.plugin.LongPressPlaybackSpeed.config(activity).enabled)
+        assertTrue(texts(dialog.window!!.decorView).single { it.contentDescription == "启用长按倍速播放" }.isSelected)
+
+        val seg = views(dialog.window!!.decorView).filterIsInstance<SettingsSegmentedControl>().single { it.heading == "触发方式" }
+        assertTrue(seg.inlineGlass)
+        assertEquals(listOf("松手恢复", "长按锁定"), seg.choices)
+
+        texts(dialog.window!!.decorView).single { it.text == "2.5x" }.performClick()
+        texts(dialog.window!!.decorView).single { it.text == "0.75x" }.performClick()
+        val cfg = com.tcrrry.lyrics.plugin.LongPressPlaybackSpeed.config(activity)
+        assertEquals(2.5f, cfg.fastSpeed, 0.001f)
+        assertEquals(0.75f, cfg.slowSpeed, 0.001f)
+
+        val pitchToggle = texts(dialog.window!!.decorView).single { it.contentDescription == "变速保持原调" }
+        assertTrue(pitchToggle.isSelected)
+        pitchToggle.performClick()
+        assertFalse(com.tcrrry.lyrics.plugin.LongPressPlaybackSpeed.config(activity).keepPitch)
+
+        dialog.dismiss()
+        tools.dismiss()
+        activity.finish()
     }
 }

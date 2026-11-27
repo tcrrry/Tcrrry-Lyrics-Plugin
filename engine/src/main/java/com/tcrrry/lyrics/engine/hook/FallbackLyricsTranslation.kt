@@ -4,6 +4,8 @@ import com.tcrrry.lyrics.plugin.PluginStorage.pluginPreferences
 import android.content.Context
 import com.tcrrry.lyrics.sources.SupplementTranslation
 import com.tcrrry.lyrics.engine.lyrics.ChineseSubtitlePolicy
+import com.tcrrry.lyrics.engine.lyrics.DesktopLyricsPresentation
+import com.tcrrry.lyrics.engine.lyrics.PronunciationSubtitlePolicy
 import java.security.MessageDigest
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ConcurrentHashMap
@@ -57,7 +59,9 @@ internal class FallbackLyricsTranslation(private val context: Context,
     fun enrich(id: Long, rawCandidate: AutoLyricsCandidate): AutoLyricsCandidate = enrichWithTrack(id, rawCandidate, null)
 
     fun enrichWithTrack(id: Long, rawCandidate: AutoLyricsCandidate, playbackTrack: DesktopLyricsTrack?): AutoLyricsCandidate {
-        val cleaned = TtmlSubtitleTrack.cleanChineseSubtitles(rawCandidate.ttml)
+        val cleaned = TtmlSubtitleTrack.cleanRedundantPronunciation(
+            TtmlSubtitleTrack.cleanChineseSubtitles(rawCandidate.ttml),
+        )
         val baseCandidate = if (cleaned == rawCandidate.ttml) rawCandidate else rawCandidate.copy(ttml = cleaned)
         val pronunciationPrefs = context.pluginPreferences("japanese_pronunciation", Context.MODE_PRIVATE)
         val readingKey = "$id|${baseCandidate.source}|${pronunciationPrefs.getBoolean("enabled", true)}|" +
@@ -246,6 +250,67 @@ internal object TtmlSubtitleTrack {
             Regex("xml:lang\\s*=\\s*[\"']ko[\"']"), "xml:lang=\"zh\""))
     }
 
+    fun cleanRedundantPronunciation(ttml: String): String {
+        val track = auxiliaryBlock(ttml, pronunciation = true) ?: return ttml
+        val rows = lines(ttml)
+        val paragraphs = paragraph.findAll(ttml).take(1000).toList()
+        val originalByKey = paragraphs.mapIndexed { index, match ->
+            val id = key.find(match.groupValues[1])?.groupValues?.get(2) ?: "TcrrryL${index + 1}"
+            id to rows.getOrElse(index) { "" }
+        }.toMap()
+        val entries = auxiliaryEntries.findAll(track.value).toList()
+        var block = track.value
+        var changed = false
+        var usefulCount = 0
+        entries.asReversed().forEach { entry ->
+            val id = auxiliaryFor.find(entry.groupValues[1])?.groupValues?.get(2)
+            val plain = LyricsAuxiliaryText.plain(entry.groupValues[2])
+            if (plain.isBlank()) return@forEach
+            val orig = id?.let(originalByKey::get)
+            if (orig != null && PronunciationSubtitlePolicy.usable(orig, plain) == null) {
+                val start = entry.range.first + entry.value.indexOf('>') + 1
+                val end = entry.range.first + entry.value.lastIndexOf('<')
+                if (start in 0..end && end <= block.length) {
+                    block = block.substring(0, start) + " " + block.substring(end)
+                    changed = true
+                } else {
+                    usefulCount++
+                }
+            } else {
+                usefulCount++
+            }
+        }
+        if (!changed) return ttml
+        if (usefulCount > 0) return ttml.replaceRange(track.range, block)
+        var result = ttml.removeRange(track.range)
+        val old = DesktopLyricsPresentation.fromTtml(result)
+        if (old?.pronunciation == true) {
+            val updated = old.copy(
+                pronunciation = false,
+                primaryPronunciation = false,
+                nativePronunciation = false,
+                offlinePronunciation = false,
+                offlinePronunciationLanguages = emptySet(),
+            ).marker()
+            result = result.replace(Regex("<!--tcrrry-lyrics-v1 .*?-->"), updated)
+        }
+        if (auxiliaryBlock(result, pronunciation = false) == null) {
+            val tag = root.find(result)
+            if (tag != null &&
+                Regex("""\bxml:lang\s*=\s*["']ko["']""", RegexOption.IGNORE_CASE).containsMatchIn(tag.value) &&
+                rows.none { Regex("[가-힣]").containsMatchIn(it) }) {
+                val origLang = TtmlOriginalLanguage.read(ttml)?.takeUnless { it.equals("ko", ignoreCase = true) }
+                val updatedTag = if (origLang != null) {
+                    tag.value.replace(Regex("""\bxml:lang\s*=\s*["']ko["']""", RegexOption.IGNORE_CASE), "xml:lang=\"${escape(origLang)}\"")
+                } else {
+                    tag.value.replace(Regex("""\s*\bxml:lang\s*=\s*["']ko["']""", RegexOption.IGNORE_CASE), "")
+                }
+                result = result.replaceRange(tag.range, updatedTag)
+            }
+        }
+        return result
+    }
+
     fun lines(ttml: String): List<String> = paragraph.findAll(ttml).map { match ->
         LyricsAuxiliaryText.plain(markup.replace(match.groupValues[2], " "))
             .replace(Regex("\\s+"), " ").trim()
@@ -276,8 +341,9 @@ internal object TtmlSubtitleTrack {
         val original = lines(ttml)
         if (!pronunciation && ChineseSubtitlePolicy.isChineseSong(original)) return null
         val useful = translated.mapNotNull { (index, value) ->
-            original.getOrNull(index)?.let { if (pronunciation) value.takeIf(String::isNotBlank) else ChineseSubtitlePolicy.usable(it, value) }
-                ?.let { index to it }
+            original.getOrNull(index)?.let {
+                if (pronunciation) PronunciationSubtitlePolicy.usable(it, value) else ChineseSubtitlePolicy.usable(it, value)
+            }?.let { index to it }
         }.toMap()
         if (useful.isEmpty()) return null
         val matches = paragraph.findAll(ttml).take(1000).toList()

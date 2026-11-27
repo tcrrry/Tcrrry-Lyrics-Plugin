@@ -53,10 +53,17 @@ class LyricsPlugin : AmppPlugin() {
             override fun before(call:PluginCall) { (call.arguments[0] as? String)?.let { call.arguments[0]=TtmlNormalizer.spaces(it) } }
         })
         PlaybackModeOptimization.attach(context)
+        MoreToolsCoordinator.attach(context)
         context.onClose { android.os.Handler(android.os.Looper.getMainLooper()).post { onStop() } }
     }
-    override fun onStart() { runtime.log("Tcrrry Lyrics started; baseline v1.5",null); PlaybackModeOptimization.start(); ReleaseUpdates.start(runtime.application) }
+    override fun onStart() {
+        runtime.log("Tcrrry Lyrics started; baseline v1.5",null)
+        PlaybackModeOptimization.start()
+        MoreToolsCoordinator.start()
+        ReleaseUpdates.start(runtime.application)
+    }
     override fun onStop() {
+        MoreToolsCoordinator.close()
         PlaybackModeOptimization.close()
         RubyPronunciationRows.close()
         dialogs.toList().forEach { it.dismiss() };dialogs.clear()

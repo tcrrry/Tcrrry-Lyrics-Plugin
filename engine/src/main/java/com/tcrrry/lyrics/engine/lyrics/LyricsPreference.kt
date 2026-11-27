@@ -17,6 +17,11 @@ internal object LyricsPreference {
 
     private fun prefs(context: Context) = context.pluginPreferences("tcrrry_lyrics_policy", Context.MODE_PRIVATE)
     fun qualityFirst(context: Context) = prefs(context).getBoolean("quality_first", false)
+    fun lyricsReplacementEnabled(context: Context) = prefs(context).getBoolean("lyrics_replacement_enabled", true)
+    fun updateLyricsReplacementEnabled(context: Context, enabled: Boolean) {
+        prefs(context).edit().putBoolean("lyrics_replacement_enabled", enabled)
+            .putInt("revision", revision(context) + 1).apply()
+    }
     fun smoothShortUnits(context: Context) = prefs(context).getBoolean("smooth_short_units", true)
     fun rubyPronunciation(context: Context) = prefs(context).getBoolean("ruby_pronunciation", false)
     fun hideOpeningCredits(context: Context) = prefs(context).getBoolean("hide_opening_credits", false)

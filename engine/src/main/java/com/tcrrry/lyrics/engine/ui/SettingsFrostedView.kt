@@ -81,8 +81,12 @@ internal object SettingsFrostedPalette {
 internal class SettingsFrostedView(context: Context) : View(context) {
     var backdrop: SettingsPanelBackdrop? = null
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val sheenPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val target = RectF()
     private val edge = RectF()
+    private var sheenWidth = -1
+    private var sheenHeight = -1
+    private var sheenDark = false
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -95,11 +99,31 @@ internal class SettingsFrostedView(context: Context) : View(context) {
         paint.color = material?.washColor ?: SettingsFrostedPalette.defaultWash(dark)
         paint.style = Paint.Style.FILL
         if (material?.hasSnapshot == true) canvas.drawRect(0f, 0f, width.toFloat(), height.toFloat(), paint)
+
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w > 0f && h > 0f) {
+            if (sheenWidth != width || sheenHeight != height || sheenDark != dark) {
+                sheenWidth = width
+                sheenHeight = height
+                sheenDark = dark
+                sheenPaint.shader = android.graphics.LinearGradient(
+                    0f, 0f, 0f, h * 0.36f,
+                    if (dark) 0x1EFFFFFF else 0x38FFFFFF,
+                    0x00FFFFFF,
+                    Shader.TileMode.CLAMP,
+                )
+            }
+            val radius = 24f * resources.displayMetrics.density
+            edge.set(0f, 0f, w, h)
+            canvas.drawRoundRect(edge, radius, radius, sheenPaint)
+        }
+
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = resources.displayMetrics.density
-        paint.color = if (dark) 0x40FFFFFF else 0x90FFFFFF.toInt()
+        paint.color = if (dark) 0x52FFFFFF else 0x90FFFFFF.toInt()
         val inset = paint.strokeWidth / 2f
-        edge.set(inset, inset, width - inset, height - inset)
+        edge.set(inset, inset, w - inset, h - inset)
         val radius = 24f * resources.displayMetrics.density
         canvas.drawRoundRect(edge, radius, radius, paint)
         paint.style = Paint.Style.FILL

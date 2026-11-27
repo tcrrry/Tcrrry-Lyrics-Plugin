@@ -289,17 +289,28 @@ internal object NativeLyricsSourceMenu {
             toast(if (started) "正在匹配 · $source" else "请重新打开歌词页后生效")
             popupRef.get()?.dismiss()
         }
-        val caption = if (songId > 0) LyricsSourceMenuPolicy.caption(applied()).substringBefore('／') else "暂无歌曲"
-        val detail = CurrentLyricsSourceStatus.description(app, songId).substringAfter("$caption · ", "")
+        val replacementOn = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.lyricsReplacementEnabled(app)
+        val caption = when {
+            !replacementOn -> "插件歌词源已关闭"
+            songId > 0 -> LyricsSourceMenuPolicy.caption(applied()).substringBefore('／')
+            else -> "暂无歌曲"
+        }
+        val detail = if (!replacementOn) "使用原生歌词 · 长按打开设置可重新开启"
+        else CurrentLyricsSourceStatus.description(app, songId).substringAfter("$caption · ", "")
         val row = NativeLyricsMenuRowLayout(context, caption, detail, labelSizePx = labelSizePx).apply {
             tag = ROW_TAG
             isClickable = true
             isFocusable = true
-            contentDescription = "歌词源：${LyricsSourceMenuPolicy.caption(applied())}。$detail。单击切换来源，双击寻找当前源的其他匹配，长按打开详细歌词设置"
+            contentDescription = if (!replacementOn) "插件歌词源修改已关闭。使用原生歌词，长按打开详细歌词设置可重新开启"
+            else "歌词源：${LyricsSourceMenuPolicy.caption(applied())}。$detail。单击切换来源，双击寻找当前源的其他匹配，长按打开详细歌词设置"
         }
         menus[menu] = WeakReference(row)
         row.setOnClickListener {
             if (!valid()) return@setOnClickListener
+            if (!com.tcrrry.lyrics.engine.lyrics.LyricsPreference.lyricsReplacementEnabled(app)) {
+                toast("已关闭插件歌词源修改，长按可前往开启")
+                return@setOnClickListener
+            }
             val next = CurrentLyricsSourceStatus.beginSourceCycle(app, songId) ?: return@setOnClickListener
             refresh(next)
         }
@@ -322,6 +333,10 @@ internal object NativeLyricsSourceMenu {
             }
             override fun onDoubleTap(e: MotionEvent): Boolean {
                 if (!row.isAttachedToWindow || popupRef.get()?.isShowing != true || !valid()) return true
+                if (!com.tcrrry.lyrics.engine.lyrics.LyricsPreference.lyricsReplacementEnabled(app)) {
+                    toast("已关闭插件歌词源修改，长按可前往开启")
+                    return true
+                }
                 if (CurrentLyricsSourceStatus.excludeCurrentRecord(app, songId)) {
                     CurrentLyricsSourceStatus.cancelSourceCycle(songId)
                     refresh(LyricsSourceMenuPolicy.caption(applied()))

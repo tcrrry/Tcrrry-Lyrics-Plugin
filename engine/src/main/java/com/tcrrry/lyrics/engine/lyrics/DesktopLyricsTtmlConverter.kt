@@ -76,7 +76,10 @@ internal object DesktopLyricsTtmlConverter {
                     val distance = kotlin.math.abs(candidate.start - line.start)
                     distance <= 1_200L && distance == lines.minOf { other -> kotlin.math.abs(candidate.start - other.start) }
                 }
-                ?.takeUnless { it.text.equals(line.words.joinToString("") { word -> word.text }.trim(), ignoreCase = true) }
+                ?.let { candidate ->
+                    PronunciationSubtitlePolicy.usable(line.words.joinToString("") { word -> word.text }, candidate.text)
+                        ?.let { candidate.copy(text = it) }
+                }
         }
         val pronunciation = selectedPronunciation.map { it?.text }
         val hasPronunciation = pronunciation.any { !it.isNullOrBlank() }

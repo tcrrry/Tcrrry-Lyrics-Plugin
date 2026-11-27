@@ -1,0 +1,46 @@
+{
+  "formatVersion": 1,
+  "packageName": "com.apple.android.music",
+  "profiles": [
+    {
+      "versionName": "7.0.0-beta",
+      "versionCode": 1606,
+      "asset": "applemusic-1606.json"
+    },
+    {
+      "versionName": "7.0.0-beta",
+      "versionCode": 1607,
+      "asset": "applemusic-1607.json"
+    },
+    {
+      "versionName": "7.0.0-beta",
+      "versionCode": 1609,
+      "asset": "applemusic-1609.json"
+    },
+    {
+      "versionName": "7.0.0-beta",
+      "versionCode": 1611,
+      "asset": "applemusic-1611.json"
+    },
+    {
+      "versionName": "7.0.0-beta",
+      "versionCode": 1613,
+      "asset": "applemusic-1613.json"
+    },
+    {
+      "versionName": "7.0.0",
+      "versionCode": 1614,
+      "asset": "applemusic-1614.json"
+    },
+    {
+      "versionName": "7.0.1",
+      "versionCode": 1622,
+      "asset": "applemusic-1622.json"
+    },
+    {
+      "versionName": "7.0.3",
+      "versionCode": 1626,
+      "asset": "applemusic-1626.json"
+    }
+  ]
+}

@@ -152,7 +152,7 @@ internal fun createAutoLyricsRuntime(
                         return null
                     }
                 }
-                TtmlSubtitleTrack.cleanChineseSubtitles(cached).let { cleaned ->
+                TtmlSubtitleTrack.cleanRedundantPronunciation(TtmlSubtitleTrack.cleanChineseSubtitles(cached)).let { cleaned ->
                     val normalized = if (request.third.matches(cleaned)) cleaned else request.third.stamp(cleaned)
                     if (normalized != cached) LyricsCacheStorage.store(application, request.second) {
                         // A refresh may have published newer translations while we were reading.

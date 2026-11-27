@@ -71,7 +71,8 @@ class TcrrryGlowSettingsAndroidTest {
         assertTrue(children.any { it is SeekBar })
         assertFalse(children.filterIsInstance<TextView>().any { it.text.contains("点击开启") || it.text.contains("点击关闭") })
         assertTrue(policy.smoothShortUnits(activity))
-        val smooth = children.filterIsInstance<TextView>().single { it.text == "短单元平滑：开启" }
+        val smooth = children.filterIsInstance<TextView>().single { it.text == "短单元平滑" }
+        assertTrue(smooth.isSelected)
         assertEquals(SettingsUiTheme.colors(activity).primary, smooth.currentTextColor)
         smooth.performClick()
         assertFalse(policy.smoothShortUnits(activity))

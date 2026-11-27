@@ -160,21 +160,44 @@ internal class SettingsGlassControls(private val panel: ViewGroup, private val c
     }
 
     private fun material(style: SettingsGlassStyle): Drawable {
-        fun rounded(color: Int) = GradientDrawable().apply {
-            setColor(color)
-            cornerRadius = (if (style.kind == SettingsGlassKind.Card) 18f else 14f) * panel.resources.displayMetrics.density
-            setStroke(panel.resources.displayMetrics.density.toInt().coerceAtLeast(1),
-                if (this@SettingsGlassControls.colors.dark) 0x24FFFFFF else 0x1C000000)
+        val cornerPx = (if (style.kind == SettingsGlassKind.Card) 18f else 14f) * panel.resources.displayMetrics.density
+        val strokePx = panel.resources.displayMetrics.density.toInt().coerceAtLeast(1)
+        fun glassLayer(topBottom: IntArray, strokeColor: Int) = GradientDrawable(
+            GradientDrawable.Orientation.TOP_BOTTOM,
+            topBottom,
+        ).apply {
+            cornerRadius = cornerPx
+            setStroke(strokePx, strokeColor)
         }
-        val fill = when {
-            style.filled -> colors.filledAccent
-            style.accent -> if (colors.dark) 0x443E1722 else 0xCCFCE8EC.toInt()
-            colors.dark -> if (style.kind == SettingsGlassKind.Card) 0x12FFFFFF else 0x16FFFFFF
-            else -> 0xBFFFFFFF.toInt()
+        val shape = if (colors.dark) {
+            when {
+                style.filled -> glassLayer(intArrayOf(0xFFEA3057.toInt(), 0xFFC51B3F.toInt()), 0x4CFFFFFF)
+                style.accent -> glassLayer(intArrayOf(0x5EE8345C, 0x38C01B40), 0x78FF8BA1)
+                style.kind == SettingsGlassKind.Card -> glassLayer(intArrayOf(0x1EFFFFFF, 0x0EFFFFFF), 0x30FFFFFF)
+                style.kind == SettingsGlassKind.Field -> glassLayer(intArrayOf(0x22FFFFFF, 0x14FFFFFF), 0x38FFFFFF)
+                else -> glassLayer(intArrayOf(0x2AFFFFFF, 0x16FFFFFF), 0x3EFFFFFF)
+            }
+        } else {
+            when {
+                style.filled -> glassLayer(intArrayOf(0xFFE0294E.toInt(), 0xFFC01B3C.toInt()), 0x33FFFFFF)
+                style.accent -> glassLayer(intArrayOf(0xE0FCE8EC.toInt(), 0xC4F8D3DC.toInt()), 0x55C91D40)
+                style.kind == SettingsGlassKind.Card -> glassLayer(intArrayOf(0xD4FFFFFF.toInt(), 0xAEFFFFFF.toInt()), 0x1C000000)
+                else -> glassLayer(intArrayOf(0xE0FFFFFF.toInt(), 0xB8FFFFFF.toInt()), 0x22000000)
+            }
         }
-        val shape = rounded(fill)
-        return if (style.kind == SettingsGlassKind.Button) RippleDrawable(ColorStateList.valueOf(
-            if (colors.dark) 0x24FFFFFF else 0x14000000), shape, rounded(android.graphics.Color.WHITE)) else shape
+        return if (style.kind == SettingsGlassKind.Button) {
+            val mask = GradientDrawable().apply {
+                setColor(android.graphics.Color.WHITE)
+                cornerRadius = cornerPx
+            }
+            RippleDrawable(
+                ColorStateList.valueOf(if (colors.dark) 0x28FFFFFF else 0x16000000),
+                shape,
+                mask,
+            )
+        } else {
+            shape
+        }
     }
 
     private fun pressAnimator(view: View) = StateListAnimator().apply {

@@ -633,4 +633,40 @@ class NativeLyricsPlaybackRecoveryTest {
         assertEquals(1, owner.Z0.first)
         recovery.close(); activity.finish()
     }
+
+    @Test fun laggingBrowserClockDoesNotYankLiveAheadNativeLyricsBackwards() {
+        val (activity, owner, recovery) = watchdogFixture(2500L)
+        owner.p0.highlightedIds = TreeSet(listOf(1))
+        owner.visiblePositions = setOf(1, 2)
+        tick()
+        owner.p0.highlightedIds = TreeSet(listOf(2))
+        repeat(6) { tick() }
+        assertTrue(owner.b1.positions.isEmpty())
+        assertEquals(0, owner.Z0.calls)
+        recovery.close(); activity.finish()
+    }
+
+    @Test fun tugOfWarCircuitBreakerStopsRepeatedBackwardsPullWhenNativeEngineOverridesRecovery() {
+        val (activity, owner, recovery) = watchdogFixture(2500L)
+        owner.p0.highlightedIds = TreeSet(listOf(1))
+        owner.visiblePositions = setOf(1, 2)
+        // First stall check recovers once when there was no prior advance and no pending timer.
+        repeat(4) { tick() }
+        assertEquals(listOf(2500L), owner.b1.positions)
+        assertEquals(1, owner.Z0.calls)
+
+        // Native engine keeps/snaps highlight ahead of the lagging browser clock: circuit breaker holds.
+        owner.p0.highlightedIds = TreeSet(listOf(1))
+        repeat(16) { tick() }
+        assertEquals(1, owner.b1.positions.size)
+
+        // Once clocks converge, normal stalled-clock recovery resumes.
+        owner.p0.highlightedIds = TreeSet(listOf(0))
+        owner.visiblePositions = setOf(0, 1)
+        tick()
+        owner.p0.highlightedIds = TreeSet()
+        repeat(4) { tick() }
+        assertEquals(2, owner.b1.positions.size)
+        recovery.close(); activity.finish()
+    }
 }

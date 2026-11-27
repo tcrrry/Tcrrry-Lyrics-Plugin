@@ -1,13 +1,19 @@
 # Tcrrry 歌词增强
 
-当前正式版 **1.3.4**，适用于 AM++ 1.7.1／Apple Music 7.0.3（1626），并保留 1606、1609、1613、1614、1622 支持。
+当前正式版 **1.4**，适用于 AM++ 1.7.1／Apple Music 7.0.3（1626），并保留 1606、1609、1613、1614、1622 支持。
 
-[![下载歌词插件 ZIP](docs/images/downloads/plugin-zip-1.3.4.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.3.4/Tcrrry-Lyrics-Plugin-1.3.4.zip)
+[![下载歌词插件 ZIP](docs/images/downloads/plugin-zip-1.4.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.4/Tcrrry-Lyrics-Plugin-1.4.zip)
 [![下载翻译插件 ZIP](docs/images/downloads/translation-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.9/Tcrrry-Translation-Plugin-1.0.0.zip)
 
-[1.3.4 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.3.4) · [安装说明](docs/INSTALL.md) · [翻译扩展](docs/TRANSLATION-EXTENSION.md) · [完整安装包](https://github.com/tcrrry/AMPP-Lyrics)
+[1.4 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.4) · [安装说明](docs/INSTALL.md) · [翻译扩展](docs/TRANSLATION-EXTENSION.md) · [完整安装包](https://github.com/tcrrry/AMPP-Lyrics)
 
 只需要歌词功能，导入歌词 ZIP 即可。需要离线机器翻译，再导入并启用翻译 ZIP；两个文件都在 AM++ 插件管理器导入，**无需安装翻译 APK**。中文模型内置，其他语言按需下载；下载语言包需要开启代理，下载完成后可离线使用。
+
+## 1.4 更新
+
+- 歌词增强：新增「插件歌词源修改」全局总开关；过滤纯英文歌及粤英混排歌曲英文行的冗余发音；修复单曲循环／跨曲过渡后时钟偏移导致的歌词反复上下重定位。
+- 智能混音（自动过渡）：提升至「更多工具」独立入口并与 Kifranei 开关解耦（同时支持独立版 K 插件自动检测让位）；优先使用 Apple 官方音频分析数据并持久化缓存；新增 GPU AGSL 曙光进度光效、切歌平滑滑回与封面／顶栏交叉过渡动画，切换开关零卡顿。
+- 更多工具融合：新增长按上一首／下一首倍速播放（基于系统原生 `AudioTrack.setPlaybackParams`，支持松手恢复／锁定与音调设置）、有线耳机独占优化、强化睡眠定时、自定义歌单封面修复、播放列表多选导出，以及按能力共存避让的 Kifranei 媒体外观增强。
 
 ## 1.3.4 更新
 

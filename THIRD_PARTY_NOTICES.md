@@ -23,8 +23,11 @@ under Apache-2.0; its license is preserved in
 `assets/licenses/AndroidLiquidGlass.txt`.
 
 The standalone Compose host and window-capture technique were adapted from
-Kifranei/AM-plus-plus-media-plugin (GPL-3.0). The settings implementation here
-is independently maintained and is not part of that plugin.
+Kifranei/AM-plus-plus-media-plugin (GPL-3.0). Additionally, the optional
+"Kifranei 媒体插件（移植）" appearance toggle incorporates visual enhancements
+(Liquid Glass player menus and dialogs, iOS media output controls, player handle
+& system corners, and player volume bar) from Kifranei/AM-plus-plus-media-plugin
+and preserves its icon attribution in `assets/licenses/AppleMusicOutputIcons.txt`.
 
 Settings selection strips call AM++'s actual `LiquidBottomTabs` and
 `LiquidBottomTab`, with their native drag selection and release animations.

@@ -256,6 +256,9 @@ internal object CurrentLyricsSourceStatus {
     }
 
     fun description(context: Context, currentId: Long?): String {
+        if (!com.tcrrry.lyrics.engine.lyrics.LyricsPreference.lyricsReplacementEnabled(context)) {
+            return "插件歌词源修改已关闭 · 使用 Apple Music 原生歌词"
+        }
         if (currentId == null || currentId <= 0L) return "暂无正在播放的歌曲"
         val prefs = context.pluginPreferences(PREFS, Context.MODE_PRIVATE)
         if (prefs.getLong("applied_id", 0L) != currentId ||

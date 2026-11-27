@@ -26,6 +26,32 @@ internal object JapanesePronunciationSupplement {
     }
     private val kana = Regex("[ぁ-ゖァ-ヺ]")
     private val kanji = Regex("[\\p{IsHan}]")
+    private val compoundPrefixReadings = mapOf(
+        '雨' to listOf("アマ"),
+        '風' to listOf("カザ"),
+        '酒' to listOf("サカ"),
+        '船' to listOf("フナ"),
+        '胸' to listOf("ムナ"),
+        '木' to listOf("コ"),
+        '火' to listOf("ホ"),
+        '白' to listOf("シラ"),
+        '金' to listOf("カナ"),
+        '稲' to listOf("イナ"),
+        '手' to listOf("タ"),
+        '目' to listOf("マ"),
+        '声' to listOf("コワ"),
+        '天' to listOf("アマ"),
+        '水' to listOf("ミナ"),
+        '上' to listOf("ウワ"),
+        '神' to listOf("カム", "カン"),
+        '羽' to listOf("ハ"),
+        '爪' to listOf("ツマ"),
+        '小' to listOf("コ", "サ"),
+        '真' to listOf("マ"),
+    )
+    private val compoundSuffixReadings = mapOf(
+        '雨' to listOf("サメ"),
+    )
 
     fun cacheMarker(enabled: Boolean, primary: Boolean = false) = "<!--japanese-pronunciation-r4 enabled=$enabled primary=$primary-->"
 
@@ -96,6 +122,13 @@ internal object JapanesePronunciationSupplement {
                             else->null
                         }
                         if(voiced!=null) candidates+=end to normalize(KanaRomaji.convert(voiced+reading.drop(1)))
+                        if (spatialVariants) {
+                            val halfVoiced = when (reading.firstOrNull()) {
+                                'ハ' -> 'パ'; 'ヒ' -> 'ピ'; 'フ' -> 'プ'; 'ヘ' -> 'ペ'; 'ホ' -> 'ポ'
+                                else -> null
+                            }
+                            if (halfVoiced != null) candidates += end to normalize(KanaRomaji.convert(halfVoiced + reading.drop(1)))
+                        }
                     }
                 }
                 // Colloquial geminated compounds (片っ方): both sides must have
@@ -113,6 +146,15 @@ internal object JapanesePronunciationSupplement {
                 }
                 // ASCII words/digits and kana can legitimately be absent from the dictionary.
                 if (surface.all { it in 'A'..'Z' || it in 'a'..'z' || it.isDigit() }) candidates += end to normalize(surface)
+                if (spatialVariants && surface.all {
+                        it in 'A'..'Z' || it in 'a'..'z' || it in '0'..'9' ||
+                            it in '\uFF21'..'\uFF3A' || it in '\uFF41'..'\uFF5A' || it in '\uFF10'..'\uFF19'
+                    }) {
+                    val ascii = surface.map { c ->
+                        if (c in '\uFF21'..'\uFF3A' || c in '\uFF41'..'\uFF5A' || c in '\uFF10'..'\uFF19') (c.code - 0xFEE0).toChar() else c
+                    }.joinToString("")
+                    candidates += end to normalize(ascii)
+                }
                 if (surface.all { it in 'ぁ'..'ゖ' || it in 'ァ'..'ヺ' || it == 'ー' })
                     candidates += end to normalize(KanaRomaji.convert(surface))
             }
@@ -120,7 +162,24 @@ internal object JapanesePronunciationSupplement {
                 'を' -> candidates += start + 1 to "wo"
                 'は' -> candidates += start + 1 to "wa"
                 'へ' -> candidates += start + 1 to "e"
+                'づ', 'ヅ' -> if (spatialVariants) {
+                    candidates += start + 1 to "du"
+                    candidates += start + 1 to "dzu"
+                }
+                'ぢ', 'ヂ' -> if (spatialVariants) candidates += start + 1 to "di"
                 in '0'..'9' -> digits[original[start] - '0'].forEach { candidates += start + 1 to normalize(KanaRomaji.convert(it)) }
+            }
+            if (spatialVariants) {
+                if (start + 1 < original.length && kanji.matches(original[start + 1].toString())) {
+                    compoundPrefixReadings[original[start]]?.forEach {
+                        candidates += start + 1 to normalize(KanaRomaji.convert(it))
+                    }
+                }
+                if (start > 0 && kanji.matches(original[start - 1].toString())) {
+                    compoundSuffixReadings[original[start]]?.forEach {
+                        candidates += start + 1 to normalize(KanaRomaji.convert(it))
+                    }
+                }
             }
             for ((end, reading) in candidates) {
                 if (reading.isEmpty()) continue

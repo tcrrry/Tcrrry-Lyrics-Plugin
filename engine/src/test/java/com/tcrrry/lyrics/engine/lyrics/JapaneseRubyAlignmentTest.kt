@@ -158,4 +158,25 @@ class JapaneseRubyAlignmentTest {
             println("Screenshot ruby $original: ${aligned.units}")
         }
     }
+    @Test fun mireiRainSoundAndCompoundReadingsAlignWithoutStrictTimingRegression() {
+        val cases = listOf(
+            "雨音が響くこの部屋" to "a ma o to ga hi bi ku ko no he ya",
+            "Every day まだ あなたを 想う" to "Every day ma da  a na ta wo  o mo u",
+            "日常の中 どこを 見ても" to "nichijou no naka do ko wo mi te mo",
+            "羽音が近づく" to "ha o to ga chi ka zu ku",
+            "木漏れ日の中で" to "ko mo re bi no na ka de",
+            "春雨に濡れた白波" to "ha ru sa me ni nu re ta shi ra na mi",
+            "風音が聞こえる" to "ka za o to ga ki ko e ru",
+            "続く散歩道" to "tsu du ku sa m po mi chi",
+            "茶色いリュック" to "tya i ro i ri yu 'k ku",
+        )
+        for ((original, reading) in cases) {
+            val aligned = requireNotNull(JapaneseRubyAlignment.align(original, reading)) { original }
+            assertFalse(aligned.perCharacter)
+            assertEquals(reading.filter(Char::isLetterOrDigit), aligned.units.joinToString("") { it.reading }.filter(Char::isLetterOrDigit))
+        }
+        // Strict timing alignment (spatialVariants = false) must remain unchanged and reject compound spatial shortcuts or typos.
+        assertNull(JapanesePronunciationSupplement.alignedUnits("雨音", "a ma o to"))
+        assertNull(JapaneseRubyAlignment.align("雨音が響くこの部屋", "a ma o to ga hi bi ku ko no typo"))
+    }
 }

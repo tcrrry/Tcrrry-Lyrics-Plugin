@@ -188,6 +188,12 @@ internal class RubyWordLayout private constructor(private val saved: List<Saved>
                 return word.measuredWidth.toFloat()+
                     (margins?.leftMargin?:0)+(margins?.rightMargin?:0)
             }
+            fun spaceWidth(leaf: TextView, leading: Boolean): Float {
+                val raw = leaf.text.toString()
+                val segment = if (leading) raw.takeWhile { it.isWhitespace() || it == '\u00a0' }
+                else raw.takeLastWhile { it.isWhitespace() || it == '\u00a0' }
+                return if (segment.isEmpty()) 0f else leaf.paint.measureText(segment)
+            }
             val widths=words.indices.map(::nativeWidth)
             data class Column(val last:Int,val width:Float,val before:Float)
             val columns=mutableListOf<Column>()
@@ -204,12 +210,19 @@ internal class RubyWordLayout private constructor(private val saved: List<Saved>
                 lastEnd=end
                 val native=(first..last).sumOf { widths[it].toDouble() }.toFloat()
                 val intervening=(previousLast+1 until first).sumOf { widths[it].toDouble() }.toFloat()
-                val required=maxOf(native,ceil(paint.measureText(JapaneseRubyAlignment.displayReading(unit.reading))+gap))
-                if (required>available) return null
-                val extra=ceil(required-native).toInt().coerceAtLeast(0)
+                val firstMargins=words[first].layoutParams as? ViewGroup.MarginLayoutParams
+                val lastMargins=words[last].layoutParams as? ViewGroup.MarginLayoutParams
+                val leadSpace=(firstMargins?.leftMargin ?: 0)+words[first].paddingLeft+spaceWidth(items[first].glyphs.first(),true)
+                val trailSpace=(lastMargins?.rightMargin ?: 0)+words[last].paddingRight+spaceWidth(items[last].glyphs.last(),false)
+                val coreWidth=(native-leadSpace-trailSpace).coerceAtLeast(0f)
+                val halfNeeded=(paint.measureText(JapaneseRubyAlignment.displayReading(unit.reading))+gap)/2f
+                val addLeft=ceil(halfNeeded-(coreWidth/2f+leadSpace)).toInt().coerceAtLeast(0)
+                val addRight=ceil(halfNeeded-(coreWidth/2f+trailSpace)).toInt().coerceAtLeast(0)
+                val totalWidth=native+addLeft+addRight
+                if (totalWidth>available) return null
                 // Widen the entire original/reading pair, never the font.
-                left[first] += extra/2; right[last] += extra-extra/2
-                columns+=Column(last,native+extra,intervening)
+                left[first] += addLeft; right[last] += addRight
+                columns+=Column(last,totalWidth,intervening)
                 previousLast=last
             }
             if(columns.isEmpty()) return null

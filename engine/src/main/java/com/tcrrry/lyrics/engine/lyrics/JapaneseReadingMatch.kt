@@ -11,11 +11,20 @@ internal object JapaneseReadingMatch {
         "sha" to listOf("sya", "shiya", "xiya", "xia"),
         "shu" to listOf("syu", "shiyu", "xiyu"),
         "sho" to listOf("syo", "shiyo", "xiyo"),
+        "cha" to listOf("tya", "chiya", "ciya", "tiya", "qiya"),
+        "chu" to listOf("tyu", "chiyu", "ciyu", "tiyu", "qiyu"),
+        "cho" to listOf("tyo", "chiyo", "ciyo", "tiyo", "qiyo"),
         "ja" to listOf("jya", "jia", "zya"),
         "ju" to listOf("jyu", "jiu", "zyu"),
         "jo" to listOf("jyo", "jio", "zyo"),
+        "nya" to listOf("niya"), "nyu" to listOf("niyu"), "nyo" to listOf("niyo"),
+        "hya" to listOf("hiya"), "hyu" to listOf("hiyu"), "hyo" to listOf("hiyo"),
+        "bya" to listOf("biya"), "byu" to listOf("biyu"), "byo" to listOf("biyo"),
+        "pya" to listOf("piya"), "pyu" to listOf("piyu"), "pyo" to listOf("piyo"),
+        "mya" to listOf("miya"), "myu" to listOf("miyu"), "myo" to listOf("miyo"),
+        "rya" to listOf("riya", "liya"), "ryu" to listOf("riyu", "liyu"), "ryo" to listOf("riyo", "liyo"),
         "tsu" to listOf("cu", "tu"), "shi" to listOf("xi", "si"),
-        "chi" to listOf("ci", "ti", "qi"), "ji" to listOf("zi"), "fu" to listOf("hu"),
+        "chi" to listOf("ci", "ti", "qi"), "ji" to listOf("zi"), "zu" to listOf("du", "dzu"), "fu" to listOf("hu"),
         "kya" to listOf("kiya"), "kyu" to listOf("kiyu"), "kyo" to listOf("kiyo"),
         "gya" to listOf("giya"), "gyu" to listOf("giyu"), "gyo" to listOf("giyo"),
         // Some provider romanizations omit the written geminate or long vowel.
@@ -43,6 +52,8 @@ internal object JapaneseReadingMatch {
                     match(index + from.length, position + to.length)
             }
             if (canonical[index] == 'r' && canonical.getOrNull(index + 1)?.let { it in "aeiouy" } == true && supplied[position] == 'l')
+                match(index + 1, position + 1)
+            if (canonical[index] == 'n' && canonical.getOrNull(index + 1)?.let { it in "bpm" } == true && supplied[position] == 'm')
                 match(index + 1, position + 1)
             // Some providers write isolated vowels as yi/wu. Do not turn the
             // vowel inside ki/shi/etc. into an arbitrary extra consonant.

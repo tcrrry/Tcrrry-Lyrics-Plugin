@@ -15,6 +15,8 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONArray
 import org.json.JSONObject
 
+private const val INTERMEDIATE_EMIT_INTERVAL_MS = 6_000L
+
 /** Adds a Chinese subtitle track to AM++ fallback lyrics after the original is already visible. */
 internal class FallbackLyricsTranslation(private val context: Context,
     private val platformLookup: ((DesktopLyricsTrack) -> List<com.tcrrry.lyrics.sources.DirectLyricsRepository.Result>)? = null,
@@ -131,7 +133,7 @@ internal class FallbackLyricsTranslation(private val context: Context,
                 val changed = synchronized(state) {
                     val finished = platformDone && machineDone
                     val time = now()
-                    if (!force && lastEmission != Long.MIN_VALUE && time - lastEmission < 350L) return
+                    if (!force && lastEmission != Long.MIN_VALUE && time - lastEmission < INTERMEDIATE_EMIT_INTERVAL_MS) return
                     val result = progress.candidate()
                     val retry = when {
                         !finished -> Long.MAX_VALUE

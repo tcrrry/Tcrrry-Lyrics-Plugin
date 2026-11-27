@@ -194,4 +194,49 @@ class FallbackLyricsTranslationTest {
         assertEquals(setOf("dictionary"), TtmlAuxiliaryOrigins.read(rendered.ttml)!!.pronunciation)
         assertEquals(setOf("offline"), TtmlAuxiliaryOrigins.read(rendered.ttml)!!.translation)
     }
+
+    @Test fun streamingOfflineRowsAreThrottledToPreventRefreshStorms() {
+        val context = context()
+        context.pluginPreferences("supplement_translation", Context.MODE_PRIVATE).edit()
+            .putString("mode", "offline").commit()
+        val bodyLines = (1..10).joinToString("") { i ->
+            "<p begin=\"${i}s\" end=\"${i + 1}s\" itunes:key=\"L$i\"><span begin=\"${i}s\" end=\"${i + 1}s\">line $i</span></p>"
+        }
+        val multiLineCandidate = AutoLyricsCandidate(
+            "APPLE_NATIVE",
+            "<tt xmlns:itunes=\"urn:itunes\" itunes:timing=\"Word\"><body><div>$bodyLines</div></body></tt>",
+        )
+        val local = mutableListOf<Runnable>()
+        val network = mutableListOf<Runnable>()
+        var clock = 1_000L
+        var refreshes = 0
+        CurrentLyricsSourceStatus.installRefreshHandler { id, _ ->
+            if (id == track.appleMusicId) refreshes++
+            true
+        }
+        val enrichment = FallbackLyricsTranslation(
+            context = context,
+            platformLookup = { emptyList() },
+            worker = Executor { local += it },
+            now = { clock },
+            networkWorker = Executor { network += it },
+            translateRows = { _, emit ->
+                for (i in 0 until 10) {
+                    emit(org.json.JSONObject().put("id", i).put("text", "译文第 ${i + 1} 句"))
+                    clock += 400L
+                }
+            },
+        )
+        try {
+            enrichment.enrichWithTrack(track.appleMusicId, multiLineCandidate, track)
+            local.single().run()
+            assertTrue("Expected throttled refreshes <= 2, got $refreshes", refreshes <= 2)
+            val updated = enrichment.enrichWithTrack(track.appleMusicId, multiLineCandidate, track)
+            val rows = TtmlSubtitleTrack.subtitleValues(updated.ttml)
+            assertEquals(10, rows.size)
+            assertEquals("译文第 10 句", rows[9])
+        } finally {
+            CurrentLyricsSourceStatus.installRefreshHandler { _, _ -> false }
+        }
+    }
 }

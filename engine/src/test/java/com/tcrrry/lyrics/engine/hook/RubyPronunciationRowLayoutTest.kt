@@ -572,4 +572,74 @@ class RubyPronunciationRowLayoutTest {
         assertEquals(96,checked)
     }
 
+    @Test fun mireiRainSoundWrappedMixedLatinAndCompoundRowsStayInRubyModeUnderPulse() {
+        val mixedOriginal = "Every day まだ あなたを 想う"
+        val mixedReading = "Every day ma da  a na ta wo  o mo u"
+        val mixedParts = listOf("Every ", "day ", "ま", "だ ", "あ", "な", "た", "を ", "想", "う")
+        val compoundOriginal = "雨音が響くこの部屋"
+        val compoundReading = "a ma o to ga hi bi ku ko no he ya"
+        val compoundParts = compoundOriginal.map { it.toString() }
+
+        for ((original, reading, parts) in listOf(
+            Triple(mixedOriginal, mixedReading, mixedParts),
+            Triple(compoundOriginal, compoundReading, compoundParts),
+        )) {
+            header.text = reading
+            header.textSize = 20f
+            val words = parts.map { part ->
+                TextView(activity).apply {
+                    text = part
+                    textSize = 32f
+                }.also {
+                    container.addView(it, FlexboxLayout.LayoutParams(-2, -2).apply { rightMargin = 4 })
+                }
+            }
+            val aligned = requireNotNull(JapaneseRubyAlignment.align(original, reading)) { original }
+            val fitted = RubyWordLayout.fitUnits(words, original, aligned)
+            val ruby = RubyPronunciationRows.RubyView(container, words, header, fitted, original, false)
+            root.addView(ruby, ConstraintLayout.LayoutParams(0, 0).apply {
+                topToTop = header.id; bottomToBottom = container.id; startToStart = container.id; endToEnd = container.id
+            })
+            for (width in listOf(260, 280, 300, 320, 340, 360)) {
+                repeat(8) { layout(width); ruby.onPreDraw() }
+                assertNotNull("$original width=$width", ruby.placements())
+                assertEquals(View.INVISIBLE, header.visibility)
+            }
+            // Active pulse scaling/translation on the first line must not trigger false inter-line fallback.
+            words.first().scaleY = 1.15f
+            words.first().translationY = 4f
+            assertNotNull("$original under pulse", ruby.placements())
+            ruby.restore()
+            root.removeView(ruby)
+            container.removeAllViews()
+        }
+    }
+
+    @Test fun japaneseFallbackRestoresWordLayoutGeometryWhenHeaderNoLongerMatches() {
+        val original = "雨音が響くこの部屋"
+        val reading = "a ma o to ga hi bi ku ko no he ya"
+        header.text = reading
+        header.textSize = 20f
+        val words = original.map { c ->
+            TextView(activity).apply { text = c.toString(); textSize = 32f }.also {
+                container.addView(it, FlexboxLayout.LayoutParams(-2, -2))
+            }
+        }
+        val aligned = requireNotNull(JapaneseRubyAlignment.align(original, reading))
+        val ruby = RubyPronunciationRows.RubyView(container, words, header, aligned, original, false)
+        root.addView(ruby, ConstraintLayout.LayoutParams(0, 0).apply {
+            topToTop = header.id; bottomToBottom = container.id; startToStart = container.id; endToEnd = container.id
+        })
+        repeat(6) { layout(240); ruby.onPreDraw() }
+        assertNotNull(ruby.placements())
+        assertTrue(words.any { it.paddingBottom > 0 })
+
+        header.text = "stale mismatched header"
+        repeat(6) { layout(240); ruby.onPreDraw() }
+        assertNull(ruby.placements())
+        assertEquals(View.VISIBLE, header.visibility)
+        assertTrue(words.all { it.paddingLeft == 0 && it.paddingRight == 0 && it.paddingBottom == 0 })
+        ruby.restore()
+    }
+
 }

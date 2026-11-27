@@ -137,7 +137,7 @@ internal object RubyPronunciationRows {
         synchronized(cache) { cache.clear() }
     }
 
-    private data class Glyph(val bounds: RectF, val nativeBaseline: Float, val stableCenter: Float, val stableTop: Float)
+    private data class Glyph(val bounds: RectF, val nativeBaseline: Float, val stableCenter: Float, val stableTop: Float, val stableLeft: Float, val stableRight: Float)
     internal data class Run(val text: String, val left: Float, val right: Float, val top: Float, val size: Float)
 
     internal class RubyView(
@@ -224,7 +224,7 @@ internal object RubyPronunciationRows {
             if (wordLayout != null && current is ViewGroup) RubyGradientBounds.syncOwned(current)
             val next = placements()
             if(next!=null) invalidPasses=0
-            if(next==null && alignment.perCharacter && wordLayout!=null) {
+            if(next==null && wordLayout!=null) {
                 // Native binding and the overlay can settle on different layout passes.
                 // Do not make a first-frame miss a permanent whole-line fallback.
                 if(++invalidPasses<3) { current?.requestLayout();return false }
@@ -286,7 +286,7 @@ internal object RubyPronunciationRows {
                     // Include the native per-word scale/pivot/translation. These
                     // transforms animate without triggering another layout.
                     if(!mapToRow(bounds,true)) return null
-                    glyphs += Glyph(bounds, stable.bottom, stable.centerX(),stable.top)
+                    glyphs += Glyph(bounds, stable.bottom, stable.centerX(), stable.top, stable.left, stable.right)
                 }
             }
             if (glyphs.size != compact(original).length || glyphs.isEmpty()) return null
@@ -316,16 +316,22 @@ internal object RubyPronunciationRows {
                 val half = paint.measureText(text) / 2
                 // One font size for the complete row. No per-word shrinking,
                 // heuristic merging or displacement away from its original.
-                val stableCenter = (touched.first().stableCenter + touched.last().stableCenter) / 2
+                val stableCenter = (touched.minOf { it.stableLeft } + touched.maxOf { it.stableRight }) / 2
                 if (stableCenter - half < 0 || stableCenter + half > width) return null
                 val line=nativeLines.indexOfFirst { kotlin.math.abs(touched.first().nativeBaseline-it)<tolerance }
                 val sameLine=glyphs.filter { kotlin.math.abs(it.nativeBaseline-nativeLines[maxOf(0,line)])<tolerance }
                 // One stable vertical anchor per visual line. A word's pulse
                 // must not pull only its reading up into the preceding glyphs.
-                val readingBaseline=sameLine.minOf { it.stableTop }-gap-paint.fontMetrics.descent
+                var readingBaseline=sameLine.minOf { it.stableTop }-gap-paint.fontMetrics.descent
                 if(line>0) {
                     val previous=glyphs.filter { kotlin.math.abs(it.nativeBaseline-nativeLines[line-1])<tolerance }
-                    if(readingBaseline+paint.fontMetrics.ascent<previous.maxOf { it.bounds.bottom }+gap) return null
+                    if(readingBaseline+paint.fontMetrics.ascent<previous.maxOf { it.nativeBaseline }+gap) return null
+                } else if (readingBaseline + paint.fontMetrics.ascent < 0f) {
+                    val clampedBaseline = -paint.fontMetrics.ascent
+                    val minClearance = 0.5f * resources.displayMetrics.density
+                    if (clampedBaseline + paint.fontMetrics.descent <= sameLine.minOf { it.stableTop } - minClearance) {
+                        readingBaseline = clampedBaseline
+                    }
                 }
                 if (readingBaseline+paint.fontMetrics.ascent<0 || readingBaseline+paint.fontMetrics.descent>height) return null
                 stableRanges += Triple(stableCenter-half,stableCenter+half,touched.first().nativeBaseline)

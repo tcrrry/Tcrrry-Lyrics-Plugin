@@ -125,6 +125,7 @@ internal class AppleMusicCustomLyricsTarget(
         }
         val mainHandler = com.tcrrry.lyrics.plugin.PluginHandler(Looper.getMainLooper())
         var lookupFinished: (Long) -> Unit = {}
+        var cacheCheckFinished: (Long, Boolean) -> Unit = { _, _ -> }
         val missingMetadataRetries = java.util.concurrent.ConcurrentHashMap.newKeySet<Long>()
         var activeFragment: WeakReference<Any>? = null
         lateinit var readyReapply: CustomLyricsReadyReapply
@@ -168,6 +169,7 @@ internal class AppleMusicCustomLyricsTarget(
         val autoSession = autoLyricsRuntime?.let { runtime ->
             AutoLyricsReplacementSession(
                 onLookupFinished = { id, _ -> mainHandler.post { if (registration.isActive) lookupFinished(id) } },
+                onCacheCheckFinished = { id, hit -> mainHandler.post { if (registration.isActive) cacheCheckFinished(id, hit) } },
                 fetchCandidate = fetch@{ appleMusicId ->
                     if (!replacementEnabled()) return@fetch null
                     val policyRevision = com.tcrrry.lyrics.engine.lyrics.LyricsPreference.revision(application)
@@ -384,6 +386,7 @@ internal class AppleMusicCustomLyricsTarget(
                         val prepared = autoSession?.readyReplacementFor(id)
                         if (registration.isActive && replacementEnabled() && currentSong.current()?.details?.appleMusicId == id &&
                             autoSession?.awaitingCachedReplacement(id) != true &&
+                            !(prepared != null && preparedSource[id] == "APPLE_NATIVE") &&
                             NativeLyricsPreferencePolicy.refreshForNativeDocument(
                                 com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
                                 CurrentLyricsSourceStatus.selectedSource(application, id),
@@ -443,6 +446,7 @@ internal class AppleMusicCustomLyricsTarget(
                 }
             }
             lookupFinished = resultBridge::onLookupFinished
+            cacheCheckFinished = { id, hit -> if (!hit) resultBridge.onCacheCheckFinished(id) }
             // Result submission owns installation; seek/repeat recovery only restarts native playback events.
             NativeLyricsPlaybackRecovery.resolve(installMethod.declaringClass) { fragment ->
                 currentSong.current()?.details?.appleMusicId?.takeIf { it > 0L && it == seam.currentItemAdamIdOf(fragment) }
@@ -839,6 +843,7 @@ internal class AppleMusicCustomLyricsTarget(
                             if (changed && enabled) mainHandler.post {
                                 val prepared = autoSession?.readyReplacementFor(adamId)
                                 if (registration.isActive && replacementEnabled() && currentSong.current()?.details?.appleMusicId == adamId &&
+                                    !(prepared != null && preparedSource[adamId] == "APPLE_NATIVE") &&
                                     NativeLyricsPreferencePolicy.refreshForNativeDocument(
                                         com.tcrrry.lyrics.engine.lyrics.LyricsPreference.qualityFirst(application),
                                         CurrentLyricsSourceStatus.selectedSource(application, adamId),

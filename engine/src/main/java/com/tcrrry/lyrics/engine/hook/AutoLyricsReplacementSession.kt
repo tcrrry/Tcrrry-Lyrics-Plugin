@@ -384,6 +384,7 @@ class AutoLyricsReplacementSession(
     private val bindAdamId: (Any, Long) -> Boolean,
     private val onReplacementPublished: ((Long) -> Unit)? = null,
     private val onCandidatePrepared: ((Long, AutoLyricsCandidate) -> Unit)? = null,
+    private val onCacheCheckFinished: ((Long, Boolean) -> Unit)? = null,
     private val onRefreshFinished: ((Long, Boolean) -> Unit)? = null,
     private val publisher: AutoLyricsPublisher? = null,
     private val isAllowed: (Long) -> Boolean = { true },
@@ -582,6 +583,7 @@ class AutoLyricsReplacementSession(
         var published = false
         var preparedCandidate: AutoLyricsCandidate? = null
         var preparedPointer: Any? = null
+        var candidateNotified = false
         try {
             if (!isCurrentRequest(appleMusicId, requestGeneration)) {
                 logger("automatic lyrics cancelled before fetch id=$appleMusicId")
@@ -607,15 +609,25 @@ class AutoLyricsReplacementSession(
                 )
                 logger("automatic lyrics cache parse end id=$appleMusicId ready=${preparedPointer != null}")
                 published = preparedPointer != null
-                if (published) preparedCandidate = candidate
+                if (published) {
+                    preparedCandidate = candidate
+                    onCandidatePrepared?.invoke(appleMusicId, candidate)
+                    candidateNotified = true
+                }
             }
             synchronized(lock) {
                 if (checkingCacheGeneration == requestGeneration) checkingCacheGeneration = null
             }
+            if (isCurrentRequest(appleMusicId, requestGeneration)) {
+                onCacheCheckFinished?.invoke(appleMusicId, published)
+            }
             val upgradeCache = upgradeLineCache && published && cached != null &&
                 TtmlTimingPolicy.metadataOf(cached).timingMode == TtmlTimingMode.NON_WORD
             if (upgradeCache && isCurrentRequest(appleMusicId, requestGeneration)) {
-                onCandidatePrepared?.invoke(appleMusicId, preparedCandidate!!)
+                if (!candidateNotified) {
+                    onCandidatePrepared?.invoke(appleMusicId, preparedCandidate!!)
+                    candidateNotified = true
+                }
                 onReplacementPublished?.invoke(appleMusicId)
             }
             if ((!published || upgradeCache) && isCurrentRequest(appleMusicId, requestGeneration)) {
@@ -634,6 +646,7 @@ class AutoLyricsReplacementSession(
                         preparedPointer = freshPointer
                         published = true
                         preparedCandidate = candidate
+                        candidateNotified = false
                         logger("automatic lyrics prepared source=${candidate.source} id=$appleMusicId")
                         if (shouldCacheSource(candidate.source) && isCurrentRequest(appleMusicId, requestGeneration)) {
                             val written = runCatching {
@@ -664,7 +677,10 @@ class AutoLyricsReplacementSession(
                         runCatching { cache.delete(appleMusicId) }
                     }
                     if (isCurrentRequest(appleMusicId, requestGeneration)) {
-                        onCandidatePrepared?.invoke(appleMusicId, preparedCandidate)
+                        if (!candidateNotified) {
+                            onCandidatePrepared?.invoke(appleMusicId, preparedCandidate)
+                            candidateNotified = true
+                        }
                         onReplacementPublished?.invoke(appleMusicId)
                         synchronized(lock) {
                             if (isCurrentRequestLocked(appleMusicId, requestGeneration)) {

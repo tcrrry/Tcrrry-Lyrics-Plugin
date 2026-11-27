@@ -40,6 +40,11 @@ internal class LyricsResultSubmissionBridge private constructor(
         }
     }
 
+    /** If disk cache missed while native arrival is waiting, replay native immediately. */
+    fun onCacheCheckFinished(id: Long) {
+        flushDeferredNative(id, "replayed deferred native after cache miss")
+    }
+
     private fun notifyContent(fragment: Any?, id: Long, hasContent: Boolean) {
         if (Looper.myLooper() != Looper.getMainLooper()) {
             mainHandler.post { if (!closed) notifyContent(fragment, id, hasContent) }
@@ -127,6 +132,7 @@ internal class LyricsResultSubmissionBridge private constructor(
             }
             if (emptyStamp != null && synchronized(lock) { emptyStamp < deliveryBoundary }) {
                 param.result = null
+                trace("dropped stale empty result")
                 return
             }
             if (currentRequest() && isOurs(incoming)) return
@@ -137,6 +143,7 @@ internal class LyricsResultSubmissionBridge private constructor(
                 if (!recoverRequestBinding(native)) return@runCatching
                 if (native != null && !matchesRequest(native)) {
                     param.result = null
+                    trace("dropped mismatched native result")
                     return@runCatching
                 }
                 if (native == null) {
@@ -462,8 +469,11 @@ internal class LyricsResultSubmissionBridge private constructor(
         val retryInstallation = fragment != null && synchronized(lock) { installationPending }
         val chosen = runCatching { selectReplacement(appleMusicId, original) }.getOrNull()
             ?: currentDocument()?.takeIf { retryInstallation } ?: run {
-            if (finishedLookupId == appleMusicId)
+            if (finishedLookupId == appleMusicId) {
+                flushDeferredNative(appleMusicId, "replayed deferred native after lookup finished")
+                if (selectionSnapshot()?.let(::matchesRequest) == true) return
                 notifyContent(fragment, appleMusicId, currentDocument() != null || original?.let(isAlive) == true)
+            }
             trace("no prepared replacement")
             return
         }
@@ -623,6 +633,26 @@ internal class LyricsResultSubmissionBridge private constructor(
         return nativePointerOf(value) === chosen
     }
 
+    private fun flushDeferredNative(appleMusicId: Long, reason: String) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { if (!closed) flushDeferredNative(appleMusicId, reason) }
+            return
+        }
+        if (closed || verifiedCurrentId() != appleMusicId || !currentRequest()) return
+        val valueAndTarget = synchronized(lock) {
+            if (delayedNativeGeneration != generation) return
+            val value = delayedNativeValue ?: return
+            val target = container ?: return
+            delayedNativeValue = null
+            value to target
+        }
+        if (selectionSnapshot()?.let(::matchesRequest) != true) {
+            trace(reason)
+            runCatching { contract.setValueMethod.invoke(valueAndTarget.second, valueAndTarget.first) }
+                .onFailure { report("cached lyric native fallback failed", it) }
+        }
+    }
+
     /** Give a known local file a short head start without waiting for network on the UI thread. */
     private fun deferNativeForCache(receiver: Any, incoming: Any?): Boolean {
         if (selectionSnapshot()?.let(::matchesRequest) == true || awaitingCachedReplacement?.invoke(requestIdSnapshot()) != true) return false
@@ -636,6 +666,7 @@ internal class LyricsResultSubmissionBridge private constructor(
             delayedNativeValue = incoming
             generation
         }
+        trace("deferred native for cache")
         mainHandler.postDelayed({
             val value = synchronized(lock) {
                 if (closed || generation != stamp || container !== receiver) return@postDelayed
@@ -645,7 +676,7 @@ internal class LyricsResultSubmissionBridge private constructor(
                 runCatching { contract.setValueMethod.invoke(receiver, value) }
                     .onFailure { report("cached lyric native fallback failed", it) }
             }
-        }, 220L)
+        }, CACHE_DEFER_WINDOW_MS)
         return true
     }
 
@@ -791,6 +822,8 @@ internal class LyricsResultSubmissionBridge private constructor(
     }
 
     companion object {
+        private const val CACHE_DEFER_WINDOW_MS = 450L
+
         fun create(
             symbols: TargetSymbolResolver,
             registration: HookRegistrationScope,

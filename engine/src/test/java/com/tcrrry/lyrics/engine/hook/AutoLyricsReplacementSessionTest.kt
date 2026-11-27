@@ -616,6 +616,62 @@ class AutoLyricsReplacementSessionTest {
         assertTrue(reopened.readyReplacementFor(42L) != null)
     }
 
+    @Test fun cachedCandidateNotifiesPreparedBeforeClearingAwaitingCacheAndReportsCacheCheck() {
+        val queued = QueuedExecutor()
+        val backing = MemoryCache(mapOf(42L to AutoLyricsCachePolicy.stampSource(WORD_TTML, "APPLE_NATIVE")))
+        val cache = object : AutoLyricsCache by backing {
+            override fun hasEntry(appleMusicId: Long): Boolean = backing.values.containsKey(appleMusicId)
+        }
+        val events = mutableListOf<String>()
+        lateinit var session: AutoLyricsReplacementSession
+        session = AutoLyricsReplacementSession(
+            fetchCandidate = { null },
+            cache = cache,
+            parseTtml = { Pointer() },
+            isAlive = { it is Pointer && it.live },
+            verifyPtr = { it is Pointer && it.live },
+            readAdamId = { (it as Pointer).adamId },
+            bindAdamId = { value, id -> (value as Pointer).adamId = id; true },
+            onCandidatePrepared = { _, candidate ->
+                events += "prepared:${candidate.source}:awaiting=${session.awaitingCachedReplacement(42L)}"
+            },
+            onCacheCheckFinished = { id, hit ->
+                events += "cacheFinished:$id:$hit:awaiting=${session.awaitingCachedReplacement(id)}"
+            },
+            executor = queued,
+            logger = {},
+            upgradeLineCache = false,
+        )
+        session.onSongChanged(42L)
+        session.ensureRequested(42L)
+        queued.runAll()
+        assertEquals(
+            listOf(
+                "prepared:APPLE_NATIVE:awaiting=true",
+                "cacheFinished:42:true:awaiting=false",
+            ),
+            events,
+        )
+
+        val missEvents = mutableListOf<Pair<Long, Boolean>>()
+        val missSession = AutoLyricsReplacementSession(
+            fetchCandidate = { null },
+            cache = MemoryCache(),
+            parseTtml = { Pointer() },
+            isAlive = { it is Pointer && it.live },
+            verifyPtr = { it is Pointer && it.live },
+            readAdamId = { (it as Pointer).adamId },
+            bindAdamId = { value, id -> (value as Pointer).adamId = id; true },
+            onCacheCheckFinished = { id, hit -> missEvents += id to hit },
+            executor = queued,
+            logger = {},
+        )
+        missSession.onSongChanged(99L)
+        missSession.ensureRequested(99L)
+        queued.runAll()
+        assertEquals(listOf(99L to false), missEvents)
+    }
+
     private fun session(
         queued: QueuedExecutor,
         cache: AutoLyricsCache = MemoryCache(),

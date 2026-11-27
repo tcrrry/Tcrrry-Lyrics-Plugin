@@ -722,4 +722,52 @@ class TcrrrySettingsLayoutAndroidTest {
         tools.dismiss()
         activity.finish()
     }
+
+    @Test fun diagnosticLogEntryOpensFromMoreToolsWithChannelSwitchAndActions() {
+        val activity = Robolectric.buildActivity(Activity::class.java).setup().visible().get()
+        val lyricsLog = requireNotNull(
+            com.tcrrry.lyrics.plugin.PluginDiagnosticLog.logFile(
+                activity,
+                com.tcrrry.lyrics.plugin.PluginDiagnosticLog.Channel.LYRICS,
+            ),
+        )
+        lyricsLog.parentFile?.mkdirs()
+        lyricsLog.writeText("11-28 00:40:00.000 [14650] 测试歌词日志记录\n", Charsets.UTF_8)
+
+        openMenu(page(activity), "更多工具")
+        val tools = ShadowAlertDialog.getLatestAlertDialog()
+        val logRow = views(tools.window!!.decorView).single {
+            it.isClickable && it.contentDescription?.toString()?.startsWith("诊断日志，") == true
+        }
+        assertTrue(logRow.performClick())
+
+        val dialog = ShadowAlertDialog.getLatestAlertDialog()
+        val root = dialog.window!!.decorView
+        val seg = views(root).filterIsInstance<SettingsSegmentedControl>().single { it.heading == "日志分类" }
+        assertTrue(seg.inlineGlass)
+        assertEquals(listOf("歌词", "智能混音", "有线耳机"), seg.choices)
+
+        val allTexts = texts(root).map { it.text.toString() }
+        assertTrue(allTexts.any { it.contains("测试歌词日志记录") })
+        for (actionLabel in listOf("导出全部日志到下载目录", "复制当前日志", "刷新", "清空当前", "清空全部")) {
+            assertTrue("Missing button: $actionLabel", actionLabel in allTexts)
+        }
+
+        texts(root).single { it.text == "智能混音" }.performClick()
+        assertTrue(texts(root).any { it.text.toString().contains("automix_log.txt") })
+
+        texts(root).single { it.text == "歌词" }.performClick()
+        assertTrue(texts(root).any { it.text.toString().contains("测试歌词日志记录") })
+
+        texts(root).single { it.text == "复制当前日志" }.performClick()
+        val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        assertTrue(cm.primaryClip?.getItemAt(0)?.text?.toString()?.contains("测试歌词日志记录") == true)
+
+        texts(root).single { it.text == "清空当前" }.performClick()
+        assertTrue(texts(root).any { it.text.toString() == "当前暂无日志记录" })
+
+        dialog.dismiss()
+        tools.dismiss()
+        activity.finish()
+    }
 }

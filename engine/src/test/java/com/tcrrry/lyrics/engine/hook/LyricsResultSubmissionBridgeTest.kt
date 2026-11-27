@@ -161,7 +161,7 @@ class LyricsResultSubmissionBridgeTest {
         f.choices[1] = cached
         f.bridge.onReplacementPublished(1)
         idle()
-        shadowOf(Looper.getMainLooper()).idleFor(250, java.util.concurrent.TimeUnit.MILLISECONDS)
+        shadowOf(Looper.getMainLooper()).idleFor(500, java.util.concurrent.TimeUnit.MILLISECONDS)
         assertEquals(listOf(cached), f.installed)
         f.scope.close()
     }
@@ -175,6 +175,25 @@ class LyricsResultSubmissionBridgeTest {
         f.model.results.setValue(native to null)
         assertTrue(f.installed.isEmpty())
         shadowOf(Looper.getMainLooper()).idleFor(250, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertTrue(f.installed.isEmpty())
+        shadowOf(Looper.getMainLooper()).idleFor(250, java.util.concurrent.TimeUnit.MILLISECONDS)
+        assertEquals(listOf(native), f.installed)
+        f.scope.close()
+    }
+
+    @Test fun cacheMissReplaysDeferredNativeImmediatelyWithoutWaitingFullWindow() {
+        val f = fixture()
+        start(f)
+        idle()
+        f.bridge.awaitingCachedReplacement = { true }
+        val native = native(1)
+        f.model.results.setValue(native to null)
+        assertTrue(f.installed.isEmpty())
+        f.bridge.awaitingCachedReplacement = { false }
+        f.bridge.onCacheCheckFinished(1)
+        idle()
+        assertEquals(listOf(native), f.installed)
+        shadowOf(Looper.getMainLooper()).idleFor(500, java.util.concurrent.TimeUnit.MILLISECONDS)
         assertEquals(listOf(native), f.installed)
         f.scope.close()
     }

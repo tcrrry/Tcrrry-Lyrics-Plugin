@@ -605,6 +605,44 @@ internal object MoreToolsCoordinator {
         return "默认 $fmt$overwriteTag（同步原生菜单）"
     }
 
+    fun diagnosticLogMenuSummary(context: Context): String = PluginDiagnosticLog.menuSummary(context)
+
+    fun diagnosticLogChannelInfo(
+        context: Context,
+        channel: PluginDiagnosticLog.Channel,
+    ): PluginDiagnosticLog.ChannelInfo = PluginDiagnosticLog.channelInfo(context, channel)
+
+    fun diagnosticLogTail(
+        context: Context,
+        channel: PluginDiagnosticLog.Channel,
+    ): String = PluginDiagnosticLog.readTail(context, channel)
+
+    fun diagnosticLogHeader(context: Context): String = PluginDiagnosticLog.buildDiagnosticHeader(context)
+
+    fun clearDiagnosticLogs(context: Context, channel: PluginDiagnosticLog.Channel? = null): Boolean =
+        PluginDiagnosticLog.clear(context, channel)
+
+    fun exportDiagnosticLogsAsync(
+        context: Context,
+        onSuccess: (String) -> Unit,
+        onError: (Throwable) -> Unit,
+    ) {
+        val app = context.applicationContext
+        val task = Runnable {
+            PluginDiagnosticLog.exportAllToDownloads(app)
+                .onSuccess { path -> notifyMain { onSuccess(path) } }
+                .onFailure { error -> notifyMain { onError(error) } }
+        }
+        val worker = executor
+        if (worker != null && !worker.isShutdown) {
+            runCatching { worker.execute(task) }.onFailure {
+                Thread(task, "tcrrry-diag-export").apply { isDaemon = true }.start()
+            }
+        } else {
+            Thread(task, "tcrrry-diag-export").apply { isDaemon = true }.start()
+        }
+    }
+
     fun listPlaylistsAsync(
         onSuccess: (List<PlaylistModels.PlaylistSummary>) -> Unit,
         onError: (Throwable) -> Unit,

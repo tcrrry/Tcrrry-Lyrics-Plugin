@@ -387,6 +387,23 @@ internal object TcrrryLyricsSettingsUi {
         }
         body.addView(exportRow, fullMargin(activity, 14))
 
+        val logRow = menuRow(activity, "诊断日志", com.tcrrry.lyrics.plugin.MoreToolsCoordinator.diagnosticLogMenuSummary(activity)) {}
+        var logSummaryView: TextView? = null
+        run {
+            val leftCol = (logRow as? ViewGroup)?.getChildAt(0) as? ViewGroup
+            logSummaryView = leftCol?.getChildAt(1) as? TextView
+        }
+        logRow.setOnClickListener { view ->
+            SettingsDialogMotion.from(view) {
+                showDiagnosticLogDialog(activity) {
+                    val summary = com.tcrrry.lyrics.plugin.MoreToolsCoordinator.diagnosticLogMenuSummary(activity)
+                    logSummaryView?.text = summary
+                    logRow.contentDescription = "诊断日志，$summary"
+                }
+            }
+        }
+        body.addView(logRow, fullMargin(activity, 14))
+
         body.addView(action(activity, "歌词缓存") { showCacheSettings(activity) }, fullMargin(activity, 14))
         body.addView(action(activity, "清理补充译文缓存") {
             val folder = java.io.File(activity.pluginCacheDir, "translations")
@@ -1079,6 +1096,154 @@ internal object TcrrryLyricsSettingsUi {
             runCatching { listenerCloseable.close() }
         }
         dialog.show()
+    }
+
+    internal fun showDiagnosticLogDialog(activity: Activity, onChanged: () -> Unit = {}) {
+        val coordinator = com.tcrrry.lyrics.plugin.MoreToolsCoordinator
+        val colors = SettingsUiTheme.colors(activity)
+        val channels = com.tcrrry.lyrics.plugin.PluginDiagnosticLog.Channel.entries
+        var selectedChannel = channels.first()
+        var currentTail = ""
+        var exporting = false
+
+        val body = card(activity).apply { addView(title(activity, "诊断日志", 20f)) }
+        body.addView(
+            label(
+                activity,
+                "常驻轻量记录（单文件自动限额滚动，不影响播放），遇到歌词或混音异常可直接导出发给开发者排查。",
+                12.5f,
+                colors.secondary,
+            ).apply { setLineSpacing(0f, 1.25f) },
+            fullMargin(activity, 6),
+        )
+
+        val metaView = label(activity, "", 12f, colors.secondary).apply {
+            setLineSpacing(0f, 1.2f)
+        }
+        val logTextView = TextView(activity).apply {
+            textSize = 11f
+            typeface = Typeface.MONOSPACE
+            setTextColor(colors.text)
+            setTextIsSelectable(true)
+            setLineSpacing(0f, 1.25f)
+            setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10))
+        }
+        val logScroll = android.widget.ScrollView(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                dp(activity, 250),
+            ).apply { topMargin = dp(activity, 10) }
+            background = shape(activity, colors.raised, 14, colors.outline)
+            isVerticalScrollBarEnabled = true
+            isNestedScrollingEnabled = true
+            addView(
+                logTextView,
+                ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT),
+            )
+        }
+
+        fun refreshPreview() {
+            val info = coordinator.diagnosticLogChannelInfo(activity, selectedChannel)
+            val tail = coordinator.diagnosticLogTail(activity, selectedChannel)
+            currentTail = tail
+            val sizeLabel = com.tcrrry.lyrics.plugin.PluginDiagnosticLog.formatSize(info.sizeBytes)
+            val timeLabel = com.tcrrry.lyrics.plugin.PluginDiagnosticLog.formatTimestamp(info.lastModifiedMs)
+            metaView.text = if (info.exists) {
+                "${selectedChannel.fileName} · $sizeLabel · 更新：$timeLabel"
+            } else {
+                "${selectedChannel.fileName} · 暂无记录"
+            }
+            if (tail.isBlank()) {
+                logTextView.text = "当前暂无日志记录"
+                logTextView.setTextColor(colors.secondary)
+            } else {
+                logTextView.text = tail
+                logTextView.setTextColor(colors.text)
+                logScroll.post { logScroll.fullScroll(View.FOCUS_DOWN) }
+            }
+        }
+
+        body.addView(
+            segmentedChoice(
+                activity,
+                "日志分类",
+                channels.map { it.label },
+                0,
+                inlineGlass = true,
+            ) { which ->
+                selectedChannel = channels.getOrElse(which) { channels.first() }
+                refreshPreview()
+            },
+            fullMargin(activity, 14),
+        )
+        body.addView(metaView, fullMargin(activity, 10))
+        body.addView(logScroll)
+
+        lateinit var exportBtn: TextView
+        exportBtn = action(activity, "导出全部日志到下载目录", emphasized = true) {
+            if (exporting) return@action
+            exporting = true
+            exportBtn.isEnabled = false
+            exportBtn.alpha = .6f
+            exportBtn.text = "正在导出日志..."
+            coordinator.exportDiagnosticLogsAsync(
+                activity,
+                onSuccess = { path ->
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        exporting = false
+                        exportBtn.isEnabled = true
+                        exportBtn.alpha = 1f
+                        exportBtn.text = "导出全部日志到下载目录"
+                        toast(activity, "已导出至：$path")
+                    }
+                },
+                onError = { error ->
+                    if (!activity.isFinishing && !activity.isDestroyed) {
+                        exporting = false
+                        exportBtn.isEnabled = true
+                        exportBtn.alpha = 1f
+                        exportBtn.text = "导出全部日志到下载目录"
+                        toast(activity, "导出失败：${error.message ?: error.javaClass.simpleName}")
+                    }
+                },
+            )
+        }
+        body.addView(exportBtn, fullMargin(activity, 14))
+
+        val copyBtn = action(activity, "复制当前日志") {
+            val header = coordinator.diagnosticLogHeader(activity)
+            val payload = if (currentTail.isBlank()) {
+                "$header\n\n===== ${selectedChannel.label} =====\n(暂无记录)"
+            } else {
+                "$header\n\n===== ${selectedChannel.label} (${selectedChannel.fileName}) =====\n$currentTail"
+            }
+            val cm = activity.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
+            cm?.setPrimaryClip(android.content.ClipData.newPlainText("tcrrry-diagnostic-log", payload))
+            toast(activity, "已复制当前日志到剪贴板")
+        }
+        val refreshBtn = action(activity, "刷新") {
+            refreshPreview()
+            onChanged()
+            toast(activity, "已刷新")
+        }
+        body.addView(pairedActions(activity, copyBtn, refreshBtn), fullMargin(activity, 10))
+
+        val clearCurrentBtn = action(activity, "清空当前") {
+            coordinator.clearDiagnosticLogs(activity, selectedChannel)
+            refreshPreview()
+            onChanged()
+            toast(activity, "已清空${selectedChannel.label}日志")
+        }
+        val clearAllBtn = action(activity, "清空全部") {
+            coordinator.clearDiagnosticLogs(activity, null)
+            refreshPreview()
+            onChanged()
+            toast(activity, "已清空全部诊断日志")
+        }
+        body.addView(pairedActions(activity, clearCurrentBtn, clearAllBtn), fullMargin(activity, 10))
+
+        refreshPreview()
+        bubbleDialog(activity, body).show()
     }
 
     internal fun showPlaylistExportSettings(activity: Activity, onChanged: () -> Unit = {}) {

@@ -96,7 +96,8 @@ object ModernXposedRuntime {
     }
 
     fun log(message: String, error: Throwable? = null) {
-        com.tcrrry.lyrics.plugin.PluginLifetime.context.log(message, error)
+        runCatching { com.tcrrry.lyrics.plugin.PluginLifetime.context.log(message, error) }
+        com.tcrrry.lyrics.plugin.PluginDiagnosticLog.record(message, error)
     }
 
     private fun findCompatibleMethod(type: Class<*>, name: String, args: Array<out Any?>): Method? {

@@ -22,19 +22,28 @@ class LyricsPlugin : AmppPlugin() {
     override fun onLoad(context: PluginContext) {
         if(context.hostPackageName !in setOf("com.apple.android.music","com.tcrrry.ampplyrics.coexist") || !((context.hostVersionCode in setOf(1606L,1609L,1613L) && context.hostVersionName=="7.0.0-beta") || (context.hostVersionCode==1614L && context.hostVersionName=="7.0.0") || (context.hostVersionCode==1622L && context.hostVersionName=="7.0.1") || (context.hostVersionCode==1626L && context.hostVersionName=="7.0.3")))
             throw PluginUnsupportedException("歌词插件仅适配 Apple Music 7.0.0-beta / 1606、1609、1613，7.0.0 / 1614、7.0.1 / 1622 和 7.0.3 / 1626")
-        runtime=context;PluginLifetime.attach(context)
+        runtime=context;PluginLifetime.attach(context);PluginDiagnosticLog.attach(context)
         NativeLyricsHostContract.verify(context.hostClassLoader)
         context.claimResource("com.tcrrry.lyrics.settings",true)
         val storage=HostPrivateEmbeddedStorage(context.application)
         configuration=EmbeddedConfigurationSession(storage)
-        val config=TargetConfigClient(configuration) { health -> context.log("${health.feature}: ${health.state} ${health.message}",null) }
+        val config=TargetConfigClient(configuration) { health ->
+            val line = "${health.feature}: ${health.state} ${health.message}"
+            context.log(line, null)
+            PluginDiagnosticLog.record(line)
+        }
         val build=TargetBuild(context.hostPackageName,context.hostVersionName,context.hostVersionCode)
         val resolver=IndexedTargetSymbolResolver(build,ApkTargetClassSource(context.application,context.hostClassLoader))
         val automatic=createAutoLyricsRuntime(context.application)
         (automatic.executor as? java.util.concurrent.ExecutorService)?.let { service -> context.onClose { service.shutdownNow() } }
         fun requireActive(label: String,result: TargetCapabilityInstall) {
-            if(result !is TargetCapabilityInstall.Active) throw PluginUnsupportedException("$label：${result.message}")
-            context.log("$label: ${result.message}",null)
+            if(result !is TargetCapabilityInstall.Active) {
+                PluginDiagnosticLog.record("$label 安装失败: ${result.message}")
+                throw PluginUnsupportedException("$label：${result.message}")
+            }
+            val line = "$label: ${result.message}"
+            context.log(line, null)
+            PluginDiagnosticLog.record(line)
         }
         requireActive("曲目信息",AppleMusicCurrentSongIdentityTarget(resolver,currentSong).install())
         NativeLyricsSourceMenu.install(context.hostClassLoader,{currentSong.current()?.details?.appleMusicId},::openSettings,build)
@@ -58,6 +67,7 @@ class LyricsPlugin : AmppPlugin() {
     }
     override fun onStart() {
         runtime.log("Tcrrry Lyrics started; baseline v1.5",null)
+        PluginDiagnosticLog.record("Tcrrry Lyrics started (${PluginDiagnosticLog.PLUGIN_VERSION})")
         PlaybackModeOptimization.start()
         MoreToolsCoordinator.start()
         ReleaseUpdates.start(runtime.application)

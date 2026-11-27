@@ -4,11 +4,16 @@ import android.app.Activity
 import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
+import android.media.AudioManager
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.DocumentsContract
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import com.tcrrry.lyrics.engine.ui.TcrrryLyricsSettingsUi
 import com.tcrrry.lyrics.plugin.PluginStorage.pluginPreferences
 import com.tcrrry.playlisttools.CoverStore
@@ -69,7 +74,7 @@ internal object MoreToolsCoordinator {
     @Synchronized fun attach(context: PluginContext) {
         runtime = context
         KifraneiAppearanceBridge.attach(context)
-        UsbBitPerfectAudio.attach(context)
+        clearLegacyUsbPreferredMixerOnce(context.application)
         LongPressPlaybackSpeed.attach(context)
         installActivityResultHook(context)
 
@@ -155,7 +160,6 @@ internal object MoreToolsCoordinator {
         runCatching { coverFixer?.stop() }
         runCatching { toolsClaim?.close() }
         runCatching { activityResultHook?.close() }
-        UsbBitPerfectAudio.close()
         KifraneiAppearanceBridge.close()
         executor?.shutdownNow()
 
@@ -558,22 +562,6 @@ internal object MoreToolsCoordinator {
 
     fun isOplusRom(): Boolean = OplusRomDetector.current
 
-    fun isUsbBitPerfectSupported(): Boolean = UsbBitPerfectAudio.isApiSupported()
-
-    fun usbBitPerfectEnabled(context: Context): Boolean = UsbBitPerfectAudio.isEnabled(context)
-
-    fun setUsbBitPerfectEnabled(context: Context, enabled: Boolean) =
-        UsbBitPerfectAudio.setEnabled(context, enabled)
-
-    fun usbMenuSummary(context: Context): String = UsbBitPerfectAudio.menuSummary(context)
-
-    fun probeUsbAudio(context: Context): UsbDiagnosticSnapshot = UsbBitPerfectAudio.probeNow(context)
-
-    fun clearUsbPreferredMixer(context: Context): String = UsbBitPerfectAudio.clearPreferred(context)
-
-    fun addUsbAudioListener(listener: () -> Unit): AutoCloseable =
-        UsbBitPerfectAudio.addListener(listener)
-
     fun automixCacheStats(context: Context): Pair<Int, Long> =
         dev.kifranei.ampp.media.KifraneiAppearanceBridge.analysisCacheStats(context)
 
@@ -725,6 +713,37 @@ internal object MoreToolsCoordinator {
             }.onSuccess { (text, playlistCount, trackCount) ->
                 onSuccess(text, playlistCount, trackCount)
             }.onFailure(onError)
+        }
+    }
+
+    private fun clearLegacyUsbPreferredMixerOnce(app: Context) {
+        runCatching {
+            val prefs = app.pluginPreferences("more_tools_usb_audio", Context.MODE_PRIVATE)
+            if (!prefs.contains("usb_bit_perfect_enabled")) return@runCatching
+            val wasEnabled = prefs.getBoolean("usb_bit_perfect_enabled", false)
+            prefs.edit().remove("usb_bit_perfect_enabled").apply()
+            if (wasEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                LegacyUsbMixerCleanup.clearAttachedUsbDevices(app)
+            }
+        }
+    }
+
+    @RequiresApi(Build.VERSION_CODES.UPSIDE_DOWN_CAKE)
+    private object LegacyUsbMixerCleanup {
+        fun clearAttachedUsbDevices(app: Context) {
+            val am = app.getSystemService(AudioManager::class.java) ?: return
+            val mediaAttrs = AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build()
+            for (d in am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+                if (d.type == AudioDeviceInfo.TYPE_USB_HEADSET ||
+                    d.type == AudioDeviceInfo.TYPE_USB_DEVICE ||
+                    d.type == AudioDeviceInfo.TYPE_USB_ACCESSORY
+                ) {
+                    runCatching { am.clearPreferredMixerAttributes(mediaAttrs, d) }
+                }
+            }
         }
     }
 }

@@ -34,6 +34,8 @@ internal object AutoTransitionUi {
     private const val TAG_MARKER = "ampp_automix_button"
     private val main = Handler(Looper.getMainLooper())
     private val pillRefs = java.util.concurrent.CopyOnWriteArrayList<java.lang.ref.WeakReference<AutoMixPillView>>()
+    private val pendingInjects = java.util.WeakHashMap<View, Runnable>()
+    @Volatile private var lastContainerMissLogMs = 0L
     @Volatile var enabled = false
     @Volatile var showButton = true
     @Volatile private var lastPackageName = "com.apple.android.music"
@@ -161,11 +163,15 @@ internal object AutoTransitionUi {
 
     /** Queue pages often exist before the 3-button row is laid out; retry until it is ready. */
     private fun scheduleInject(root: View, packageName: String, attempt: Int = 0) {
-        main.postDelayed({
+        pendingInjects.remove(root)?.let { main.removeCallbacks(it) }
+        val task = Runnable {
+            pendingInjects.remove(root)
             if (!injectButton(root, packageName) && attempt < 20) {
                 scheduleInject(root, packageName, attempt + 1)
             }
-        }, if (attempt == 0) 0L else 120L)
+        }
+        pendingInjects[root] = task
+        main.postDelayed(task, if (attempt == 0) 0L else 120L)
     }
 
     private fun injectButton(root: View, packageName: String): Boolean {
@@ -219,7 +225,11 @@ internal object AutoTransitionUi {
             container = findNativeButtonRow(root, screenHeight / 2)
         }
         if (container == null || container !is LinearLayout || container.childCount < 3) {
-            FileLogger.log("UI container not found/invalid (shuffle/repeat ids: $shuffleId/$repeatId, container=${container?.javaClass?.simpleName})")
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastContainerMissLogMs > 15_000L) {
+                lastContainerMissLogMs = now
+                FileLogger.log("UI container not found/invalid (shuffle/repeat ids: $shuffleId/$repeatId, container=${container?.javaClass?.simpleName})")
+            }
             return false
         }
 

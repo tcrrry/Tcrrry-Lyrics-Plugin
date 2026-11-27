@@ -745,7 +745,7 @@ class TcrrrySettingsLayoutAndroidTest {
         val root = dialog.window!!.decorView
         val seg = views(root).filterIsInstance<SettingsSegmentedControl>().single { it.heading == "日志分类" }
         assertTrue(seg.inlineGlass)
-        assertEquals(listOf("歌词", "智能混音", "有线耳机"), seg.choices)
+        assertEquals(listOf("歌词", "智能混音"), seg.choices)
 
         val allTexts = texts(root).map { it.text.toString() }
         assertTrue(allTexts.any { it.contains("测试歌词日志记录") })

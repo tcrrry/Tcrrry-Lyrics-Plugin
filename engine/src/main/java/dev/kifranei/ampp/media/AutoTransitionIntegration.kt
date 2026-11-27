@@ -11,6 +11,33 @@ import android.widget.ImageView
 import java.lang.reflect.Method
 import java.util.WeakHashMap
 
+internal object AutoMixRescueWindow {
+    fun shouldRescue(
+        posUs: Long,
+        durationUs: Long,
+        secondOffsetUs: Long,
+        plannedSec: Int,
+        seekEnabled: Boolean,
+    ): Boolean {
+        if (durationUs <= 3_000_000L || posUs < 0L || posUs >= durationUs || plannedSec <= 0) return false
+        val remUs = durationUs - posUs
+        val maxRescueRemUs = (plannedSec.coerceIn(1, 12) + 2) * 1_000_000L
+        if (remUs < 800_000L || remUs > maxRescueRemUs) return false
+        val plannedTriggerUs = (durationUs - plannedSec * 1_000_000L).coerceAtLeast(1_000_000L)
+        val validSecondOffset = secondOffsetUs in (durationUs - maxRescueRemUs) until durationUs
+        val triggerUs = if (seekEnabled) {
+            if (validSecondOffset) minOf(secondOffsetUs, plannedTriggerUs) else plannedTriggerUs
+        } else {
+            if (validSecondOffset) secondOffsetUs else plannedTriggerUs
+        }
+        return if (seekEnabled) {
+            posUs >= triggerUs
+        } else {
+            posUs in triggerUs..(triggerUs + 2_000_000L)
+        }
+    }
+}
+
 /**
  * AI DJ 自动过渡（Auto-Transition）主模块。
  *
@@ -79,6 +106,9 @@ internal class AutoTransitionIntegration(
     @Volatile private var activePlan: TransitionPlan? = null
     @Volatile private var crossfadeInProgress = false
     @Volatile private var introSkipApplied = false
+
+    private fun isManualSkipOrZeroAuto(): Boolean =
+        !crossfadeInProgress && ((lastDurationMs > 0L && lastDurationMs - lastPositionMs > 15_000L) || activePlan?.durationSec == 0)
     private var transitionFadeControl: Any? = null
     private var transitionStartedMs = 0L
     private var transitionModeName: String = "?"
@@ -91,12 +121,12 @@ internal class AutoTransitionIntegration(
     private var cachedArtwork: android.graphics.Bitmap? = null
     private var cachedArtworkAt = 0L
     private var lastCueLog = ""
+    private var lastAutoSkipLog = ""
     private var speedRenderer: Any? = null
     private var playbackParamsClass: Class<*>? = null
     private val artworkBySong = object : LinkedHashMap<String, android.graphics.Bitmap>(8, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, android.graphics.Bitmap>?): Boolean = size > 8
     }
-    private var gainController: Runnable? = null
     private var transitionCurve: FadeCurve = FadeCurve.GENTLE
     private var transitionDurationMs: Long = 0L
     @Volatile private var crossfadeStartTimeMs = 0L  // crossfade 开始时间（用于计算正确进度）
@@ -249,7 +279,7 @@ internal class AutoTransitionIntegration(
                         }
                     }, scope)) applied++
                 }
-                // 记录播放位置/时长，用于区分“自然结束”和“手动切歌”，同时兜底热激活。
+                // 记录播放位置/时长，用于区分“自然结束”和“手动切歌”，同时兜底热激活并在中段跳转时取消残留过渡动效。
                 for (methodName in listOf("getCurrentPosition", "getDuration")) {
                     val m = runCatching { exoPlayerCls.getDeclaredMethod(methodName) }.getOrNull()
                     m?.isAccessible = true
@@ -261,7 +291,41 @@ internal class AutoTransitionIntegration(
                                 armNativeCrossfadeEngineIfNeeded()
                             }
                             val value = (param.result as? Long) ?: return
-                            if (methodName == "getCurrentPosition") lastPositionMs = value else lastDurationMs = value
+                            if (methodName == "getCurrentPosition") {
+                                val prevPos = lastPositionMs
+                                lastPositionMs = value
+                                val animActive = crossfadeInProgress || AutoTransitionProgressBar.isTransitionActive()
+                                if (animActive && lastDurationMs > 25_000L && value > 15_000L && (lastDurationMs - value) > 18_000L) {
+                                    if (kotlin.math.abs(value - prevPos) > 3_000L || !crossfadeInProgress) {
+                                        crossfadeInProgress = false
+                                        main.post {
+                                            if (transitionStartedMs > 0L) endActualTransitionLog()
+                                            finalizeCoverTransition()
+                                            flog("crossfade cancelled (mid-track seek/position pos=${value / 1000}s/${lastDurationMs / 1000}s)")
+                                        }
+                                    }
+                                }
+                            } else {
+                                lastDurationMs = value
+                            }
+                        }
+                    }, scope)) applied++
+                }
+                for (seekMethod in exoPlayerCls.declaredMethods.filter { it.name == "seekTo" }) {
+                    seekMethod.isAccessible = true
+                    if (MediaRuntime.observeMethod(seekMethod, object : PluginMethodHook() {
+                        override fun beforeHookedMethod(param: MethodHookParam) {
+                            if (param.throwable != null) return
+                            val seekMs = param.args.firstOrNull { it is Long } as? Long ?: return
+                            val animActive = crossfadeInProgress || AutoTransitionProgressBar.isTransitionActive()
+                            if (animActive && lastDurationMs > 25_000L && seekMs > 12_000L && (lastDurationMs - seekMs) > 18_000L) {
+                                crossfadeInProgress = false
+                                main.post {
+                                    if (transitionStartedMs > 0L) endActualTransitionLog()
+                                    finalizeCoverTransition()
+                                    flog("crossfade cancelled (seekTo ${seekMs / 1000}s)")
+                                }
+                            }
                         }
                     }, scope)) applied++
                 }
@@ -271,7 +335,8 @@ internal class AutoTransitionIntegration(
 
             // ---- PCM 采集状态（hook AudioTrack.write，本地音频特征提取）----
             // 必须在所有 hook 之前定义，因为 prepareForCrossFade/maybeStart 里都引用 latestLocalAnalysis
-            val pcmBuffer = java.util.ArrayList<Short>(44100 * 20 * 2)
+            var pcmSamples: ShortArray? = null
+            var pcmSampleCount = 0
             var pcmAnalyzed = false
             /** 最近一次本地分析结果，切歌时注入到上一首歌曲 ID 的 localCache。 */
             var latestLocalAnalysis: SongAudioAnalysis? = null
@@ -315,38 +380,44 @@ internal class AutoTransitionIntegration(
                         var plan = TransitionPlanner.plan(analysis.current, analysis.next, defaultDurationSec())
                         plan = applyAppleCue(plan, analysis.current)
                         activePlan = plan
-                        activeFadeDurationMs = (plan.durationSec * 1000L).coerceAtLeast(1_500L)
+                        if (plan.durationSec <= 0) {
+                            crossfadeInProgress = false
+                            setCrossFadeDurationField(param.thisObject, 0)
+                            flog("prepareForCrossFade: 规划为跳过过渡 (${plan.reason})")
+                            return
+                        }
+                        activeFadeDurationMs = (plan.durationSec * 1000L).coerceAtLeast(800L)
                         if (!crossfadeInProgress) {
                             crossfadeStartTimeMs = android.os.SystemClock.elapsedRealtime()
                         }
                         crossfadeInProgress = true
                         BassSwapProcessor.reset()  // 重置低频交换滤波器状态
                         // 播放条辉光和 Mixing 标签的呼吸节奏跟随当前歌曲 BPM
+                        val maxAnimMs = (plan.durationSec * 1000L + 3_000L).coerceIn(4_000L, 13_000L)
                         coverView?.rootView?.let(AutoTransitionProgressBar::setRootView)
                         AutoTransitionProgressBar.setBpm(analysis.current?.bpm)
-                        AutoTransitionProgressBar.setTransitionActive(true)
-                        // 过渡总超时兜底：durationSec+8s 内 maybeStart false 没来就强制结束
+                        AutoTransitionProgressBar.setTransitionActive(true, maxAnimMs)
+                        // 过渡总超时兜底：maxAnimMs 内 maybeStart false 没来就强制结束
                         transitionEndRunnable?.let { coverHoldHandler.removeCallbacks(it) }
                         val endRunnable = Runnable { finalizeCoverTransition() }
                         transitionEndRunnable = endRunnable
-                        coverHoldHandler.postDelayed(endRunnable, (plan.durationSec * 1000L) + 8000L)
-                        flog("transitionEndTimeout 已注册: ${plan.durationSec + 8}s")
+                        coverHoldHandler.postDelayed(endRunnable, maxAnimMs)
+                        flog("transitionEndTimeout 已注册: ${maxAnimMs / 1000}s")
                         val curSilence = analysis.current?.let { "尾静${"%.1f".format(it.endSilenceSec)}s" } ?: ""
                         val nxtSilence = analysis.next?.let { "首静${"%.1f".format(it.startSilenceSec)}s intro${"%.1f".format(it.introEndSec)}s" } ?: ""
                         flog("plan=${plan.reason} duration=${plan.durationSec}s speed=${plan.speedRatio} cur=${analysis.current?.bpm} nxt=${analysis.next?.bpm} $curSilence $nxtSilence")
                         // 写入引擎字段：prepareForCrossFade 在 maybeStartCrossFading 内部被调用，
                         // 引擎随后读取 crossFadeDuration 字段——在这里写（09:53 验证 crossfade 正常不提前结束）
                         setCrossFadeDurationField(param.thisObject, plan.durationSec)
-                        // 设置 crossingTimeUs（微秒，float）：doCrossFade 完成路径的触发条件。
-                        // 反编译确认：crossingTimeUs > 0 且 < 下一首时长时，doCrossFade 走完成路径，
-                        // fadeIn 歌曲播放到 crossingTimeUs 时 crossfade 结束。fallback 路径下此值默认为 0，
-                        // 导致完成路径永不触发，maybeStart true 卡死（日志铁证：持续 6 分钟）。
-                        runCatching {
-                            val f = param.thisObject.javaClass.getDeclaredField("crossingTimeUs")
-                            f.isAccessible = true
-                            f.setFloat(param.thisObject, plan.durationSec * 1_000_000f)
-                            flog("crossingTimeUs -> ${plan.durationSec}s (触发完成路径)")
-                        }.onFailure { flog("set crossingTimeUs failed: ${it.message}") }
+                        // 非 Apple 曲线模式下 crossingTimeUs 必须置 0：反编译确认该字段是 fadeOut 绝对微秒时间点，
+                        // 若写入 durationSec（如 7s）会在 outgoing=200s 时让 doCrossFade 立刻误判为 FADE_IN 阶段。
+                        if (!preferAppleCurve()) {
+                            writeFieldSafe(param.thisObject, "crossingTimeUs", 0f)
+                            syncTransitionsDuration(param.thisObject, activeFadeDurationMs * 1000L)
+                        } else {
+                            val existingUs = (readFieldSafe(param.thisObject, "crossingTimeUs") as? Number)?.toFloat()
+                            flog("crossingTimeUs preserved=${existingUs?.div(1_000_000f)}s (Apple曲线模式)")
+                        }
                         // 首静音/Intro 跳过：如果下一首开头有较长静音或 intro，
                         // 反射设置 fadeInPeriodHolder 的起始位置，跳过空白段。
                         // 取首静音和 intro 结束位置的较大值（至少 1 秒才跳过）。
@@ -418,7 +489,7 @@ internal class AutoTransitionIntegration(
                             }
                         }
                         if (changed) {
-                            pcmBuffer.clear()
+                            pcmSampleCount = 0
                             pcmAnalyzed = false
                             latestLocalAnalysis = null
                             latestLocalSongId = null
@@ -427,11 +498,21 @@ internal class AutoTransitionIntegration(
                                 analysis.updateFromHolders(param.args[1], param.args[0], fadeControl)
                             }
                         }
+                        val skipPlan = activePlan
+                        if (!crossfadeInProgress && skipPlan != null && skipPlan.durationSec <= 0) {
+                            val skipSig = "${currentSongId ?: ""}|${skipPlan.reason}"
+                            if (skipSig != lastAutoSkipLog) {
+                                lastAutoSkipLog = skipSig
+                                flog("auto-skip: 跳过本首混音 (${skipPlan.reason})")
+                            }
+                            param.result = false
+                            return
+                        }
                     }
 
                     override fun afterHookedMethod(param: MethodHookParam) {
                         if (param.throwable != null || !runtimeEnabled) return
-                        if (param.result == false) {
+                        if (param.result == false && (activePlan?.durationSec ?: 1) > 0) {
                             val fc = param.thisObject
                             val rPos = (param.args.getOrNull(2) as? Long) ?: 0L
                             if (fc != null && tryRescueCrossFadeStart(fc, param.args.getOrNull(0), param.args.getOrNull(1), rPos)) {
@@ -442,12 +523,13 @@ internal class AutoTransitionIntegration(
                         if (result != lastResult) {
                             lastResult = result
                             flog("maybeStartCrossFading -> $result")
-                            if (result == true) {
+                            if (result == true && (activePlan?.durationSec ?: 1) > 0) {
                                 val planNow = activePlan
                                 val fallbackSec = effectiveFallbackSec()
+                                val maxAnimMs = ((planNow?.durationSec ?: fallbackSec) * 1000L + 3_000L).coerceIn(4_000L, 13_000L)
                                 coverView?.rootView?.let(AutoTransitionProgressBar::setRootView)
                                 AutoTransitionProgressBar.setBpm(analysis.current?.bpm)
-                                AutoTransitionProgressBar.setTransitionActive(true)
+                                AutoTransitionProgressBar.setTransitionActive(true, maxAnimMs)
                                 if (useEqualizer()) {
                                     AutoMixEqualizer.start(
                                         (planNow?.durationSec ?: fallbackSec) * 1000L,
@@ -479,11 +561,14 @@ internal class AutoTransitionIntegration(
                                     }
                                 }
                             }
-                            // true→false 表示 crossfade 结束
+                            // true→false 表示 crossfade 结束；UI 收尾统一投递到主线程，不阻塞音频线程
                             if (result == false && crossfadeInProgress) {
-                                endActualTransitionLog()
-                                finalizeCoverTransition()
-                                flog("crossfade finished (maybeStart false)")
+                                crossfadeInProgress = false
+                                main.post {
+                                    endActualTransitionLog()
+                                    finalizeCoverTransition()
+                                    flog("crossfade finished (maybeStart false)")
+                                }
                             }
                         }
                     }
@@ -673,7 +758,9 @@ internal class AutoTransitionIntegration(
                 ).apply { isAccessible = true }
                 MediaRuntime.hookMethod(writeMethod, object : PluginMethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        if (param.throwable != null || !runtimeEnabled) return
+                        // 快速守卫：crossfade 期间或已分析/已有官方分析时不触碰 AudioTrack 属性，避免实时音频线程阻塞与装箱开销
+                        if (param.throwable != null || !runtimeEnabled || crossfadeInProgress || pcmAnalyzed) return
+                        if (analysis.hasAppleAnalysis(currentSongId)) return
                         val track = param.thisObject as? android.media.AudioTrack ?: return
                         val buf = param.args[0] as? java.nio.ByteBuffer ?: return
                         val sizeInBytes = param.args[1] as? Int ?: 0
@@ -684,15 +771,16 @@ internal class AutoTransitionIntegration(
                         val audioFormat = runCatching { track.audioFormat }.getOrNull() ?: android.media.AudioFormat.ENCODING_PCM_16BIT
                         val isFloatPcm = audioFormat == android.media.AudioFormat.ENCODING_PCM_FLOAT
 
-                        // crossfade 期间跳过 PCM 采集（不修改音频数据，避免原地修改 ByteBuffer 导致嘶嘶声）
-                        // 等功率音量曲线已通过 calculateFadeInLevel hook 实现
-                        if (crossfadeInProgress) return
-                        if (pcmAnalyzed) return
-                        if (analysis.hasAppleAnalysis(currentSongId)) return
                         val targetSamples = TARGET_SECONDS * sampleRate * channels
-                        if (pcmBuffer.size >= targetSamples) {
+                        val currentBuf = pcmSamples
+                        if (currentBuf == null || currentBuf.size < targetSamples) {
+                            pcmSamples = ShortArray(targetSamples)
+                            pcmSampleCount = 0
+                        }
+                        val dest = pcmSamples ?: return
+                        if (pcmSampleCount >= targetSamples) {
                             pcmAnalyzed = true
-                            val pcmCopy = pcmBuffer.toShortArray()
+                            val pcmCopy = dest.copyOf(pcmSampleCount)
                             val sr = sampleRate
                             val ch = channels
                             val capturedId = currentSongId
@@ -713,43 +801,40 @@ internal class AutoTransitionIntegration(
                             }
                             return
                         }
-                        // 根据格式读取 PCM：float → 归一化到 short 范围；short → 直接读
+                        // 根据格式零装箱写入原始 ShortArray
                         if (isFloatPcm) {
                             val floatBuf = buf.asFloatBuffer()
-                            val floatCount = sizeInBytes / 4  // 1 float = 4 bytes
-                            val toRead = minOf(floatBuf.remaining(), floatCount, targetSamples - pcmBuffer.size)
+                            val floatCount = sizeInBytes / 4
+                            val toRead = minOf(floatBuf.remaining(), floatCount, targetSamples - pcmSampleCount)
                             if (toRead <= 0) return
-                            val tmp = FloatArray(toRead)
-                            floatBuf.get(tmp)
-                            if (pcmBuffer.isEmpty()) {
-                                var peak = 0
-                                for (f in tmp) {
-                                    val a = kotlin.math.abs((f * 32767f).toInt())
-                                    if (a > peak) peak = a
-                                }
-                                if (peak < 400) return
-                            }
-                            for (f in tmp) {
-                                // float [-1,1] → short [-32768,32767]
-                                val s = (f * 32767f).toInt().coerceIn(-32768, 32767).toShort()
-                                pcmBuffer.add(s)
-                            }
-                        } else {
-                            val shortBuf = buf.asShortBuffer()
-                            val shortBytes = sizeInBytes / 2
-                            val toRead = minOf(shortBuf.remaining(), shortBytes, targetSamples - pcmBuffer.size)
-                            if (toRead <= 0) return
-                            val tmp = ShortArray(toRead)
-                            shortBuf.get(tmp)
-                            if (pcmBuffer.isEmpty()) {
-                                var peak = 0
-                                for (s in tmp) {
+                            val wasEmpty = pcmSampleCount == 0
+                            var peak = 0
+                            for (i in 0 until toRead) {
+                                val s = (floatBuf.get() * 32767f).toInt().coerceIn(-32768, 32767).toShort()
+                                dest[pcmSampleCount + i] = s
+                                if (wasEmpty) {
                                     val a = kotlin.math.abs(s.toInt())
                                     if (a > peak) peak = a
                                 }
+                            }
+                            if (wasEmpty && peak < 400) return
+                            pcmSampleCount += toRead
+                        } else {
+                            val shortBuf = buf.asShortBuffer()
+                            val shortBytes = sizeInBytes / 2
+                            val toRead = minOf(shortBuf.remaining(), shortBytes, targetSamples - pcmSampleCount)
+                            if (toRead <= 0) return
+                            val wasEmpty = pcmSampleCount == 0
+                            shortBuf.get(dest, pcmSampleCount, toRead)
+                            if (wasEmpty) {
+                                var peak = 0
+                                for (i in 0 until toRead) {
+                                    val a = kotlin.math.abs(dest[pcmSampleCount + i].toInt())
+                                    if (a > peak) peak = a
+                                }
                                 if (peak < 400) return
                             }
-                            for (s in tmp) pcmBuffer.add(s)
+                            pcmSampleCount += toRead
                         }
                     }
                 }, scope).let { if (it) { applied++; flog("AudioTrack.write hook OK（本地PCM采集已启动）") } }
@@ -800,29 +885,86 @@ internal class AutoTransitionIntegration(
                 }, scope).let { if (it) applied++ }
             }.onFailure { flog("hook BaseMediaPlayerContext.getCrossFadeDuration failed: ${it}") }
 
-            // doCrossFade(MediaPeriodHolder, MediaPeriodHolder, long)V —— 直接在公开接口出口以等功率曲线驱动双路渲染器音量
+            // doFadeIn / doFadeOut：单一真相源接管双路等功率曲线，避免与 doCrossFade/主线程重复下发音量消息及末尾提前 COMPLETED 硬切
+            val doFadeInMethod = if (fadeCls != null && holderCls != null && longCls != null)
+                methodSig(fadeCls, "doFadeIn", holderCls, longCls) else null
+            val doFadeOutMethod = if (fadeCls != null && holderCls != null && longCls != null)
+                methodSig(fadeCls, "doFadeOut", holderCls, longCls) else null
+            var doFadeInHooked = false
+            var doFadeOutHooked = false
+            if (doFadeInMethod != null) {
+                doFadeInHooked = MediaRuntime.hookMethod(doFadeInMethod, object : PluginMethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.throwable != null || !runtimeEnabled || !crossfadeInProgress || preferAppleCurve()) return
+                        val fc = param.thisObject ?: return
+                        val holder = param.args.getOrNull(0) ?: return
+                        val elapsedMs = android.os.SystemClock.elapsedRealtime() - crossfadeStartTimeMs
+                        val step = AutoMixFadeCurve.computeStep(elapsedMs, activeFadeDurationMs, activePlan?.outgoingDuck ?: 1f)
+                        sendRendererVolume(fc, holder, step.inVol)
+                        param.result = step.reportedIn
+                        val nowMs = android.os.SystemClock.elapsedRealtime()
+                        if (nowMs - lastVolumeLogMs > 1_500L) {
+                            lastVolumeLogMs = nowMs
+                            flog("doFadeIn vol: p=${"%.2f".format(step.progress)} in=${"%.2f".format(step.inVol)} out=${"%.2f".format(step.outVol)} repIn=${"%.2f".format(step.reportedIn)} repOut=${"%.2f".format(step.reportedOut)} dur=${activeFadeDurationMs / 1000}s")
+                        }
+                    }
+                }, scope).also { if (it) { applied++; flog("doFadeIn single-source equal-power OK") } }
+            }
+            if (doFadeOutMethod != null) {
+                doFadeOutHooked = MediaRuntime.hookMethod(doFadeOutMethod, object : PluginMethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (param.throwable != null || !runtimeEnabled || !crossfadeInProgress || preferAppleCurve()) return
+                        val fc = param.thisObject ?: return
+                        val holder = param.args.getOrNull(0) ?: return
+                        val elapsedMs = android.os.SystemClock.elapsedRealtime() - crossfadeStartTimeMs
+                        val step = AutoMixFadeCurve.computeStep(elapsedMs, activeFadeDurationMs, activePlan?.outgoingDuck ?: 1f)
+                        sendRendererVolume(fc, holder, step.outVol)
+                        param.result = step.reportedOut
+                    }
+                }, scope).also { if (it) { applied++; flog("doFadeOut single-source equal-power OK") } }
+            }
+
+            // reset()V —— 原生引擎释放淡出轨并复位时立即清状态，并切回主线程收尾 UI/动画
+            val resetMethod = methodSig(fadeCls, "reset")
+            if (resetMethod != null) {
+                MediaRuntime.hookMethod(resetMethod, object : PluginMethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        val hasActive = crossfadeInProgress ||
+                            AutoTransitionProgressBar.isTransitionActive() ||
+                            coverRegional != null ||
+                            coverOverlayView != null
+                        if (hasActive) {
+                            crossfadeInProgress = false
+                            main.post {
+                                if (transitionStartedMs > 0L) endActualTransitionLog()
+                                finalizeCoverTransition()
+                                flog("crossfade finished (reset)")
+                            }
+                        }
+                    }
+                }, scope).let { if (it) applied++ }
+            }
+
+            // doCrossFade(MediaPeriodHolder, MediaPeriodHolder, long)V —— 仅当 doFadeIn/doFadeOut 未命中时作为兜底驱动
             val appleDo = if (fadeCls != null && holderCls != null && longCls != null)
                 methodSig(fadeCls, "doCrossFade", holderCls, holderCls, longCls) else null
             if (appleDo != null) {
                 MediaRuntime.hookMethod(appleDo, object : PluginMethodHook() {
                     override fun afterHookedMethod(param: MethodHookParam) {
+                        if (doFadeInHooked && doFadeOutHooked) return
                         if (param.throwable != null || !runtimeEnabled || !crossfadeInProgress || preferAppleCurve()) return
                         val fc = param.thisObject ?: return
                         val phaseName = (readFieldSafe(fc, "fadePhase") as? Enum<*>)?.name
                         if (phaseName != "FADE_OUT" && phaseName != "FADE_IN") return
 
                         val elapsedMs = (android.os.SystemClock.elapsedRealtime() - crossfadeStartTimeMs).coerceAtLeast(0L)
-                        val durMs = activeFadeDurationMs.coerceAtLeast(1_500L)
-                        val progress = (elapsedMs.toFloat() / durMs.toFloat()).coerceIn(0f, 1f)
-                        val angle = progress * (Math.PI / 2.0)
-                        val outVol = kotlin.math.cos(angle).let { it * it }.toFloat().coerceIn(0f, 1f)
-                        val inVol = kotlin.math.sin(angle).let { it * it }.toFloat().coerceIn(0f, 1f)
-                        driveRendererVolumes(fc, param.args.getOrNull(0), param.args.getOrNull(1), outVol, inVol)
+                        val step = AutoMixFadeCurve.computeStep(elapsedMs, activeFadeDurationMs, activePlan?.outgoingDuck ?: 1f)
+                        driveRendererVolumes(fc, param.args.getOrNull(0), param.args.getOrNull(1), step.outVol, step.inVol)
 
                         val nowMs = android.os.SystemClock.elapsedRealtime()
                         if (nowMs - lastVolumeLogMs > 1_500L) {
                             lastVolumeLogMs = nowMs
-                            flog("doCrossFade vol: p=${"%.2f".format(progress)} out=${"%.2f".format(outVol)} in=${"%.2f".format(inVol)} dur=${durMs / 1000}s phase=$phaseName")
+                            flog("doCrossFade(fallback) vol: p=${"%.2f".format(step.progress)} out=${"%.2f".format(step.outVol)} in=${"%.2f".format(step.inVol)} dur=${activeFadeDurationMs / 1000}s phase=$phaseName")
                         }
                     }
                 }, scope).let { if (it) { applied++; flog("doCrossFade equal-power volume drive OK") } }
@@ -882,6 +1024,17 @@ internal class AutoTransitionIntegration(
                             }
                         }
 
+                        if (newDrawable != null && isManualSkipOrZeroAuto() &&
+                            (coverDissolve != null || coverRegional != null || coverOverlayView != null || pendingNewCover != null || AutoTransitionProgressBar.isTransitionActive())
+                        ) {
+                            flog("cover: 手动切歌或自动跳过(0s)，立即清理残留过渡动画")
+                            finalizeCoverTransition()
+                            if (newDrawable !is android.graphics.drawable.LayerDrawable) {
+                                currentCoverDrawable = newDrawable.constantState?.newDrawable()?.mutate() ?: newDrawable
+                            }
+                            return
+                        }
+
                         // 关键：封面溶解动画进行中（coverDissolve != null）时，阻止引擎的 setImageDrawable 调用
                         // 否则引擎会在 crossfade 期间再次设置封面，把我们的 DissolveDrawable 替换掉，动画被打断
                         if (coverDissolve != null) {
@@ -894,11 +1047,12 @@ internal class AutoTransitionIntegration(
                         // 否则会"先闪一下新封面，再闪回旧封面开始动画"
                         if (newDrawable != null && newDrawable !is android.graphics.drawable.LayerDrawable) {
                             if (currentCoverDrawable != null && currentCoverDrawable !== newDrawable && pendingNewCover == null) {
-                                // 手动切歌（未进入 crossfade、且当前曲离结束还很远）不要触发 AutoMix 动画。
-                                if (!crossfadeInProgress && lastDurationMs > 0L &&
-                                    lastDurationMs - lastPositionMs > 15_000L
-                                ) {
-                                    flog("cover: 手动切歌，跳过过渡动画")
+                                // 手动切歌或本首自动跳过混音（0s）：直接显示新封面，不滞留旧图。
+                                if (isManualSkipOrZeroAuto()) {
+                                    flog("cover: 手动切歌或自动跳过(0s)，跳过过渡动画")
+                                    if (coverRegional != null || coverOverlayView != null || AutoTransitionProgressBar.isTransitionActive()) {
+                                        finalizeCoverTransition()
+                                    }
                                     currentCoverDrawable = newDrawable.constantState?.newDrawable()?.mutate() ?: newDrawable
                                     return
                                 }
@@ -938,7 +1092,6 @@ internal class AutoTransitionIntegration(
                                 val new = pendingNewCover
                                 if (old != null && new != null) {
                                     waitingForCover = false
-                                    runCatching { AutoTransitionProgressBar.setTransitionActive(true) }
                                     view.post {
                                         runCatching { triggerCoverDissolve(v, old, new) }
                                     }
@@ -1019,11 +1172,12 @@ internal class AutoTransitionIntegration(
                             if (isSettingCover[view] == true || coverDissolve != null) return
                             val previous = view.drawable ?: return
                             val incoming = android.graphics.drawable.BitmapDrawable(view.resources, bitmap)
-                            if (!crossfadeInProgress && lastDurationMs > 0L &&
-                                lastDurationMs - lastPositionMs > 15_000L
-                            ) {
+                            if (isManualSkipOrZeroAuto()) {
+                                if (coverRegional != null || coverOverlayView != null || pendingNewCover != null || AutoTransitionProgressBar.isTransitionActive()) {
+                                    finalizeCoverTransition()
+                                }
                                 currentCoverDrawable = incoming.constantState?.newDrawable()?.mutate() ?: incoming
-                                flog("cover: 手动切歌(setImageBitmap)，跳过过渡动画")
+                                flog("cover: 手动切歌或自动跳过(0s)(setImageBitmap)，跳过过渡动画")
                                 return
                             }
                             val oldCopy = previous.constantState?.newDrawable()?.mutate() ?: previous
@@ -1035,12 +1189,8 @@ internal class AutoTransitionIntegration(
                             coverView = view
                             waitingForCover = false
                             AutoTransitionProgressBar.setRootView(view.rootView)
-                            AutoTransitionProgressBar.setTransitionActive(true)
                             param.result = null
                             view.post { runCatching { triggerCoverDissolve(view, oldCopy, newCopy) } }
-                            val visualEndDelay = ((activePlan?.durationSec ?: effectiveFallbackSec()) * 1000L + 2_000L)
-                                .coerceAtLeast(8_000L)
-                            scheduleVisualFinalize(visualEndDelay)
                             flog("cover: setImageBitmap -> fallback dissolve (old=${previous.javaClass.simpleName})")
                         }
                     }, scope)
@@ -1050,6 +1200,8 @@ internal class AutoTransitionIntegration(
 
             scope.onClose {
                 runtimeEnabled = false
+                crossfadeInProgress = false
+                AutoTransitionProgressBar.setTransitionActive(false)
                 if (crossfadeStateApplied) {
                     val holder = exoMediaPlayer
                     val setter = setCrossFadeStateMethod
@@ -1147,32 +1299,20 @@ internal class AutoTransitionIntegration(
 
         val plannedSec = activePlan?.durationSec ?: effectiveFallbackSec()
         val secondOffsetUs = (readFieldSafe(fc, "secondTrackOffsetUs") as? Long) ?: 0L
-        val plannedTriggerUs = (durationUs - plannedSec * 1_000_000L).coerceAtLeast(1_000_000L)
         val seekEnabled = allowSeekTrigger()
-        val triggerUs = if (seekEnabled) {
-            if (secondOffsetUs in 1L until durationUs) minOf(secondOffsetUs, plannedTriggerUs) else plannedTriggerUs
-        } else {
-            if (secondOffsetUs in 1L until durationUs) secondOffsetUs else plannedTriggerUs
-        }
+        if (!AutoMixRescueWindow.shouldRescue(posUs, durationUs, secondOffsetUs, plannedSec, seekEnabled)) return false
 
-        val inTriggerWindow = if (seekEnabled) {
-            posUs >= triggerUs
-        } else {
-            posUs in triggerUs..(triggerUs + 2_000_000L)
-        }
-        if (!inTriggerWindow || remUs < 1_500_000L) return false
-
-        val actualSec = (remUs / 1_000_000L).toInt().coerceIn(2, plannedSec)
+        val actualSec = (remUs / 1_000_000L).toInt().coerceIn(1, plannedSec.coerceAtLeast(1))
         val fadeOutPhase = phaseObj.javaClass.enumConstants
             ?.firstOrNull { (it as? Enum<*>)?.name == "FADE_OUT" } ?: return false
 
         crossfadeInProgress = true
         crossfadeStartTimeMs = android.os.SystemClock.elapsedRealtime()
-        activeFadeDurationMs = (actualSec * 1000L).coerceAtLeast(1_500L)
+        activeFadeDurationMs = (actualSec * 1000L).coerceAtLeast(800L)
 
         writeFieldSafe(fc, "secondTrackOffsetUs", posUs)
-        writeFieldSafe(fc, "crossingTimeUs", (actualSec * 1_000_000L).toFloat())
-        syncTransitionsMap(fc, posUs, actualSec * 1_000_000L)
+        writeFieldSafe(fc, "crossingTimeUs", if (preferAppleCurve()) (posUs + actualSec * 500_000L).toFloat() else 0f)
+        syncTransitionsMap(fc, posUs, activeFadeDurationMs * 1000L)
         setCrossFadeDurationField(fc, actualSec)
         val curPlan = activePlan
         if (curPlan != null && curPlan.durationSec > actualSec) {
@@ -1183,6 +1323,16 @@ internal class AutoTransitionIntegration(
 
         flog("maybeStart 兜底拉起 FADE_OUT: pos=${posUs / 1_000_000L}s/${durationUs / 1_000_000L}s rem=${actualSec}s (origOffset=${secondOffsetUs / 1_000_000L}s)")
         return true
+    }
+
+    private fun syncTransitionsDuration(fc: Any, durationUs: Long) {
+        val map = readFieldSafe(fc, "transitionsMap") as? Map<*, *> ?: return
+        for ((k, v) in map) {
+            val keyName = (k as? Enum<*>)?.name ?: continue
+            if (v != null && (keyName == "FADE_OUT" || keyName == "FADE_IN")) {
+                writeFieldSafe(v, "durationUs", durationUs)
+            }
+        }
     }
 
     private fun syncTransitionsMap(fc: Any, startUs: Long, durationUs: Long) {
@@ -1196,19 +1346,20 @@ internal class AutoTransitionIntegration(
         }
     }
 
-    private fun driveRendererVolumes(fc: Any, outHolder: Any?, inHolder: Any?, outVol: Float, inVol: Float) {
+    private fun sendRendererVolume(fc: Any, holder: Any?, vol: Float) {
+        if (holder == null) return
         val renderers = readFieldSafe(fc, "renderers") as? Array<*> ?: return
-        fun sendVol(holder: Any?, vol: Float) {
-            if (holder == null) return
-            runCatching {
-                val idx = holder.javaClass.getMethod("getRendererIdx").invoke(holder) as? Int ?: return@runCatching
-                val r = renderers.getOrNull(idx) ?: return@runCatching
-                r.javaClass.getMethod("handleMessage", Int::class.javaPrimitiveType, Any::class.java)
-                    .invoke(r, 2, java.lang.Float.valueOf(vol))
-            }
+        runCatching {
+            val idx = holder.javaClass.getMethod("getRendererIdx").invoke(holder) as? Int ?: return@runCatching
+            val r = renderers.getOrNull(idx) ?: return@runCatching
+            r.javaClass.getMethod("handleMessage", Int::class.javaPrimitiveType, Any::class.java)
+                .invoke(r, 2, java.lang.Float.valueOf(vol.coerceIn(0f, 1f)))
         }
-        sendVol(outHolder, outVol)
-        sendVol(inHolder, inVol)
+    }
+
+    private fun driveRendererVolumes(fc: Any, outHolder: Any?, inHolder: Any?, outVol: Float, inVol: Float) {
+        sendRendererVolume(fc, outHolder, outVol)
+        sendRendererVolume(fc, inHolder, inVol)
         setFloatField(fc, "fadeOutLevel", outVol)
         setFloatField(fc, "fadeInLevel", inVol)
     }
@@ -1442,6 +1593,11 @@ internal class AutoTransitionIntegration(
                             isSettingCover[view] = false
                             currentCoverDrawable = newCover.constantState?.newDrawable()?.mutate() ?: newCover
                             if (coverRegional === dissolve) coverRegional = null
+                            if (!crossfadeInProgress) {
+                                pendingNewCover = null
+                                lastCoverDrawable = null
+                                finalizeCoverTransition()
+                            }
                         }
                     }
                 })
@@ -1450,7 +1606,7 @@ internal class AutoTransitionIntegration(
             animator.start()
             flog("cover: 分区融化过渡启动 dur=${dur}ms")
             if (!crossfadeInProgress) {
-                scheduleVisualFinalize(dur + 1_500L)
+                scheduleVisualFinalize(dur + 400L)
             }
         }.onFailure { flog("cover: triggerDissolve 异常 ${it.message}") }
     }
@@ -1491,68 +1647,19 @@ internal class AutoTransitionIntegration(
     }
 
     /**
-     * 柔和接歌点选择：只在末尾 3~12s 内寻找结构节拍点，并自动过滤尾部静音/弱音区，
-     * 避免裁剪下一首前奏和人声；固定手动时长则完全尊重用户设定。
+     * 柔和接歌点选择：自动模式下委派给 TransitionPlanner.refineAutoDurationWithTail（0~10s），
+     * 尾段响度/人声持续到结尾时可缩短至 1~2s 或直接 0s 自动跳过；手动固定时长完全尊重用户设定。
      */
     private fun applyAppleCue(plan: TransitionPlan, current: SongAudioAnalysis?): TransitionPlan {
-        if (defaultDurationSec() > 0) return plan
-        val total = lastDurationMs
-        if (total <= 0L || current == null) return plan
-        val durationSec = total / 1000f
-        val bars = current.barTimesSec ?: current.beatTimesSec ?: return plan
-        if (bars.size < 8) return plan
-        val loudness = current.loudnessCurve
-        val target = when (plan.mode) {
-            TransitionMode.HARMONIC_BLEND -> 8f to 2.5f
-            TransitionMode.BASS_SWAP -> 7f to 2f
-            TransitionMode.FILTER_MIX -> 5f to 2f
-            TransitionMode.QUICK_CUT -> 4f to 1.5f
-        }
-        var avg = 0f; var n = 0
-        val from = bars.indexOfFirst { it > durationSec * 0.35f }.let { if (it < 0) 0 else it }
-        for (i in from until bars.size) {
-            val idx = ((bars[i] / durationSec) * (loudness?.size ?: 1)).toInt().coerceIn(0, (loudness?.size ?: 1) - 1)
-            if (loudness != null) { avg += loudness[idx]; n++ }
-        }
-        if (n > 0) avg /= n
-        var quietTailSec = 0f
-        if (loudness != null && loudness.size >= 8 && n > 0) {
-            val secPerSample = durationSec / loudness.size.toFloat()
-            val quietThreshold = minOf(avg - 14f, -30f)
-            var tailCount = 0
-            for (k in loudness.indices.reversed()) {
-                if (loudness[k] < quietThreshold) tailCount++ else break
+        val refined = TransitionPlanner.refineAutoDurationWithTail(plan, current, lastDurationMs, defaultDurationSec())
+        if (refined !== plan) {
+            val sig = "${refined.mode}|${refined.durationSec}|${refined.enabled}|${lastDurationMs}"
+            if (sig != lastCueLog) {
+                lastCueLog = sig
+                flog("cue: refined=${refined.durationSec}s enabled=${refined.enabled} mode=${refined.mode} (原 ${plan.durationSec}s) -> ${refined.reason}")
             }
-            quietTailSec = (tailCount * secPerSample).coerceIn(0f, 8f)
         }
-        val desiredOverlap = (target.first + quietTailSec * 0.7f).coerceIn(4f, 12f)
-        var best: Float? = null
-        var bestScore = -Float.MAX_VALUE
-        for (i in from until bars.size) {
-            val cue = bars[i]
-            if (cue >= durationSec - 2f) continue
-            val overlap = durationSec - cue
-            if (overlap < 3f || overlap > 12f) continue
-            val durationScore = 1f - (kotlin.math.abs(overlap - desiredOverlap) / (target.second * 2f)).coerceIn(0f, 1f)
-            val energyScore = if (loudness != null && n > 0) {
-                val idx = ((cue / durationSec) * loudness.size).toInt().coerceIn(0, loudness.size - 1)
-                ((avg - loudness[idx]) / (kotlin.math.abs(avg) + 1f)).coerceIn(0f, 1f)
-            } else 0.4f
-            val phrase = (60000f * 8f / (plan.targetBpm ?: 120f)) / 1000f
-            val phraseScore = if (overlap >= phrase * 0.8f) 1f else 0.6f
-            val mixScore = plan.mixability
-            val score = durationScore * 0.45f + energyScore * 0.25f + phraseScore * 0.15f + mixScore * 0.15f
-            if (score > bestScore) { bestScore = score; best = cue }
-        }
-        val cue = best ?: return plan
-        val overlap = (durationSec - cue).toInt().coerceIn(3, 12)
-        val signature = "${plan.mode}|${cue.toInt()}|${overlap}"
-        if (signature != lastCueLog) {
-            lastCueLog = signature
-            flog("cue: bars=${bars.size} mode=${plan.mode} chosen=${"%.1f".format(cue)}s/${"%.1f".format(durationSec)}s overlap=${overlap}s quietTail=${"%.1f".format(quietTailSec)}s score=${"%.2f".format(bestScore)} (原 ${plan.durationSec}s)")
-        }
-        return plan.copy(durationSec = overlap,
-            reason = plan.reason + "，接歌点=${"%.1f".format(cue)}s")
+        return refined
     }
 
     private fun applyRendererSpeed(fadeControl: Any?, inHolder: Any?, ratio: Float) {
@@ -1612,28 +1719,11 @@ internal class AutoTransitionIntegration(
                 "curve=${plan?.curve} eqDepth=${plan?.eqDepthDb}dB inLevel=${fadeFloat("fadeInLevel")} outLevel=${fadeFloat("fadeOutLevel")} eq=[$eq]"
         )
         transitionCurve = plan?.curve ?: FadeCurve.GENTLE
-        transitionDurationMs = activeFadeDurationMs.coerceAtLeast(1_500L)
-        // 真实增益控制：宿主只可靠地 hook 到 fadeIn；fadeOut 用同一个进度强制写，
-        // 每 40ms 写一次 fadeInLevel/fadeOutLevel，保证两路是互补曲线。
-        val gain = object : Runnable {
-            override fun run() {
-                if (!crossfadeInProgress) return
-                val elapsed = android.os.SystemClock.elapsedRealtime() - transitionStartedMs
-                val progress = (elapsed.toFloat() / transitionDurationMs.toFloat()).coerceIn(0f, 1f)
-                val inLevel = curveValue(progress, transitionCurve)
-                val outLevel = Math.pow((1f - inLevel).toDouble(), (activePlan?.outgoingDuck ?: 1f).toDouble()).toFloat()
-                setFloatField(transitionFadeControl, "fadeInLevel", inLevel)
-                setFloatField(transitionFadeControl, "fadeOutLevel", outLevel)
-                coverHoldHandler.postDelayed(this, 40L)
-            }
-        }
-        gainController = gain
-        coverHoldHandler.postDelayed(gain, 20L)
+        transitionDurationMs = activeFadeDurationMs.coerceAtLeast(800L)
         val sampler = object : Runnable {
             override fun run() {
                 if (!crossfadeInProgress) return
                 val elapsed = android.os.SystemClock.elapsedRealtime() - transitionStartedMs
-                val progress = (elapsed.toFloat() / transitionDurationMs.toFloat()).coerceIn(0f, 1f)
                 flog(
                     "TRANSITION tick: +${elapsed}ms inLevel=${"%.3f".format(fadeFloat("fadeInLevel") ?: -1f)} " +
                         "outLevel=${"%.3f".format(fadeFloat("fadeOutLevel") ?: -1f)} " +
@@ -1651,8 +1741,6 @@ internal class AutoTransitionIntegration(
         val elapsed = android.os.SystemClock.elapsedRealtime() - transitionStartedMs
         transitionSampler?.let { coverHoldHandler.removeCallbacks(it) }
         transitionSampler = null
-        gainController?.let { coverHoldHandler.removeCallbacks(it) }
-        gainController = null
         flog(
             "TRANSITION actual-end: elapsed=${elapsed}ms planned=${transitionPlannedSec}s mode=$transitionModeName " +
                 "finalIn=${"%.3f".format(fadeFloat("fadeInLevel") ?: -1f)} " +
@@ -1684,15 +1772,24 @@ internal class AutoTransitionIntegration(
     }
 
     private fun finalizeCoverTransition() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            main.post { finalizeCoverTransition() }
+            return
+        }
         runCatching {
-            val wasActive = crossfadeInProgress || coverDissolve != null || coverRegional != null || pendingNewCover != null
+            val wasActive = crossfadeInProgress ||
+                coverDissolve != null ||
+                coverRegional != null ||
+                coverOverlayView != null ||
+                pendingNewCover != null ||
+                AutoTransitionProgressBar.isTransitionActive()
             if (!wasActive) return@runCatching
             flog("cover: finalizeCoverTransition（收尾）")
             crossfadeInProgress = false
             waitingForCover = false
             AutoTransitionProgressBar.setTransitionActive(false)
-            AutoMixEqualizer.stop()
-            if (speedMatch()) restoreSpeed()
+            if (useEqualizer()) AutoMixEqualizer.stop()
+            if (speedMatch() && speedRenderer != null) restoreRendererSpeed()
             activePlan = null
             // 清理所有定时任务
             coverHoldRunnable?.let { coverHoldHandler.removeCallbacks(it) }
@@ -2057,6 +2154,36 @@ private class DjLowPassSweep {
         } catch (_: Exception) {
             // 滤波异常时不写回，保持原始数据
         }
+    }
+}
+
+internal data class FadeCurveStep(
+    val inVol: Float,
+    val outVol: Float,
+    val reportedIn: Float,
+    val reportedOut: Float,
+    val progress: Float,
+)
+
+internal object AutoMixFadeCurve {
+    fun computeStep(elapsedMs: Long, durationMs: Long, outgoingDuck: Float = 1f): FadeCurveStep {
+        val safeDuration = durationMs.coerceAtLeast(800L)
+        val progress = (elapsedMs.coerceAtLeast(0L).toFloat() / safeDuration.toFloat()).coerceIn(0f, 1f)
+        val done = progress >= 0.985f
+        val angle = progress * (Math.PI / 2.0)
+        val inVol = if (done) 1f else kotlin.math.sin(angle).let { it * it }.toFloat().coerceIn(0f, 1f)
+        val baseOut = if (done) 0f else kotlin.math.cos(angle).let { it * it }.toFloat().coerceIn(0f, 1f)
+        val duck = outgoingDuck.coerceIn(1f, 2f).toDouble()
+        val outVol = if (done || baseOut <= 0.001f) 0f else Math.pow(baseOut.toDouble(), duck).toFloat().coerceIn(0f, 1f)
+        val reportedIn = if (done) 1f else inVol.coerceAtMost(0.945f)
+        val reportedOut = if (done) 0f else outVol.coerceAtLeast(0.055f)
+        return FadeCurveStep(
+            inVol = inVol,
+            outVol = outVol,
+            reportedIn = reportedIn,
+            reportedOut = reportedOut,
+            progress = progress,
+        )
     }
 }
 

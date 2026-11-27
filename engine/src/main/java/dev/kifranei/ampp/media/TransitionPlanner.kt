@@ -24,10 +24,10 @@ internal object TransitionPlanner {
     /** 调性兼容性阈值：低于此值退化为简单交叉淡化（不做变速、短时长、线性曲线）。 */
     private const val DEGRADE_THRESHOLD = 0.35f
 
-    /** 过渡时长范围（秒）：用户要求上限 40s。 */
+    /** 过渡时长范围（秒）：手动 2~20s，自动 0~10s（0 表示自动跳过不适合过渡的曲目）。 */
     private const val MIN_DURATION = 2
     private const val MAX_DURATION = 20
-    private const val MIN_AUTO_DURATION = 4
+    private const val MIN_AUTO_DURATION = 0
     private const val MAX_AUTO_DURATION = 10
 
     /** Camelot Wheel：音乐调性 → 编号+大小调。常见调性映射，未覆盖的返回 null。 */
@@ -75,7 +75,7 @@ internal object TransitionPlanner {
                 defaultDurationSec
             }
             val phrases = (duration * 1000f / phraseMs).roundToInt().coerceAtLeast(1)
-            val introSkip = (duration * 0.22f).coerceIn(3f, 6f)
+            val introSkip = if (duration <= 1) 0f else (duration * 0.22f).coerceIn(1f, minOf(6f, duration * 0.55f))
             val eqDepth = when (mode) {
                 TransitionMode.HARMONIC_BLEND -> 4f
                 TransitionMode.BASS_SWAP -> 9f
@@ -115,24 +115,57 @@ internal object TransitionPlanner {
         val mixability = (0.40f * keyScore + 0.30f * bpmScore + 0.20f * energyScore + 0.10f * danceScore)
             .coerceIn(0f, 1f)
 
+        val targetBpm = if (hasBothBpm) (current.bpm!! + next.bpm!!) / 2f else (current.bpm ?: 120f)
+        val phraseMs = 16f * 60000f / targetBpm.coerceIn(60f, 200f)
+
+        if (isAutoDuration && mixability < 0.28f) {
+            return TransitionPlan(
+                enabled = false,
+                durationSec = 0,
+                speedRatio = 1f,
+                needsSpeedMatch = false,
+                curve = FadeCurve.LINEAR,
+                keyCompatibility = keyCompat,
+                currentBpm = current.bpm,
+                nextBpm = next.bpm,
+                phraseCount = 0,
+                phraseMs = phraseMs,
+                keyCompatScore = keyScore,
+                degraded = true,
+                mode = TransitionMode.QUICK_CUT,
+                mixability = mixability,
+                targetBpm = targetBpm,
+                eqDepthDb = 0f,
+                introSkipSec = 0f,
+                reason = "契合度过低自动跳过 (mixability=${"%.2f".format(mixability)}, " +
+                    "key=${"%.2f".format(keyScore)}, bpm=${"%.2f".format(bpmScore)}, energy=${"%.2f".format(energyScore)})",
+                outroFadeStartMs = current.outroFadeStartMs,
+                introFadeStartMs = next.introFadeStartMs,
+            )
+        }
+
         val mode = when {
             mixability >= 0.72f && eC > 0.35f -> TransitionMode.HARMONIC_BLEND
             mixability >= 0.52f && (eC > 0.45f || eN > 0.45f) -> TransitionMode.BASS_SWAP
             mixability >= 0.32f -> TransitionMode.FILTER_MIX
             else -> TransitionMode.QUICK_CUT
         }
-        val targetBpm = if (hasBothBpm) (current.bpm!! + next.bpm!!) / 2f else (current.bpm ?: 120f)
-        val phraseMs = 16f * 60000f / targetBpm.coerceIn(60f, 200f)
-        val baseSec = when (mode) {
-            TransitionMode.HARMONIC_BLEND -> 8f
-            TransitionMode.BASS_SWAP -> 7f
-            TransitionMode.FILTER_MIX -> 5f
-            TransitionMode.QUICK_CUT -> 4f
+        val marginalAuto = isAutoDuration && mixability < 0.40f
+        val baseSec = if (marginalAuto) {
+            2f
+        } else {
+            when (mode) {
+                TransitionMode.HARMONIC_BLEND -> 8f
+                TransitionMode.BASS_SWAP -> 7f
+                TransitionMode.FILTER_MIX -> 5f
+                TransitionMode.QUICK_CUT -> 4f
+            }
         }
-        val tailBonus = minOf(3f, current.endSilenceSec.coerceAtLeast(0f))
+        val tailBonus = if (marginalAuto) minOf(1f, current.endSilenceSec.coerceAtLeast(0f)) else minOf(3f, current.endSilenceSec.coerceAtLeast(0f))
         val phrases = (baseSec * 1000f / phraseMs).roundToInt().coerceAtLeast(1)
         val duration = if (isAutoDuration) {
-            (baseSec + tailBonus).roundToInt().coerceIn(MIN_AUTO_DURATION, MAX_AUTO_DURATION)
+            val maxCap = if (marginalAuto) 3 else MAX_AUTO_DURATION
+            (baseSec + tailBonus).roundToInt().coerceIn(MIN_AUTO_DURATION, maxCap)
         } else {
             defaultDurationSec
         }
@@ -175,7 +208,8 @@ internal object TransitionPlanner {
                 TransitionMode.QUICK_CUT -> 3f
             }
         }
-        val introSkipClamped = introSkip.coerceIn(1f, minOf(15f, duration * 0.55f))
+        val maxSkip = minOf(15f, duration * 0.55f)
+        val introSkipClamped = if (duration <= 1 || maxSkip <= 1f) 0f else introSkip.coerceIn(1f, maxSkip)
         val entryLog = "${next.barTimesSec?.size ?: 0}|${mode.name}|${introSkipClamped}|$entrySource"
         if (entryLog != lastEntryLog) {
             lastEntryLog = entryLog
@@ -209,6 +243,145 @@ internal object TransitionPlanner {
             outroFadeStartMs = current.outroFadeStartMs,
             introFadeStartMs = next.introFadeStartMs,
             outgoingDuck = outgoingDuck,
+        )
+    }
+
+    /**
+     * 在「自动」时长下根据当前曲目尾段响度曲线、官方尾奏起点与节拍边界精修重叠时长（0~10s）：
+     *   - 人声/高能量持续到结尾且无静音余地：低/中契合度自动跳过（0s），高契合度压缩到 1~2s；
+     *   - 有足够尾奏余地时：在 1~10s 内选择最接近小节线的接歌点。
+     * 手动固定时长直接保留原值，不做自动缩短或跳过。
+     */
+    fun refineAutoDurationWithTail(
+        plan: TransitionPlan,
+        current: SongAudioAnalysis?,
+        totalDurationMs: Long,
+        requestedDurationSec: Int,
+    ): TransitionPlan {
+        if (requestedDurationSec > 0 || plan.durationSec <= 0) return plan
+        if (totalDurationMs <= 0L || current == null) return plan
+        val durationSec = totalDurationMs / 1000f
+        if (durationSec <= 2f) return plan
+
+        val loudness = current.loudnessCurve
+        var avg = 0f
+        var n = 0
+        var quietTailSec = current.endSilenceSec.coerceAtLeast(0f)
+        var finalTailDeltaDb: Float? = null
+
+        if (loudness != null && loudness.size >= 8) {
+            val startIdx = (loudness.size * 0.35f).toInt().coerceIn(0, loudness.size - 2)
+            val endIdx = (loudness.size * 0.95f).toInt().coerceIn(startIdx + 1, loudness.size)
+            for (i in startIdx until endIdx) {
+                avg += loudness[i]
+                n++
+            }
+            if (n > 0) {
+                avg /= n
+                val secPerSample = durationSec / loudness.size.toFloat()
+                val quietThreshold = minOf(avg - 14f, -30f)
+                var tailCount = 0
+                for (k in loudness.indices.reversed()) {
+                    if (loudness[k] < quietThreshold) tailCount++ else break
+                }
+                quietTailSec = (tailCount * secPerSample).coerceIn(0f, 8f)
+
+                val finalSamples = kotlin.math.ceil((2.5f / secPerSample).toDouble()).toInt().coerceIn(1, loudness.size)
+                var finalSum = 0f
+                for (k in (loudness.size - finalSamples) until loudness.size) {
+                    finalSum += loudness[k]
+                }
+                finalTailDeltaDb = (finalSum / finalSamples.toFloat()) - avg
+            }
+        }
+
+        val appleOutroTailSec = current.outroFadeStartMs
+            ?.let { durationSec - it / 1000f }
+            ?.takeIf { it >= 0f }
+
+        val maxAllowedOverlap = when {
+            quietTailSec < 0.6f && finalTailDeltaDb != null && finalTailDeltaDb > -4.5f -> {
+                if (plan.mixability < 0.55f) {
+                    return plan.copy(
+                        enabled = false,
+                        durationSec = 0,
+                        introSkipSec = 0f,
+                        reason = plan.reason + "，尾段人声/响度持续至结尾自动跳过",
+                    )
+                }
+                2
+            }
+            appleOutroTailSec != null && appleOutroTailSec < 1.2f && plan.mixability < 0.50f -> {
+                return plan.copy(
+                    enabled = false,
+                    durationSec = 0,
+                    introSkipSec = 0f,
+                    reason = plan.reason + "，尾段极短自动跳过",
+                )
+            }
+            plan.mixability < 0.40f -> 3
+            else -> MAX_AUTO_DURATION
+        }
+
+        val bars = current.barTimesSec ?: current.beatTimesSec
+        if (bars == null || bars.size < 8) {
+            val capped = plan.durationSec.coerceIn(MIN_AUTO_DURATION, maxAllowedOverlap)
+            if (capped <= 0) {
+                return plan.copy(enabled = false, durationSec = 0, introSkipSec = 0f, reason = plan.reason + "，尾段压缩后自动跳过")
+            }
+            val nextSkip = if (capped <= 1) 0f else plan.introSkipSec.coerceAtMost(capped * 0.55f)
+            return if (capped == plan.durationSec && nextSkip == plan.introSkipSec) plan else plan.copy(
+                durationSec = capped,
+                introSkipSec = nextSkip,
+                reason = plan.reason + "，尾段缩短至${capped}s",
+            )
+        }
+
+        val target = when (plan.mode) {
+            TransitionMode.HARMONIC_BLEND -> 8f to 2.5f
+            TransitionMode.BASS_SWAP -> 7f to 2f
+            TransitionMode.FILTER_MIX -> 5f to 2f
+            TransitionMode.QUICK_CUT -> minOf(4f, plan.durationSec.toFloat()) to 1.5f
+        }
+        val baseDesired = if (plan.durationSec < 4) plan.durationSec.toFloat() else target.first + quietTailSec * 0.7f
+        val desiredOverlap = baseDesired.coerceIn(1f, maxAllowedOverlap.toFloat())
+        val from = bars.indexOfFirst { it > durationSec * 0.35f }.let { if (it < 0) 0 else it }
+
+        var bestCue: Float? = null
+        var bestScore = -Float.MAX_VALUE
+        for (i in from until bars.size) {
+            val cue = bars[i]
+            if (cue >= durationSec - 0.8f) continue
+            val overlap = durationSec - cue
+            if (overlap < 1f || overlap > maxAllowedOverlap.toFloat()) continue
+            val durationScore = 1f - (abs(overlap - desiredOverlap) / (target.second * 2f)).coerceIn(0f, 1f)
+            val energyScore = if (loudness != null && n > 0) {
+                val idx = ((cue / durationSec) * loudness.size).toInt().coerceIn(0, loudness.size - 1)
+                ((avg - loudness[idx]) / (abs(avg) + 1f)).coerceIn(0f, 1f)
+            } else 0.4f
+            val phrase = (60000f * 8f / (plan.targetBpm ?: 120f)) / 1000f
+            val phraseScore = if (overlap >= phrase * 0.8f) 1f else 0.6f
+            val score = durationScore * 0.45f + energyScore * 0.25f + phraseScore * 0.15f + plan.mixability * 0.15f
+            if (score > bestScore) {
+                bestScore = score
+                bestCue = cue
+            }
+        }
+
+        val overlap = if (bestCue != null) {
+            (durationSec - bestCue).roundToInt().coerceIn(1, maxAllowedOverlap)
+        } else {
+            plan.durationSec.coerceIn(MIN_AUTO_DURATION, maxAllowedOverlap)
+        }
+        if (overlap <= 0) {
+            return plan.copy(enabled = false, durationSec = 0, introSkipSec = 0f, reason = plan.reason + "，无合适重叠区间自动跳过")
+        }
+        val nextSkip = if (overlap <= 1) 0f else plan.introSkipSec.coerceAtMost(overlap * 0.55f)
+        val suffix = if (bestCue != null) "，接歌点=${"%.1f".format(bestCue)}s" else "，尾段缩短至${overlap}s"
+        return plan.copy(
+            durationSec = overlap,
+            introSkipSec = nextSkip,
+            reason = plan.reason + suffix,
         )
     }
 

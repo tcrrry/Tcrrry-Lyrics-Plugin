@@ -338,23 +338,6 @@ internal object TcrrryLyricsSettingsUi {
         }
         body.addView(autoRow, fullMargin(activity, 14))
 
-        val usbRow = menuRow(activity, "有线耳机优化", com.tcrrry.lyrics.plugin.MoreToolsCoordinator.usbMenuSummary(activity)) {}
-        var usbSummaryView: TextView? = null
-        run {
-            val leftCol = (usbRow as? ViewGroup)?.getChildAt(0) as? ViewGroup
-            usbSummaryView = leftCol?.getChildAt(1) as? TextView
-        }
-        usbRow.setOnClickListener { view ->
-            SettingsDialogMotion.from(view) {
-                showWiredHeadphoneSettings(activity) {
-                    val summary = com.tcrrry.lyrics.plugin.MoreToolsCoordinator.usbMenuSummary(activity)
-                    usbSummaryView?.text = summary
-                    usbRow.contentDescription = "有线耳机优化，$summary"
-                }
-            }
-        }
-        body.addView(usbRow, fullMargin(activity, 14))
-
         val speedRow = menuRow(activity, "长按倍速播放", com.tcrrry.lyrics.plugin.MoreToolsCoordinator.playbackSpeedMenuSummary(activity)) {}
         var speedSummaryView: TextView? = null
         run {
@@ -737,7 +720,7 @@ internal object TcrrryLyricsSettingsUi {
         }
         body.addView(autoDurationRow, fullMargin(activity, 12))
         body.addView(
-            label(activity, "「自动」会根据曲目尾奏强弱与节奏契合度在 4~10 秒间柔和过渡，避免裁剪人声", 12f, colors.secondary),
+            label(activity, "「自动」会根据曲目契合度与尾奏响度在 0~10 秒间动态调节；不好匹配或人声持续到结尾时自动缩至极短或跳过过渡", 12f, colors.secondary),
             fullMargin(activity, 4),
         )
 
@@ -807,10 +790,6 @@ internal object TcrrryLyricsSettingsUi {
 
         refreshAutoControls()
         bubbleDialog(activity, body).show()
-    }
-
-    internal fun showUsbBitPerfectSettings(activity: Activity, onChanged: () -> Unit = {}) {
-        showWiredHeadphoneSettings(activity, onChanged)
     }
 
     internal fun showPlaybackSpeedSettings(activity: Activity, onChanged: () -> Unit = {}) {
@@ -987,114 +966,6 @@ internal object TcrrryLyricsSettingsUi {
             }, fullMargin(activity, 14))
         }
         redraw()
-        dialog.show()
-    }
-
-    internal fun showWiredHeadphoneSettings(activity: Activity, onChanged: () -> Unit = {}) {
-        val coordinator = com.tcrrry.lyrics.plugin.MoreToolsCoordinator
-        val colors = SettingsUiTheme.colors(activity)
-        val supported = coordinator.isUsbBitPerfectSupported()
-        val body = card(activity).apply { addView(title(activity, "有线耳机优化", 20f)) }
-
-        body.addView(
-            label(
-                activity,
-                if (supported) "接入 USB 小尾巴或有线耳机播歌时，优先申请独立 Hi-Fi 输出通道，并实时显示当前采样率与硬件素质。"
-                else "当前 Android 版本低于 Android 14（API 34），仅支持查看有线设备基础状态；独立直通混音接口需 Android 14 及以上。",
-                12.5f,
-                colors.secondary,
-            ),
-            fullMargin(activity, 6),
-        )
-
-        val diagView = label(activity, "正在检测有线音频设备...", 13f, colors.text).apply {
-            setLineSpacing(0f, 1.35f)
-            setPadding(dp(activity, 14), dp(activity, 12), dp(activity, 14), dp(activity, 12))
-            background = shape(activity, colors.raised, 14, colors.outline)
-            SettingsGlassMaterial.mark(this, SettingsGlassKind.Card)
-            setTextIsSelectable(true)
-        }
-
-        fun refreshProbe(showToast: Boolean = false) {
-            val snap = coordinator.probeUsbAudio(activity)
-            diagView.text = snap.formatCleanCard()
-            if (showToast) {
-                val msg = when {
-                    snap.usbDacPresent -> {
-                        val bpNote = if (snap.bitPerfectCount > 0) " · 支持硬件 Bit-Perfect" else " · 独立通道就绪"
-                        "已连接 ${snap.deviceName}$bpNote"
-                    }
-                    snap.wiredHeadsetPresent -> "已连接 ${snap.deviceName}"
-                    else -> "未检测到有线耳机或 USB 小尾巴"
-                }
-                toast(activity, msg)
-            }
-            onChanged()
-        }
-
-        body.addView(binaryChoice(
-            activity,
-            "启用有线耳机优化",
-            coordinator.usbBitPerfectEnabled(activity),
-            enabled = supported,
-        ) { enabled ->
-            coordinator.setUsbBitPerfectEnabled(activity, enabled)
-            refreshProbe(false)
-            toast(activity, if (enabled) "已开启有线耳机优化，切歌或重播后生效" else "已关闭有线耳机优化")
-        }, fullMargin(activity, 12))
-
-        body.addView(title(activity, "实时设备与采样率信息", 15f), fullMargin(activity, 14))
-        body.addView(diagView, fullMargin(activity, 8))
-
-        val probeBtn = action(activity, "检测设备", emphasized = true) {
-            refreshProbe(true)
-        }
-        val clearBtn = action(activity, "恢复默认") {
-            val msg = coordinator.clearUsbPreferredMixer(activity)
-            refreshProbe(false)
-            toast(activity, msg)
-        }.apply {
-            isEnabled = supported
-            alpha = if (supported) 1f else .45f
-        }
-        body.addView(pairedActions(activity, probeBtn, clearBtn), fullMargin(activity, 12))
-
-        body.addView(title(activity, "优化作用说明", 15f), fullMargin(activity, 14))
-        body.addView(
-            label(
-                activity,
-                "重要提示：仅已获取 Root 权限或系统底层 HAL 开放独占接口的设备，才能实现真正的 USB 硬件源码独占（Bit-Perfect）。无 Root 机型开启后可申请独立 Hi-Fi 通道，避开系统调音并保留 32bit 解析余裕。",
-                12.5f,
-                colors.primary,
-            ).apply {
-                typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
-                setLineSpacing(0f, 1.3f)
-                setPadding(dp(activity, 12), dp(activity, 10), dp(activity, 12), dp(activity, 10))
-                background = shape(activity, colors.selected, 12, colors.primary)
-            },
-            fullMargin(activity, 8),
-        )
-        body.addView(
-            label(
-                activity,
-                "• 规避系统音效调音：申请独立 Hi-Fi 输出通道，绕过系统内置耳机音效，保留外接 DAC 原始声底。\n" +
-                    "• 32bit 无降采样匹配：按音轨实时采样率（最高 192kHz）匹配混音器规格，减少重采样与位深截断损失。",
-                12.5f,
-                colors.secondary,
-            ).apply {
-                setLineSpacing(0f, 1.3f)
-            },
-            fullMargin(activity, 8),
-        )
-
-        refreshProbe(false)
-        val listenerCloseable = coordinator.addUsbAudioListener {
-            refreshProbe(false)
-        }
-        val dialog = bubbleDialog(activity, body)
-        dialog.setOnDismissListener {
-            runCatching { listenerCloseable.close() }
-        }
         dialog.show()
     }
 

@@ -52,7 +52,7 @@ class PluginDiagnosticLogTest {
         assertTrue(bundle.contains("Plugin Version: ${PluginDiagnosticLog.PLUGIN_VERSION}"))
         assertTrue(bundle.contains("===== 歌词 (tcrrry_lyrics_log.txt"))
         assertTrue(bundle.contains("===== 智能混音 (automix_log.txt"))
-        assertTrue(bundle.contains("===== 有线耳机 (usb_bitperfect_log.txt"))
+        assertFalse(bundle.contains("usb_bitperfect_log.txt"))
         assertTrue(bundle.contains("Desktop Lyrics lookup id=42"))
 
         assertTrue(PluginDiagnosticLog.clear(app, PluginDiagnosticLog.Channel.LYRICS))

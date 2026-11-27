@@ -40,4 +40,52 @@ class AutoTransitionProgressBarMorphTest {
         assertEquals(0.55f, scrubF, 0.001f)
         assertEquals(0f, scrubB, 0.001f)
     }
+
+    @Test fun rejectsStaleOffsetInMiddleOfLongerTrack() {
+        assertFalse(
+            AutoMixRescueWindow.shouldRescue(
+                posUs = 211_000_000L,
+                durationUs = 302_000_000L,
+                secondOffsetUs = 186_000_000L,
+                plannedSec = 7,
+                seekEnabled = true,
+            ),
+        )
+    }
+
+    @Test fun allowsRescueInsideTailWindowEvenWithStaleOffset() {
+        assertTrue(
+            AutoMixRescueWindow.shouldRescue(
+                posUs = 296_000_000L,
+                durationUs = 302_000_000L,
+                secondOffsetUs = 186_000_000L,
+                plannedSec = 7,
+                seekEnabled = true,
+            ),
+        )
+    }
+
+    @Test fun rejectsRescueWhenPlannedDurationIsZero() {
+        assertFalse(
+            AutoMixRescueWindow.shouldRescue(
+                posUs = 298_000_000L,
+                durationUs = 302_000_000L,
+                secondOffsetUs = 295_000_000L,
+                plannedSec = 0,
+                seekEnabled = true,
+            ),
+        )
+    }
+
+    @Test fun allowsRescueWithValidTailSecondOffset() {
+        assertTrue(
+            AutoMixRescueWindow.shouldRescue(
+                posUs = 297_000_000L,
+                durationUs = 302_000_000L,
+                secondOffsetUs = 295_000_000L,
+                plannedSec = 7,
+                seekEnabled = true,
+            ),
+        )
+    }
 }

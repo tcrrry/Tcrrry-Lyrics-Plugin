@@ -21,7 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** Always-on rolling diagnostic log stored in app-external files so users can export logs without root. */
 internal object PluginDiagnosticLog {
-    const val PLUGIN_VERSION = "1.4"
+    const val PLUGIN_VERSION = com.tcrrry.lyrics.engine.BuildConfig.PLUGIN_VERSION
     const val MAX_FILE_BYTES = 256L * 1024L
     const val TRIM_TARGET_BYTES = 128L * 1024L
     const val PREVIEW_MAX_BYTES = 24 * 1024
@@ -30,7 +30,6 @@ internal object PluginDiagnosticLog {
     enum class Channel(val label: String, val fileName: String) {
         LYRICS("歌词", "tcrrry_lyrics_log.txt"),
         AUTOMIX("智能混音", "automix_log.txt"),
-        USB("有线耳机", "usb_bitperfect_log.txt"),
     }
 
     data class ChannelInfo(

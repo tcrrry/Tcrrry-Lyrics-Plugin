@@ -88,6 +88,7 @@ internal object AutoTransitionProgressBar {
     private val appliedBarAlpha = WeakHashMap<View, Float>()
     private val miniCoverAnimators = WeakHashMap<ImageView, ValueAnimator>()
     private val titleFadeTimes = WeakHashMap<TextView, Long>()
+    private val badgeAnimators = WeakHashMap<TextView, ValueAnimator>()
 
     @Volatile private var active = false
     @Volatile private var visualActive = false
@@ -100,6 +101,7 @@ internal object AutoTransitionProgressBar {
     private var cachedRootView: View? = null
     private var clock: ValueAnimator? = null
     private var glowFadeAnimator: ValueAnimator? = null
+    private var watchdogRunnable: Runnable? = null
     private val labelText = "智能混音"
 
     private const val WARM_DAWN_DEFAULT = 0xFFFFE4C4.toInt()
@@ -205,6 +207,7 @@ internal object AutoTransitionProgressBar {
                         param.result = null
                         main.post {
                             runCatching {
+                                if (!active || !visualActive) return@runCatching
                                 if (!badgeSpans.containsKey(tv)) {
                                     val sb = SpannableStringBuilder(labelText)
                                     updateBadgeSpan(sb, 0L)
@@ -228,7 +231,16 @@ internal object AutoTransitionProgressBar {
         }
         installMiniCoverCrossfadeObserver(scope)
         scope.onClose {
-            main.post { detachAllGlowOverlays() }
+            active = false
+            main.post {
+                watchdogRunnable?.let { main.removeCallbacks(it) }
+                watchdogRunnable = null
+                visualActive = false
+                for (anim in badgeAnimators.values.toList()) runCatching { anim.cancel() }
+                badgeAnimators.clear()
+                restoreBadges()
+                detachAllGlowOverlays()
+            }
         }
         runCatching {
             val onAttach = View::class.java.getDeclaredMethod("onAttachedToWindow")
@@ -276,10 +288,23 @@ internal object AutoTransitionProgressBar {
     fun setRootView(root: View?) { if (root != null) cachedRootView = root }
     fun setAlbumAccentColor(color: Int?) { albumAccentColor = color }
 
-    fun setTransitionActive(active: Boolean) {
+    fun isTransitionActive(): Boolean =
+        active || visualActive || glowOverlays.isNotEmpty() || badgeSpans.isNotEmpty()
+
+    fun setTransitionActive(active: Boolean, maxDurationMs: Long = 13_000L) {
         this.active = active
         main.post {
+            watchdogRunnable?.let { main.removeCallbacks(it) }
+            watchdogRunnable = null
             if (active) {
+                val safeTimeoutMs = maxDurationMs.coerceIn(2_000L, 15_000L)
+                val watchdog = Runnable {
+                    if (this.active || visualActive || glowOverlays.isNotEmpty() || badgeSpans.isNotEmpty()) {
+                        setTransitionActive(false)
+                    }
+                }
+                watchdogRunnable = watchdog
+                main.postDelayed(watchdog, safeTimeoutMs)
                 scanActiveWindowsForViews()
                 val root = cachedRootView
                 if (root != null) findViewsInTree(root)
@@ -569,9 +594,10 @@ internal object AutoTransitionProgressBar {
 
     private fun applyBadgeTransition(badge: TextView) {
         runCatching {
-            if (badgeSpans.containsKey(badge)) return@runCatching
+            if (!active || !visualActive || badgeSpans.containsKey(badge)) return@runCatching
             if (!badgeColors.containsKey(badge)) badgeColors[badge] = badge.currentTextColor
             if (!badgeBackgrounds.containsKey(badge)) badgeBackgrounds[badge] = badge.background
+            badgeAnimators.remove(badge)?.cancel()
 
             val out = ValueAnimator.ofFloat(1f, 0f)
             out.duration = 220L
@@ -579,6 +605,10 @@ internal object AutoTransitionProgressBar {
             out.addListener(object : android.animation.AnimatorListenerAdapter() {
                 override fun onAnimationEnd(animation: android.animation.Animator) {
                     runCatching {
+                        if (!active || !visualActive || badgeAnimators[badge] !== animation) {
+                            if (!active) badge.alpha = 1f
+                            return@runCatching
+                        }
                         val sb = SpannableStringBuilder(labelText)
                         updateBadgeSpan(sb, 0L)
                         badgeSpans[badge] = sb
@@ -591,10 +621,12 @@ internal object AutoTransitionProgressBar {
                         val inAnim = ValueAnimator.ofFloat(0f, 1f)
                         inAnim.duration = 360L
                         inAnim.addUpdateListener { a -> badge.alpha = a.animatedValue as Float }
+                        badgeAnimators[badge] = inAnim
                         inAnim.start()
                     }
                 }
             })
+            badgeAnimators[badge] = out
             out.start()
         }
     }
@@ -735,12 +767,14 @@ internal object AutoTransitionProgressBar {
                 val originalText = badgeViews[badge] ?: ""
                 val originalColor = badgeColors[badge] ?: Color.WHITE
                 val originalBg = badgeBackgrounds[badge]
+                badgeAnimators.remove(badge)?.cancel()
                 val out = ValueAnimator.ofFloat(1f, 0f)
                 out.duration = 220L
                 out.addUpdateListener { a -> badge.alpha = a.animatedValue as Float }
                 out.addListener(object : android.animation.AnimatorListenerAdapter() {
                     override fun onAnimationEnd(animation: android.animation.Animator) {
                         runCatching {
+                            if (active || badgeAnimators[badge] !== animation) return@runCatching
                             ownText = true
                             badge.text = originalText
                             ownText = false
@@ -750,11 +784,20 @@ internal object AutoTransitionProgressBar {
                             val inAnim = ValueAnimator.ofFloat(0f, 1f)
                             inAnim.duration = 300L
                             inAnim.addUpdateListener { a -> badge.alpha = a.animatedValue as Float }
+                            badgeAnimators[badge] = inAnim
                             inAnim.start()
-                            main.postDelayed({ runCatching { badge.visibility = View.VISIBLE; badge.alpha = 1f } }, 650L)
+                            main.postDelayed({
+                                runCatching {
+                                    if (!active) {
+                                        badge.visibility = View.VISIBLE
+                                        badge.alpha = 1f
+                                    }
+                                }
+                            }, 650L)
                         }
                     }
                 })
+                badgeAnimators[badge] = out
                 out.start()
             }
         }

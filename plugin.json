@@ -4,8 +4,8 @@
   "id": "com.tcrrry.lyrics",
   "name": "Tcrrry 歌词增强",
   "author": "Tcrrry",
-  "versionName": "1.4.2",
-  "versionCode": 100,
+  "versionName": "1.4.3",
+  "versionCode": 101,
   "entryClass": "com.tcrrry.lyrics.plugin.LyricsPlugin",
   "minAndroidApi": 31,
   "description": "适配 AM++ 1.7.1／Apple Music 7.0.3（1626）。强化歌词显示与英文冗余发音过滤，新增插件歌词源总开关、智能混音（自动过渡与曙光进度光效）、长按倍速播放、强化睡眠定时、自定义歌单封面修复、播放列表导出，以及可共存避让的 Kifranei 媒体外观增强。"

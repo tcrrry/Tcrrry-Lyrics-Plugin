@@ -11,7 +11,7 @@ class HostLyricsSubmissionGuardTest {
         val scope=HookRegistrationScope()
         try {
             val owned=Any();val foreign=Any()
-            HostLyricsSubmissionGuard.install(scope) { owned };scope.activate()
+            HostLyricsSubmissionGuard.install(scope, ownedPointer = { owned });scope.activate()
             val callbacks=com.tcrrry.lyrics.plugin.TestPluginContext.current.callbacks
             val targets=callbacks.keys.filter { it.declaringClass.name.startsWith("dev.amenhancer.module.hook.LyricsResultSubmissionBridge$") }
             assertEquals(2,targets.size)
@@ -40,5 +40,48 @@ class HostLyricsSubmissionGuardTest {
         assertFalse(HostLyricsSubmissionGuard.ownsArgument(foreign to null,owned))
         assertFalse(HostLyricsSubmissionGuard.ownsArgument(null to "failure",owned))
         assertFalse(HostLyricsSubmissionGuard.ownsArgument(null,null))
+    }
+
+    @Test fun guardSkipsEmbeddedBridgeWhilePublishingOrMatchingSecondaryPointer() {
+        com.tcrrry.lyrics.plugin.TestPluginContext.attach()
+        val scope = HookRegistrationScope()
+        try {
+            val primary = Any()
+            val canonical = Any()
+            val foreign = Any()
+            var publishingNow = true
+            HostLyricsSubmissionGuard.install(
+                scope = scope,
+                ownedPointer = { primary },
+                isPublishing = { publishingNow },
+                secondaryOwnedPointer = { canonical },
+            )
+            scope.activate()
+            val callbacks = com.tcrrry.lyrics.plugin.TestPluginContext.current.callbacks
+            val targets = callbacks.keys.filter { it.declaringClass.name.startsWith("dev.amenhancer.module.hook.LyricsResultSubmissionBridge$") }
+            assertEquals(2, targets.size)
+            fun blocked(method: java.lang.reflect.Executable, value: Any?): Boolean {
+                val receiver = (method as java.lang.reflect.Method).declaringClass.getDeclaredConstructor().newInstance()
+                val argument = dev.amenhancer.module.hook.ModernMethodHook.MethodHookParam(arrayOf(value))
+                val call = dev.amenhancer.plugin.api.PluginCall(method, receiver, arrayOf(argument), null, null)
+                callbacks.getValue(method).before(call)
+                val result = call.isOutcomeChanged
+                callbacks.getValue(method).after(call)
+                return result
+            }
+            for (target in targets) {
+                assertTrue(blocked(target, foreign))
+                publishingNow = false
+                assertFalse(blocked(target, foreign))
+                assertTrue(blocked(target, primary))
+                assertTrue(blocked(target, canonical to null))
+                publishingNow = true
+            }
+            scope.close()
+            assertTrue(targets.none { callbacks.containsKey(it) })
+        } finally {
+            scope.close()
+            com.tcrrry.lyrics.plugin.TestPluginContext.current.close()
+        }
     }
 }

@@ -367,12 +367,18 @@ internal class AppleMusicCustomLyricsTarget(
                 CurrentLyricsSourceStatus.refreshSilently(id) }
         }
         if (resultProfile?.document?.has("lyricResultSubmission") == true) {
-            HostLyricsSubmissionGuard.install(registration) {
-                if (!replacementEnabled()) return@install null
-                currentSong.current()?.details?.appleMusicId?.let { id ->
-                    parser.unwrap(session.readyReplacementFor(id) ?: autoSession?.readyReplacementFor(id))
-                }
-            }
+            var bridgeRef: LyricsResultSubmissionBridge? = null
+            HostLyricsSubmissionGuard.install(
+                scope = registration,
+                ownedPointer = {
+                    if (!replacementEnabled()) null
+                    else currentSong.current()?.details?.appleMusicId?.let { id ->
+                        parser.unwrap(session.readyReplacementFor(id) ?: autoSession?.readyReplacementFor(id))
+                    }
+                },
+                isPublishing = { bridgeRef?.isPublishingOnCurrentThread() == true },
+                secondaryOwnedPointer = { bridgeRef?.selectedPointerSnapshot()?.takeIf(parser::isAlive) },
+            )
             val installedPointer = installMethod.declaringClass.declaredFields
                 .filter { it.type == ptrClass }.singleOrNull()?.apply { isAccessible = true }
             lateinit var resultBridge: LyricsResultSubmissionBridge
@@ -413,6 +419,7 @@ internal class AppleMusicCustomLyricsTarget(
                 seam::currentItemAdamIdOf, selectReplacement, parser::isAlive, parser::documentOf,
                 ModernXposedRuntime::log)
                 ?: return TargetCapabilityInstall.Degraded("Native lyric result contract unavailable; original lyrics retained")
+            bridgeRef = resultBridge
             resultBridge.awaitingCachedReplacement = { id ->
                 replacementEnabled() && autoSession?.awaitingCachedReplacement(id) == true
             }
@@ -456,18 +463,31 @@ internal class AppleMusicCustomLyricsTarget(
             }
             pageHasReplacement = { id ->
                 val fragment = activeFragment?.get()
-                fragment != null && installedPointer != null && shouldReportAppliedLyrics(id,
-                    seam.currentItemAdamIdOf(fragment), runCatching { installedPointer.get(fragment) }.getOrNull(),
-                    readyReplacementFor(id))
+                val installed = runCatching { fragment?.let { installedPointer?.get(it) } }.getOrNull()
+                val ready = readyReplacementFor(id)
+                val selected = resultBridge.selectedPointerSnapshot()?.takeIf { parser.isAlive(it) && nativePointers[it] != true }
+                fragment != null && installedPointer != null && (
+                    shouldReportAppliedLyrics(id, seam.currentItemAdamIdOf(fragment), installed, ready) ||
+                        shouldReportAppliedLyrics(id, seam.currentItemAdamIdOf(fragment), installed, selected) ||
+                        (id > 0L && seam.currentItemAdamIdOf(fragment) == id && installed != null &&
+                            nativePointers[installed] != true && ready != null &&
+                            parser.documentOf(installed)?.let { it == parser.documentOf(ready) } == true)
+                    )
             }
             fun syncResultStatus(fragment: Any) {
                 val id = seam.currentItemAdamIdOf(fragment) ?: return
                 if (currentSong.current()?.details?.appleMusicId != id) return
                 val installed = runCatching { installedPointer?.get(fragment) }.getOrNull()
-                val nativeRecorded = CurrentLyricsSourceStatus.recordNativeIfInstalled(application, id, id,
-                    installed, nativeById[id]?.let(parser::unwrap), nativeById[id]?.let(nativeText::get))
-                if (!nativeRecorded && pageHasReplacement(id))
+                val nativeCandidate = nativeById[id]?.let(parser::unwrap)
+                    ?: installed?.takeIf { nativePointers[it] == true }
+                val nativeDoc = nativeById[id]?.let(nativeText::get)
+                    ?: installed?.takeIf { nativePointers[it] == true }?.let(nativeText::get)
+                val nativeRecorded = CurrentLyricsSourceStatus.recordNativeIfInstalled(
+                    application, id, id, installed, nativeCandidate, nativeDoc,
+                )
+                if (!nativeRecorded && pageHasReplacement(id)) {
                     CurrentLyricsSourceStatus.recordApplied(application, id, session.readyReplacementFor(id) != null)
+                }
             }
             publishToPage = { id ->
                 resultBridge.onReplacementPublished(id)

@@ -37,10 +37,28 @@ class LyricsResultSubmissionBridgeTest {
         var writes=0
         var observer:((Any?)->Unit)?=null
         var failAfterStore=false
+        var simulateLiveDataDispatchLock=false
+        @JvmField var mDispatchingValue=false
+        @JvmField var mDispatchInvalidated=false
         fun getValue():Any?=stored
         fun setValue(value:Any?) { dispatch(this,"setValue",arrayOf(value)) { args ->
-            stored=args[0];writes++;observer?.invoke(stored)
-            if(failAfterStore) throw IllegalStateException("observer failure after storage")
+            stored=args[0];writes++
+            if (simulateLiveDataDispatchLock) {
+                if (mDispatchingValue) {
+                    mDispatchInvalidated=true
+                    return@dispatch null
+                }
+                mDispatchingValue=true
+                do {
+                    mDispatchInvalidated=false
+                    observer?.invoke(stored)
+                    if (failAfterStore) throw IllegalStateException("observer failure after storage")
+                } while (mDispatchInvalidated)
+                mDispatchingValue=false
+            } else {
+                observer?.invoke(stored)
+                if(failAfterStore) throw IllegalStateException("observer failure after storage")
+            }
             null
         } }
         fun postValue(value:Any?) { dispatch(this,"postValue",arrayOf(value)) { args ->
@@ -395,6 +413,56 @@ class LyricsResultSubmissionBridgeTest {
         f.choices[mediaId]=Pointer(Native(mediaId),"must not install")
         f.bridge.onReplacementPublished(mediaId);idle()
         assertTrue(f.installed.isEmpty());assertEquals(0,f.model.results.writes)
+        f.scope.close()
+    }
+
+    @Test fun recoversStuckLiveDataDispatchLockAfterObserverFailureAndRetriesDelivery() {
+        val f=fixture()
+        f.model.results.simulateLiveDataDispatchLock=true
+        var blockInstall=true
+        f.model.results.observer={ value ->
+            val pointer=(value as Pair<*,*>).first as? Pointer
+            if(!blockInstall) {
+                f.model.order+="observe";f.installed+=pointer
+                f.bridge.onInstalled(f.fragment,pointer)
+            }
+        }
+        start(f)
+        f.model.results.setValue(native(1) to null)
+        val replacement=Pointer(Native(1),"recovered document")
+        f.choices[1]=replacement
+        f.model.results.failAfterStore=true
+        f.bridge.onReplacementPublished(1);idle()
+        // Observer threw before onInstalled, but bridge cleared mDispatchingValue instead of leaving LiveData wedged.
+        assertFalse(f.model.results.mDispatchingValue)
+        blockInstall=false
+        f.model.results.failAfterStore=false
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(300))
+        assertFalse(f.model.results.mDispatchingValue)
+        assertSame(replacement,f.installed.lastOrNull())
+
+        // Subsequent songs continue delivering normally without toggling Settings/Home.
+        f.current.publish(Item("2"),CurrentSongDetails(2));f.bridge.onSongChanged(2)
+        f.fragment.id=2;f.model.loadLyrics(Item("2"));f.bridge.attach(f.fragment)
+        val song2=Pointer(Native(2),"song 2 lyrics")
+        f.choices[2]=song2
+        f.model.results.setValue(native(2) to null);idle()
+        assertSame(song2,f.installed.lastOrNull())
+        f.scope.close()
+    }
+
+    @Test fun recoversPreExistingStuckDispatchLockFromExternalCaller() {
+        val f=fixture()
+        f.model.results.simulateLiveDataDispatchLock=true
+        start(f)
+        f.model.results.setValue(native(1) to null)
+        // Simulate external caller/bridge leaving LiveData.mDispatchingValue=true.
+        f.model.results.mDispatchingValue=true
+        val replacement=Pointer(Native(1),"unwedged document")
+        f.choices[1]=replacement
+        f.bridge.onReplacementPublished(1);idle()
+        assertFalse(f.model.results.mDispatchingValue)
+        assertSame(replacement,f.installed.lastOrNull())
         f.scope.close()
     }
 

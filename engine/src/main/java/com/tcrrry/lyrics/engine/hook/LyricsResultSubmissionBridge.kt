@@ -7,7 +7,10 @@ import android.view.View
 import com.tcrrry.lyrics.metadata.amprovider.xposed.internal.WeakIdentityMap
 import java.lang.ref.WeakReference
 import java.lang.reflect.Constructor
+import java.lang.reflect.Field
+import java.lang.reflect.InvocationTargetException
 import java.lang.reflect.Method
+import java.util.concurrent.ConcurrentHashMap
 
 /** Scoped ViewModel result submission. The native observer remains the only UI installer. */
 internal class LyricsResultSubmissionBridge private constructor(
@@ -69,6 +72,8 @@ internal class LyricsResultSubmissionBridge private constructor(
     /** Guards against rewriting the container write this bridge itself issues. */
     private val publishing = ThreadLocal<Boolean>()
     private val preparingIndex = ThreadLocal<Boolean>()
+    private val setValueDepth = ThreadLocal<Int>()
+    private val dispatchFieldsCache = ConcurrentHashMap<Class<*>, Pair<Field?, Field?>>()
 
     @Volatile private var vm: Any? = null
     @Volatile private var container: Any? = null
@@ -88,11 +93,79 @@ internal class LyricsResultSubmissionBridge private constructor(
     private var skipNativeIndex = false
     private var indexRevision = 0L
     private var indexBuildsInFlight = 0
+    private var submissionRetryGeneration = -1L
+    private var submissionRetryCount = 0
     private val reportedFailures = mutableSetOf<String>()
 
     private fun report(reason: String, error: Throwable) {
-        if (synchronized(reportedFailures) { reportedFailures.add(reason) }) logger("$reason: $error")
+        var cause: Throwable = error
+        while (cause is InvocationTargetException && cause.targetException != null) {
+            cause = cause.targetException
+        }
+        val key = "$reason:${cause.javaClass.name}"
+        val shouldLog = synchronized(reportedFailures) {
+            if (reportedFailures.size >= 16) reportedFailures.clear()
+            reportedFailures.add(key)
+        }
+        if (shouldLog) logger("$reason: ${describeThrowable(cause)}")
     }
+
+    private fun describeThrowable(error: Throwable): String {
+        var cause: Throwable = error
+        while (cause is InvocationTargetException && cause.targetException != null) {
+            cause = cause.targetException
+        }
+        val frames = cause.stackTrace
+            .filterNot { it.className.startsWith("java.lang.reflect.") }
+            .take(2)
+            .joinToString(" <- ") { "${it.className}.${it.methodName}:${it.lineNumber}" }
+        val head = "${cause.javaClass.name}: ${cause.message}"
+        return if (frames.isBlank()) head else "$head [$frames]"
+    }
+
+    private fun dispatchFieldsFor(type: Class<*>): Pair<Field?, Field?> =
+        dispatchFieldsCache.computeIfAbsent(type) { cls ->
+            var dispatching: Field? = null
+            var invalidated: Field? = null
+            for (c in generateSequence(cls) { it.superclass }) {
+                if (dispatching == null) {
+                    dispatching = runCatching {
+                        c.getDeclaredField("mDispatchingValue").apply { isAccessible = true }
+                    }.getOrNull()
+                }
+                if (invalidated == null) {
+                    invalidated = runCatching {
+                        c.getDeclaredField("mDispatchInvalidated").apply { isAccessible = true }
+                    }.getOrNull()
+                }
+                if (dispatching != null && invalidated != null) break
+            }
+            dispatching to invalidated
+        }
+
+    private fun clearStuckDispatchLock(target: Any, reason: String): Boolean = runCatching {
+        val (dispatchingField, invalidatedField) = dispatchFieldsFor(target.javaClass)
+        if (dispatchingField != null && dispatchingField.getBoolean(target)) {
+            dispatchingField.setBoolean(target, false)
+            invalidatedField?.setBoolean(target, false)
+            logger(
+                "lyric result bridge: cleared stuck LiveData mDispatchingValue ($reason) " +
+                    "request=${requestIdSnapshot()} current=${currentSong.current()?.details?.appleMusicId}",
+            )
+            true
+        } else {
+            false
+        }
+    }.getOrDefault(false)
+
+    private fun enterSetValue(param: ModernMethodHook.MethodHookParam) {
+        param.extras["lyricResult.depthEntered"] = true
+        setValueDepth.set((setValueDepth.get() ?: 0) + 1)
+    }
+
+    internal fun isPublishingOnCurrentThread(): Boolean = publishing.get() == true
+
+    internal fun selectedPointerSnapshot(): Any? = selectionSnapshot()
 
     private val pairConstructor: Constructor<*>? = runCatching {
         contract.loader.loadClass("kotlin.Pair").getConstructor(Any::class.java, Any::class.java)
@@ -124,8 +197,13 @@ internal class LyricsResultSubmissionBridge private constructor(
         override fun beforeHookedMethod(param: MethodHookParam) {
             val receiver = param.thisObject ?: return
             if (!isResultContainer(receiver)) return
-            if (publishing.get() == true) return
-            if (closed || Looper.myLooper() != Looper.getMainLooper()) return
+            val onMain = Looper.myLooper() == Looper.getMainLooper()
+            if (publishing.get() == true) {
+                if (onMain) enterSetValue(param)
+                return
+            }
+            if (closed || !onMain) return
+            if ((setValueDepth.get() ?: 0) == 0) clearStuckDispatchLock(receiver, "before setValue")
             val incoming = param.args.getOrNull(0)
             val emptyStamp = incoming?.let { value ->
                 postedEmptyGenerations[value].also { postedEmptyGenerations.remove(value) }
@@ -135,7 +213,10 @@ internal class LyricsResultSubmissionBridge private constructor(
                 trace("dropped stale empty result")
                 return
             }
-            if (currentRequest() && isOurs(incoming)) return
+            if (currentRequest() && isOurs(incoming)) {
+                enterSetValue(param)
+                return
+            }
             runCatching {
                 // Recover only an unknown binding. A captured load can lead the
                 // metadata cache; disagreement must not relabel its native result.
@@ -184,7 +265,18 @@ internal class LyricsResultSubmissionBridge private constructor(
                 synchronized(lock) { clearSelectionLocked() }
                 report("lyric result selection failed", it)
             }
+            if (!param.shouldReturnEarly()) enterSetValue(param)
+        }
 
+        override fun afterHookedMethod(param: MethodHookParam) {
+            if (param.extras["lyricResult.depthEntered"] != true) return
+            val next = ((setValueDepth.get() ?: 1) - 1).coerceAtLeast(0)
+            if (next == 0) setValueDepth.remove() else setValueDepth.set(next)
+            val receiver = param.thisObject ?: return
+            val failure = param.throwable
+            if (failure != null && next == 0 && isResultContainer(receiver)) {
+                clearStuckDispatchLock(receiver, "after observer failure: ${describeThrowable(failure)}")
+            }
         }
     }
 
@@ -371,6 +463,11 @@ internal class LyricsResultSubmissionBridge private constructor(
             // This is a wakeup, not a captured document. Re-read the current
             // identity and selector after recovery changes a request generation.
             if (closed || verifiedCurrentId() != appleMusicId) return@post
+            if ((setValueDepth.get() ?: 0) == 0 &&
+                containerSnapshot()?.let { clearStuckDispatchLock(it, "before publish") } == true
+            ) {
+                synchronized(lock) { if (selectedPointer != null) installationPending = true }
+            }
             retryPendingAttachment(appleMusicId)
             if (!closed && verifiedCurrentId() == appleMusicId) selectAndPublish(appleMusicId)
         }
@@ -493,9 +590,13 @@ internal class LyricsResultSubmissionBridge private constructor(
             if (closed || instance !== vmSnapshot() || target !== containerSnapshot() ||
                 synchronized(lock) { generation != stamp } || !currentRequest()) return
             rememberSelection(effective)
+            if ((setValueDepth.get() ?: 0) == 0) clearStuckDispatchLock(target, "before selectAndPublish")
             contract.setValueMethod.invoke(target, pair)
             trace("published replacement")
         } catch (error: Throwable) {
+            if ((setValueDepth.get() ?: 0) == 0) {
+                clearStuckDispatchLock(target, "submission failure: ${describeThrowable(error)}")
+            }
             // setValue stores before notifying observers. An observer failure
             // cannot roll that write back, so reconcile with the actual value.
             runCatching { reconcileStoredResult(instance, target, stamp) }
@@ -506,6 +607,29 @@ internal class LyricsResultSubmissionBridge private constructor(
                     report("lyric result reconciliation failed", it)
                 }
             report("lyric result submission failed", error)
+            val shouldRetry = synchronized(lock) {
+                if (closed || vm !== instance || container !== target || generation != stamp || !installationPending) {
+                    false
+                } else {
+                    if (submissionRetryGeneration != stamp) {
+                        submissionRetryGeneration = stamp
+                        submissionRetryCount = 0
+                    }
+                    if (submissionRetryCount < 2) {
+                        submissionRetryCount++
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+            if (shouldRetry) {
+                mainHandler.postDelayed({
+                    if (!closed && synchronized(lock) { generation == stamp } && verifiedCurrentId() == appleMusicId) {
+                        selectAndPublish(appleMusicId)
+                    }
+                }, 250L)
+            }
         } finally { publishing.set(false) }
     }
 
@@ -648,8 +772,14 @@ internal class LyricsResultSubmissionBridge private constructor(
         }
         if (selectionSnapshot()?.let(::matchesRequest) != true) {
             trace(reason)
+            if ((setValueDepth.get() ?: 0) == 0) clearStuckDispatchLock(valueAndTarget.second, "before deferred native")
             runCatching { contract.setValueMethod.invoke(valueAndTarget.second, valueAndTarget.first) }
-                .onFailure { report("cached lyric native fallback failed", it) }
+                .onFailure {
+                    if ((setValueDepth.get() ?: 0) == 0) {
+                        clearStuckDispatchLock(valueAndTarget.second, "deferred native failure: ${describeThrowable(it)}")
+                    }
+                    report("cached lyric native fallback failed", it)
+                }
         }
     }
 
@@ -673,8 +803,14 @@ internal class LyricsResultSubmissionBridge private constructor(
                 delayedNativeValue.also { delayedNativeValue = null }
             }
             if (value != null && currentRequest() && selectionSnapshot()?.let(::matchesRequest) != true) {
+                if ((setValueDepth.get() ?: 0) == 0) clearStuckDispatchLock(receiver, "before deferred native")
                 runCatching { contract.setValueMethod.invoke(receiver, value) }
-                    .onFailure { report("cached lyric native fallback failed", it) }
+                    .onFailure {
+                        if ((setValueDepth.get() ?: 0) == 0) {
+                            clearStuckDispatchLock(receiver, "deferred native failure: ${describeThrowable(it)}")
+                        }
+                        report("cached lyric native fallback failed", it)
+                    }
             }
         }, CACHE_DEFER_WINDOW_MS)
         return true
@@ -719,6 +855,7 @@ internal class LyricsResultSubmissionBridge private constructor(
         selectedPointer = null
         selectedDocument = null
         installationPending = false
+        submissionRetryCount = 0
         invalidateIndexLocked()
     }
 

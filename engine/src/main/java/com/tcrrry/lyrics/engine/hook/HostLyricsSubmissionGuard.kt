@@ -8,7 +8,12 @@ internal object HostLyricsSubmissionGuard {
         return runCatching { value?.javaClass?.getMethod("component1")?.invoke(value) === owned }.getOrDefault(false)
     }
 
-    fun install(scope: HookRegistrationScope, ownedPointer: () -> Any?) {
+    fun install(
+        scope: HookRegistrationScope,
+        ownedPointer: () -> Any?,
+        isPublishing: () -> Boolean = { false },
+        secondaryOwnedPointer: () -> Any? = { null },
+    ) {
         // This optional bridge belongs to the embedded host module, not Apple
         // Music. All interception still uses the plugin SDK and is removed on close.
         val loader = com.tcrrry.lyrics.plugin.PluginLifetime.context.javaClass.classLoader ?: return
@@ -19,12 +24,22 @@ internal object HostLyricsSubmissionGuard {
                 val arguments = method.parameterTypes.single().getMethod("getArgs")
                 ModernXposedRuntime.hookMethod(method, object : ModernMethodHook() {
                     override fun beforeHookedMethod(param: MethodHookParam) {
-                        val owned = ownedPointer() ?: return
+                        if (isPublishing()) {
+                            param.result = null
+                            return
+                        }
                         val call = param.args.firstOrNull() ?: return
                         val values = arguments.invoke(call) as? Array<*> ?: return
+                        val arg = values.firstOrNull()
+                        val owned = ownedPointer()
+                        val secondary = secondaryOwnedPointer()
                         // Keep native loads, empty results, other songs and every
                         // foreign document untouched. Only our exact ready pointer is owned.
-                        if (ownsArgument(values.firstOrNull(), owned)) param.result = null
+                        if ((owned != null && ownsArgument(arg, owned)) ||
+                            (secondary != null && ownsArgument(arg, secondary))
+                        ) {
+                            param.result = null
+                        }
                     }
                 }, scope)
                 ModernXposedRuntime.log("embedded lyric bridge cooperation installed: $name")

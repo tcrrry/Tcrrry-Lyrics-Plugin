@@ -1,13 +1,20 @@
 # Tcrrry 歌词增强
 
-当前正式版 **1.4.1**，适用于 AM++ 1.7.1／Apple Music 7.0.3（1626），并保留 1606、1609、1613、1614、1622 支持。
+当前正式版 **1.4.2**（配套离线翻译扩展 **1.0.1**），适用于 AM++ 1.7.1／Apple Music 7.0.3（1626），并保留 1606、1609、1613、1614、1622 支持。
 
-[![下载歌词插件 ZIP](docs/images/downloads/plugin-zip-1.4.1.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.4.1/Tcrrry-Lyrics-Plugin-1.4.1.zip)
-[![下载翻译插件 ZIP](docs/images/downloads/translation-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.0.9/Tcrrry-Translation-Plugin-1.0.0.zip)
+[![下载歌词插件 ZIP](docs/images/downloads/plugin-zip-1.4.2.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.4.2/Tcrrry-Lyrics-Plugin-1.4.2.zip)
+[![下载翻译插件 ZIP](docs/images/downloads/translation-zip.svg)](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/download/plugin-v1.4.2/Tcrrry-Translation-Plugin-1.0.1.zip)
 
-[1.4.1 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.4.1) · [安装说明](docs/INSTALL.md) · [翻译扩展](docs/TRANSLATION-EXTENSION.md) · [完整安装包](https://github.com/tcrrry/AMPP-Lyrics)
+[1.4.2 发布页](https://github.com/tcrrry/Tcrrry-Lyrics-Plugin/releases/tag/plugin-v1.4.2) · [安装说明](docs/INSTALL.md) · [翻译扩展](docs/TRANSLATION-EXTENSION.md) · [完整安装包](https://github.com/tcrrry/AMPP-Lyrics)
 
 只需要歌词功能，导入歌词 ZIP 即可。需要离线机器翻译，再导入并启用翻译 ZIP；两个文件都在 AM++ 插件管理器导入，**无需安装翻译 APK**。中文模型内置，其他语言按需下载；下载语言包需要开启代理，下载完成后可离线使用。
+
+## 1.4.2 更新
+
+- 7.0.3 稳定性兜底：歌词增强内置 `HostResourceRecovery`，在原版 AM++ 1.7.1 + Apple Music 7.0.3 出现 `ComplexColor: type=0x5` 资源表异常时从宿主私有独立 `AssetManager` 自动兜底恢复，降低高版本闪退风险。
+- 离线翻译扩展 **1.0.1**：`runtimeResources` 改用独立 `AssetManager` 加载，消除对全局 `Resources.getSystem().assets` 的污染，修复歌词增强与离线翻译同时开启时的闪退问题。
+- 1626 专辑页封面／内容下载修复：改为沿继承链动态解析 `AlbumPageFragment` 真实 `onCreateView`（命中 `Yb.f`）并增加锚点兜底定位，恢复专辑页下载按钮。
+- 播放页 `...` 更多菜单优化：隐藏不可用或已下载时无图标灰显的「下载」空占位按钮，并补全「添加到资料库」`+` 图标。
 
 ## 1.4.1 更新
 
@@ -84,8 +91,8 @@
 
 ## 安装与升级
 
-1. 在 AM++ 插件管理器导入 `Tcrrry-Lyrics-Plugin-1.4.1.zip`。
-2. 需要离线机翻时，再导入 `Tcrrry-Translation-Plugin-1.0.0.zip` 并启用。
+1. 在 AM++ 插件管理器导入 `Tcrrry-Lyrics-Plugin-1.4.2.zip`。
+2. 需要离线机翻时，再导入 `Tcrrry-Translation-Plugin-1.0.1.zip` 并启用。
 3. 自行完全退出并重新打开宿主，在「翻译与注音」下载所需原语言模型。
 
 覆盖同一插件 ID 保留歌词设置。旧伴随 APK 和旧试验包的数据不会被删除；新翻译扩展独立存储语言包，其他语言可能需要重新下载。平台译文、API 翻译与词典注音不依赖翻译扩展。启用内置播放控制时，请停用独立播放控制插件。

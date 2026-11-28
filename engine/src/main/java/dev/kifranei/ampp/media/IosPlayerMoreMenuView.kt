@@ -74,35 +74,35 @@ internal class IosPlayerMoreMenuView(
         }
         val groups = PlayerMenuLayout.groups(entries.map { it.action }, isPlaylist = isPlaylist)
         val lookup = entries.associateBy { it.action }
-        if (groups.shortcuts.isNotEmpty()) {
+        val visibleShortcuts = groups.shortcuts.mapIndexedNotNull { index, action ->
+            action?.let(lookup::get)?.let { index to it }
+        }
+        if (visibleShortcuts.isNotEmpty()) {
             if (hasContentAbove) divider()
             val shortcuts = LinearLayout(activity).apply { orientation = LinearLayout.HORIZONTAL }
-            groups.shortcuts.forEachIndexed { index, action ->
-                val entry = action?.let(lookup::get)
+            visibleShortcuts.forEach { (index, entry) ->
                 val column = LinearLayout(activity).apply {
                     orientation = LinearLayout.VERTICAL
                     gravity = Gravity.CENTER
-                    val nativeTitle = entry?.title
+                    val nativeTitle = entry.title
                     val shortTitle = when {
                         index == 2 -> resourceLabel("share", "分享", "Share")
-                        entry?.action?.key == "ADD_TO_LIBRARY" -> resourceLabel("add", "添加", "Add")
-                        else -> nativeTitle ?: when (index) {
-                            0 -> resourceLabel("download", "下载", "Download")
-                            else -> resourceLabel("favorite", "喜爱", "Favorite")
-                        }
+                        entry.action.key == "ADD_TO_LIBRARY" -> resourceLabel("add", "添加", "Add")
+                        else -> nativeTitle
                     }
                     val drawable = when {
                         index == 2 -> IosMenuSymbol("share", ink)
-                        index == 0 && entry?.action?.key in setOf("DOWNLOAD", "REMOVE_DOWNLOAD") -> IosMenuSymbol("download", ink)
-                        else -> entry?.icon
+                        index == 0 && entry.action.key in setOf("DOWNLOAD", "REMOVE_DOWNLOAD") -> IosMenuSymbol("download", ink)
+                        index == 0 && entry.action.key == "ADD_TO_LIBRARY" -> entry.icon ?: IosMenuSymbol("add", ink)
+                        else -> entry.icon
                     }
                     addView(icon(drawable), LinearLayout.LayoutParams(dp(24), dp(24)))
                     addView(label(shortTitle, 13.5f), LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { topMargin = dp(7) })
-                    contentDescription = entry?.title ?: shortTitle
-                    isEnabled = entry?.enabled == true
+                    contentDescription = entry.title.ifBlank { shortTitle }
+                    isEnabled = entry.enabled
                     alpha = if (isEnabled) 1f else .35f
                     minimumHeight = dp(76)
-                    if (entry != null) setOnClickListener { execute(entry, it) }
+                    setOnClickListener { execute(entry, it) }
                     background = highlight()
                 }
                 shortcuts.addView(column, LinearLayout.LayoutParams(0, dp(76), 1f))
@@ -192,6 +192,9 @@ private class IosMenuSymbol(private val kind: String, private val color: Int) : 
             paint.style = Paint.Style.STROKE
             canvas.drawPath(Path().apply { moveTo(12f, 6f); lineTo(12f, 17f); moveTo(8f, 13f); lineTo(12f, 17f); lineTo(16f, 13f) }, paint)
             paint.color = color
+        } else if (kind == "add") {
+            paint.style = Paint.Style.STROKE
+            canvas.drawPath(Path().apply { moveTo(12f, 5f); lineTo(12f, 19f); moveTo(5f, 12f); lineTo(19f, 12f) }, paint)
         } else {
             paint.style = Paint.Style.STROKE
             canvas.drawPath(Path().apply {

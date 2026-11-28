@@ -23,6 +23,7 @@ class LyricsPlugin : AmppPlugin() {
         if(context.hostPackageName !in setOf("com.apple.android.music","com.tcrrry.ampplyrics.coexist") || !((context.hostVersionCode in setOf(1606L,1609L,1613L) && context.hostVersionName=="7.0.0-beta") || (context.hostVersionCode==1614L && context.hostVersionName=="7.0.0") || (context.hostVersionCode==1622L && context.hostVersionName=="7.0.1") || (context.hostVersionCode==1626L && context.hostVersionName=="7.0.3")))
             throw PluginUnsupportedException("歌词插件仅适配 Apple Music 7.0.0-beta / 1606、1609、1613，7.0.0 / 1614、7.0.1 / 1622 和 7.0.3 / 1626")
         runtime=context;PluginLifetime.attach(context);PluginDiagnosticLog.attach(context)
+        HostResourceRecovery.install(context)
         NativeLyricsHostContract.verify(context.hostClassLoader)
         context.claimResource("com.tcrrry.lyrics.settings",true)
         val storage=HostPrivateEmbeddedStorage(context.application)

@@ -1,7 +1,7 @@
 # 插件安装
 
-1. 在 AM++ 插件管理器导入 Tcrrry-Lyrics-Plugin-1.4.1.zip。
-2. 只有需要离线机翻时，额外导入 Tcrrry-Translation-Plugin-1.0.0.zip 并启用。
+1. 在 AM++ 插件管理器导入 Tcrrry-Lyrics-Plugin-1.4.2.zip。
+2. 只有需要离线机翻时，额外导入 Tcrrry-Translation-Plugin-1.0.1.zip 并启用。
 3. 自行完全退出并重新打开宿主，进入歌词设置的“翻译与注音”。
 4. 在离线翻译区域搜索并下载需要的语言；下载需开启代理。
 5. 使用“已下载语言包”查看或删除下载内容，使用“检测离线翻译”检查翻译是否可用。

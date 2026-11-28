@@ -3,6 +3,7 @@ package com.tcrrry.lyrics.offline.runtime
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
+import android.content.res.AssetManager
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.content.res.loader.ResourcesLoader
@@ -24,7 +25,10 @@ internal class RuntimeContext(base: Context, private val root: File, payload: Fi
             ResourcesProvider.loadFromApk(it)
         }
         val loader = ResourcesLoader().apply { addProvider(provider) }
-        Resources(Resources.getSystem().assets, base.resources.displayMetrics, Configuration(base.resources.configuration)).apply {
+        val isolatedAssets = runCatching {
+            AssetManager::class.java.getDeclaredConstructor().apply { isAccessible = true }.newInstance()
+        }.getOrElse { Resources.getSystem().assets }
+        Resources(isolatedAssets, base.resources.displayMetrics, Configuration(base.resources.configuration)).apply {
             addLoaders(loader)
         }
     }

@@ -11,6 +11,7 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -18,6 +19,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.Gravity
 import android.view.ViewTreeObserver
+import android.view.WindowInsets
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.TextView
@@ -37,6 +39,27 @@ import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+
+internal fun resolveFragmentCreateViewMethod(targetType: Class<*>, fallback: Method): Method {
+    var cur: Class<*>? = targetType
+    while (cur != null &&
+        cur.name != "com.apple.android.music.common.BaseActivityFragment" &&
+        cur.name != "androidx.fragment.app.Fragment" &&
+        cur != Any::class.java
+    ) {
+        val declared = runCatching {
+            cur.getDeclaredMethod(
+                "onCreateView",
+                android.view.LayoutInflater::class.java,
+                ViewGroup::class.java,
+                android.os.Bundle::class.java,
+            ).apply { isAccessible = true }
+        }.getOrNull()
+        if (declared != null) return declared
+        cur = cur.superclass
+    }
+    return fallback
+}
 
 /** Native page/loader adapter, including the Compose album pages used by the library. */
 internal class ContentDownloadsIntegration(
@@ -129,7 +152,11 @@ internal class ContentDownloadsIntegration(
             installStage = "hook content-download-album-create-view"
             installPage("content-download-album-create-view", ContentDownloadPageKind.ALBUM, lifetime)
             installStage = "hook content-download-compose-album-create-view"
-            installPage("content-download-compose-album-create-view", ContentDownloadPageKind.ALBUM, lifetime)
+            val composeAlbumCreateView = resolveFragmentCreateViewMethod(
+                composeAlbumType,
+                contracts.method("content-download-compose-album-create-view"),
+            )
+            installPage("content-download-compose-album-create-view", ContentDownloadPageKind.ALBUM, lifetime, composeAlbumCreateView)
             installStage = "hook content-download-base-destroy-view"
             check(MediaRuntime.observeMethod(contracts.method("content-download-base-destroy-view"), object : PluginMethodHook() {
                 override fun beforeHookedMethod(param: MethodHookParam) {
@@ -265,8 +292,14 @@ internal class ContentDownloadsIntegration(
         }
     }
 
-    private fun installPage(key: String, kind: ContentDownloadPageKind, lifetime: PluginScope) {
-        check(MediaRuntime.hookMethod(contracts.method(key), object : PluginMethodHook() {
+    private fun installPage(
+        key: String,
+        kind: ContentDownloadPageKind,
+        lifetime: PluginScope,
+        targetMethod: Method = contracts.method(key),
+    ) {
+        MediaRuntime.log("content_download: hook $kind on ${targetMethod.declaringClass.name}.${targetMethod.name}")
+        check(MediaRuntime.hookMethod(targetMethod, object : PluginMethodHook() {
             override fun afterHookedMethod(param: MethodHookParam) {
                 if (closed || param.throwable != null || Looper.myLooper() != Looper.getMainLooper()) return
                 val owner = param.thisObject ?: return
@@ -347,6 +380,7 @@ internal class ContentDownloadsIntegration(
         var pageId = ""
             private set
         private var pageTitle = ""
+        private var firstMetadataAt = 0L
         private var removed = false
         private val position = IntArray(2)
         private val button = ImageButton(root.context).apply {
@@ -398,8 +432,12 @@ internal class ContentDownloadsIntegration(
             val title = (contracts.get(entity, "media-entity-get-title-method") as? String).orEmpty()
             if (id != pageId || title != pageTitle) {
                 pageId = id; pageTitle = title; anchor.clear(); nativeTitle = null; lastGlyphs = null; lastLayoutLookup = 0L
+                firstMetadataAt = SystemClock.uptimeMillis()
                 hold.reset()?.let { logAnchor(it) }
                 artistEntry.clear(); artistAnchor.clear()
+            }
+            if (firstMetadataAt == 0L && pageId.isNotEmpty()) {
+                firstMetadataAt = SystemClock.uptimeMillis()
             }
             if (entityRef?.get() !== entity) { entityRef = WeakReference(entity); enqueueEntity(entity) }
         }
@@ -441,6 +479,18 @@ internal class ContentDownloadsIntegration(
                 if (pageId.isNotEmpty() && kind == ContentDownloadPageKind.ARTIST) {
                     val size = dp(44)
                     shown = ContentDownloadButtonPlacement(dp(24), dp(150), size, dp(10), dp(10), dp(24))
+                } else if (pageId.isNotEmpty() &&
+                    kind == ContentDownloadPageKind.ALBUM &&
+                    pageTitle.isNotBlank() &&
+                    firstMetadataAt > 0L &&
+                    now - firstMetadataAt >= CONTENT_DOWNLOAD_ANCHOR_GRACE_MS
+                ) {
+                    val topInset = if (Build.VERSION.SDK_INT >= 30) {
+                        root.rootWindowInsets?.getInsets(WindowInsets.Type.statusBars())?.top ?: dp(32)
+                    } else {
+                        dp(32)
+                    }
+                    shown = ContentDownloadButtonPlacement(dp(20), topInset + dp(62), dp(40), dp(11), dp(11), dp(18))
                 } else {
                     button.visibility = View.GONE; return
                 }

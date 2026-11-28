@@ -60,4 +60,34 @@ class HostBackdropCompatTest {
             flatSectionKeys,
         )
     }
+
+    @Test fun resolveFragmentCreateViewMethodFindsActualSuperclassOnCreateView() {
+        open class BaseFakeFragment {
+            @Suppress("unused")
+            open fun onCreateView(
+                inflater: android.view.LayoutInflater,
+                container: android.view.ViewGroup?,
+                savedInstanceState: android.os.Bundle?,
+            ): android.view.View? = null
+        }
+        open class MiddleFakeFragment : BaseFakeFragment()
+        class LeafFakeFragment : MiddleFakeFragment()
+        class UnrelatedFragment {
+            @Suppress("unused")
+            fun onCreateView(
+                inflater: android.view.LayoutInflater,
+                container: android.view.ViewGroup?,
+                savedInstanceState: android.os.Bundle?,
+            ): android.view.View? = null
+        }
+
+        val fallback = UnrelatedFragment::class.java.getDeclaredMethod(
+            "onCreateView",
+            android.view.LayoutInflater::class.java,
+            android.view.ViewGroup::class.java,
+            android.os.Bundle::class.java,
+        )
+        val resolved = resolveFragmentCreateViewMethod(LeafFakeFragment::class.java, fallback)
+        assertEquals(BaseFakeFragment::class.java, resolved.declaringClass)
+    }
 }
